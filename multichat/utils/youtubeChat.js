@@ -122,7 +122,7 @@ export class YoutubeChatClient {
     const payload = {
       context: {
         client: {
-          clientName: 'WEB',
+          clientName: 'MWEB',
           clientVersion: '2.20240404.01.00',
           hl: 'en',
           gl: 'US'
