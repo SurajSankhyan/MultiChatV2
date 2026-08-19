@@ -613,56 +613,8 @@ export default function ChatDashboard({
     if (activeChannels.some(ch => ch.platform === platform && ch.name.toLowerCase().replace('@', '') === cleanName)) {
       throw new Error('Channel already added');
     }
-
-    try {
-      if (platform === 'kick') {
-        try {
-          let data = null;
-          if (kickClientRef.current) {
-            try {
-              data = await kickClientRef.current.fetchWithProxyFallback(`https://kick.com/api/v1/channels/${cleanName}`);
-            } catch (err) {
-              data = await kickClientRef.current.fetchWithProxyFallback(`https://kick.com/api/v2/channels/${cleanName}`);
-            }
-          } else {
-            let res = await fetch(`/api/kick/api/v1/channels/${cleanName}`);
-            if (!res.ok) {
-              res = await fetch(`/api/kick/api/v2/channels/${cleanName}`);
-            }
-            if (!res.ok) throw new Error('Channel not found');
-            data = await res.json();
-          }
-          if (!data || !data.chatroom) throw new Error('Channel not found');
-        } catch (err) {
-          console.warn(`Kick verification failed for ${cleanName}: ${err.message}. Adding anyway.`);
-        }
-      } else if (platform === 'youtube') {
-        try {
-          let html;
-          const userSupplied = name.trim().replace('@', '');
-          let liveUrl = `https://www.youtube.com/@${cleanName}/live`;
-          if (/^uc[a-zA-Z0-9_-]{22}$/i.test(cleanName)) {
-            liveUrl = `https://www.youtube.com/channel/${userSupplied}/live`;
-          }
-          if (youtubeClientRef.current) {
-            html = await youtubeClientRef.current.fetchWithProxyFallback(liveUrl);
-          } else {
-            const localProxyUrl = liveUrl.replace('https://www.youtube.com', '/ytproxy');
-            const res = await fetch(localProxyUrl);
-            if (!res.ok) throw new Error('Channel not found');
-            html = await res.text();
-          }
-          if (!html || html.length < 500) throw new Error('Channel not found');
-          const isRealChannel = html.includes('ytcfg') || html.includes('channelId') || html.includes('externalId') || html.includes('youtube');
-          if (!isRealChannel) throw new Error('Channel not found');
-        } catch (err) {
-          console.warn(`YouTube verification failed for ${cleanName}: ${err.message}. Adding anyway.`);
-        }
-      }
-      addChannel(platform, platform === 'kick' ? cleanName : name.trim());
-    } catch (err) {
-      throw new Error(`Channel "${name}" not found on ${platform}`);
-    }
+    const finalName = platform === 'kick' ? cleanName : name.trim();
+    addChannel(platform, finalName);
   };
 
   const parseStartTimeMs = (val) => {

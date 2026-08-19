@@ -55,7 +55,7 @@ export class YoutubeChatClient {
   }
 
   // Helper to fetch from url trying local proxy first, and falling back to CORS proxies
-  async fetchWithProxyFallback(url) {
+  async fetchWithProxyFallback(url, timeoutMs = 3500) {
     const isValidYoutubeHtml = (text) => {
       if (!text || typeof text !== 'string' || text.length < 500) return false;
       if (text.includes('google.com/sorry') || text.includes('<title>Sorry...</title>') || text.includes('consent.youtube.com/m?')) {
@@ -64,12 +64,25 @@ export class YoutubeChatClient {
       return text.includes('ytInitialData') || text.includes('ytcfg') || text.includes('youtube.com') || text.includes('isLive') || text.includes('watch?v=');
     };
 
+    const fetchTimeout = async (target, opts = {}) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await fetch(target, { ...opts, signal: controller.signal });
+        clearTimeout(timer);
+        return res;
+      } catch (e) {
+        clearTimeout(timer);
+        throw e;
+      }
+    };
+
     // 1. Try local proxy first
     if (url.startsWith('https://www.youtube.com')) {
       const localProxyUrl = this.mapToLocalProxy(url);
       try {
         console.log(`YouTube client: trying local proxy: ${localProxyUrl}`);
-        const res = await fetch(localProxyUrl);
+        const res = await fetchTimeout(localProxyUrl);
         if (res.ok) {
           const text = await res.text();
           if (isValidYoutubeHtml(text)) {
@@ -83,7 +96,7 @@ export class YoutubeChatClient {
       // 1b. Try dedicated query proxy (/api/youtube/proxy?url=...)
       try {
         const queryProxyUrl = `/api/youtube/proxy?url=${encodeURIComponent(url)}`;
-        const res2 = await fetch(queryProxyUrl);
+        const res2 = await fetchTimeout(queryProxyUrl);
         if (res2.ok) {
           const text2 = await res2.text();
           if (isValidYoutubeHtml(text2)) {
@@ -96,12 +109,11 @@ export class YoutubeChatClient {
     }
 
     // 2. Fall back to rotating public proxies
-    let lastError = null;
     for (let i = 0; i < this.proxies.length; i++) {
       const proxiedUrl = this.proxies[i](url);
       try {
         console.log(`YouTube client: trying public proxy index ${i} for ${url}`);
-        const res = await fetch(proxiedUrl);
+        const res = await fetchTimeout(proxiedUrl);
         if (res.ok) {
           const text = await res.text();
           if (isValidYoutubeHtml(text)) {
@@ -109,7 +121,6 @@ export class YoutubeChatClient {
           }
         }
       } catch (err) {
-        lastError = err;
         console.warn(`Public proxy ${i} failed:`, err.message);
       }
     }
