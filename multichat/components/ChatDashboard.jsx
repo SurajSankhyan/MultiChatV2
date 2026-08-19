@@ -1971,18 +1971,20 @@ export default function ChatDashboard({
     }
     viewersByPlatform[displayPlatform] += count;
 
-    // 2. Calculate likes count for this channel
-    let lCount = 0;
-    if (isChannelConnected) {
-      const realLikes = streamLikes[cleanName];
-      if (realLikes !== undefined && realLikes !== null) {
-        lCount = realLikes;
+    // 2. Calculate likes count for this channel (YouTube only)
+    if (ch.platform === 'youtube') {
+      let lCount = 0;
+      if (isChannelConnected) {
+        const realLikes = streamLikes[cleanName];
+        if (realLikes !== undefined && realLikes !== null) {
+          lCount = realLikes;
+        }
       }
+      if (!likesByPlatform[displayPlatform]) {
+        likesByPlatform[displayPlatform] = 0;
+      }
+      likesByPlatform[displayPlatform] += lCount;
     }
-    if (!likesByPlatform[displayPlatform]) {
-      likesByPlatform[displayPlatform] = 0;
-    }
-    likesByPlatform[displayPlatform] += lCount;
 
     // 3. Calculate elapsed stream duration for this channel
     if (isChannelConnected) {
@@ -2032,10 +2034,10 @@ export default function ChatDashboard({
   const displayViewerCount = activeChannels.some(ch => ch.enabled) ? totalConnectedViewers : 0;
 
   const totalConnectedLikes = Object.entries(streamLikes)
-    .filter(([chName]) => activeChannels.some(ch => ch.enabled && ch.name.toLowerCase().replace('@', '').trim() === chName))
+    .filter(([chName]) => activeChannels.some(ch => ch.enabled && ch.platform === 'youtube' && ch.name.toLowerCase().replace('@', '').trim() === chName))
     .reduce((sum, [, count]) => sum + (count || 0), 0);
 
-  const displayLikesCount = activeChannels.some(ch => ch.enabled) ? totalConnectedLikes : 0;
+  const displayLikesCount = activeChannels.some(ch => ch.enabled && ch.platform === 'youtube') ? totalConnectedLikes : 0;
 
   const formatLikesNumber = (num) => {
     if (!num || isNaN(num)) return '0';
@@ -2069,6 +2071,7 @@ export default function ChatDashboard({
   };
 
   const activeEnabledChannels = activeChannels.filter(ch => ch.enabled);
+  const hasYoutubeChannel = activeEnabledChannels.some(ch => ch.platform === 'youtube');
   const selectedCh = activeChannels.find(ch => 
     ch.name.toLowerCase() === activeTab || 
     ch.name.toLowerCase().replace(/^@+/, '') === activeTab.toLowerCase().replace(/^@+/, '')
@@ -2162,30 +2165,37 @@ export default function ChatDashboard({
                     <span>--</span>
                   )}
                 </div>
-                <div className="metric-pill-divider" />
-                <div className="metric-pill-section" onClick={handleLikesClick}>
-                  <ThumbsUp size={13} style={{ color: 'var(--text-muted)' }} />
-                  {likesDisplayMode === 'individual' && (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                      {Object.keys(likesByPlatform).length > 0 ? (
-                        Object.entries(likesByPlatform).map(([platform, count]) => (
-                          <span key={platform} style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                            <PlatformLogo platform={platform} size={12} />
-                            <span>{formatLikesNumber(count)}</span>
-                          </span>
-                        ))
-                      ) : (
-                        <span>0</span>
+                {hasYoutubeChannel && (
+                  <>
+                    <div className="metric-pill-divider" />
+                    <div className="metric-pill-section" onClick={handleLikesClick}>
+                      <ThumbsUp size={13} style={{ color: 'var(--text-muted)' }} />
+                      {likesDisplayMode === 'individual' && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                          {Object.keys(likesByPlatform).length > 0 ? (
+                            Object.entries(likesByPlatform).map(([platform, count]) => (
+                              <span key={platform} style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                <PlatformLogo platform={platform} size={12} />
+                                <span>{formatLikesNumber(count)}</span>
+                              </span>
+                            ))
+                          ) : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              <PlatformLogo platform="youtube" size={12} />
+                              <span>0</span>
+                            </span>
+                          )}
+                        </span>
                       )}
-                    </span>
-                  )}
-                  {likesDisplayMode === 'combined' && (
-                    <span>{formatLikesNumber(displayLikesCount)}</span>
-                  )}
-                  {likesDisplayMode === 'hidden' && (
-                    <span>--</span>
-                  )}
-                </div>
+                      {likesDisplayMode === 'combined' && (
+                        <span>{formatLikesNumber(displayLikesCount)}</span>
+                      )}
+                      {likesDisplayMode === 'hidden' && (
+                        <span>--</span>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             </TooltipTrigger>
             <TooltipContent side="bottom" align="center">
@@ -2197,6 +2207,7 @@ export default function ChatDashboard({
                     const l = streamLikes[cleanName] || 0;
                     const startTime = streamStartTimes[cleanName] || streamStartTimes[`@${cleanName}`];
                     const isStreamLive = !!startTime;
+                    const isYoutube = ch.platform === 'youtube';
                     let durationStr = 'offline';
                     if (isStreamLive) {
                       const diffSecs = Math.floor((Date.now() - new Date(startTime).getTime()) / 1000);
@@ -2206,7 +2217,11 @@ export default function ChatDashboard({
                       <div key={ch.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <PlatformLogo platform={ch.platform} size={12} />
                         <span style={{ fontWeight: 600 }}>{getChannelDisplayName(ch)}:</span>
-                        <span>{v} viewers • {formatLikesNumber(l)} likes ({isStreamLive ? durationStr : 'offline'})</span>
+                        <span>
+                          {v} viewers
+                          {isYoutube ? ` • ${formatLikesNumber(l)} likes` : ''} 
+                          {` (${isStreamLive ? durationStr : 'offline'})`}
+                        </span>
                       </div>
                     );
                   })}
