@@ -25,7 +25,7 @@ import {
   PanelLeft,
   Globe,
   ThumbsUp,
-  CircleDollarSign
+  Gift
 } from 'lucide-react';
 import ChatFeed from './ChatFeed';
 import ChatInput from './ChatInput';
@@ -2352,7 +2352,7 @@ export default function ChatDashboard({
                     </div>
                     <div className="metric-pill-divider" />
                     <div className="metric-pill-section" onClick={handleSuperchatClick} title="Total Super Chat Amount">
-                      <CircleDollarSign size={13} style={{ color: 'var(--text-muted)' }} />
+                      <Gift size={13} style={{ color: 'var(--text-muted)' }} />
                       {superchatDisplayMode === 'amount' && (
                         <span>{formatSuperchatAmount(liveSuperchatTotal)}</span>
                       )}
@@ -2393,7 +2393,7 @@ export default function ChatDashboard({
                   })}
                   {hasYoutubeChannel && (
                     <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
-                      <CircleDollarSign size={12} style={{ color: '#eab308' }} />
+                      <Gift size={12} style={{ color: '#eab308' }} />
                       <span style={{ fontWeight: 600 }}>Super Chats:</span>
                       <span>{formatSuperchatAmount(liveSuperchatTotal)} ({liveSuperchatCount} {liveSuperchatCount === 1 ? 'donation' : 'donations'})</span>
                     </div>

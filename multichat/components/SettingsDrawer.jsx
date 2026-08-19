@@ -1172,40 +1172,33 @@ export default function SettingsDrawer({
               <div className="settings-section-card" style={{ marginTop: '12px' }}>
                 <div className="settings-header-secondary">Super Chat & Donations</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <div style={{ fontSize: 14, color: '#d4d4d4', fontWeight: 500 }}>Super Chat Currency</div>
-                      <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>Currency symbol for top bar donation total</div>
+                  <div className="setting-section" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <label style={{ fontSize: 13, fontWeight: 600, color: '#d4d4d4' }}>Super Chat Currency</label>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent-color, #ff6060)' }}>
+                        {settings.superchatCurrency || '₹'}
+                      </span>
                     </div>
-                    <select
-                      className="settings-select"
+                    <AnimatedDropdown
                       value={settings.superchatCurrency || '₹'}
-                      onChange={(e) => updateSettings({ superchatCurrency: e.target.value })}
-                      style={{
-                        padding: '6px 12px',
-                        background: '#1a1a1e',
-                        color: '#fff',
-                        border: '1px solid rgba(255,255,255,0.15)',
-                        borderRadius: '6px',
-                        fontSize: '13px',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        outline: 'none'
-                      }}
-                    >
-                      <option value="₹">₹ INR (Indian Rupee)</option>
-                      <option value="$">$ USD (US Dollar)</option>
-                      <option value="€">€ EUR (Euro)</option>
-                      <option value="£">£ GBP (British Pound)</option>
-                      <option value="C$">C$ CAD (Canadian Dollar)</option>
-                      <option value="A$">A$ AUD (Australian Dollar)</option>
-                      <option value="¥">¥ JPY (Japanese Yen)</option>
-                      <option value="R$">R$ BRL (Brazilian Real)</option>
-                      <option value="₱">₱ PHP (Philippine Peso)</option>
-                      <option value="₩">₩ KRW (Korean Won)</option>
-                      <option value="S$">S$ SGD (Singapore Dollar)</option>
-                      <option value="NZ$">NZ$ NZD (New Zealand Dollar)</option>
-                    </select>
+                      onChange={(val) => updateSettings({ superchatCurrency: val })}
+                      items={[
+                        { name: '₹ INR (Indian Rupee)', value: '₹' },
+                        { name: '$ USD (US Dollar)', value: '$' },
+                        { name: '€ EUR (Euro)', value: '€' },
+                        { name: '£ GBP (British Pound)', value: '£' },
+                        { name: 'C$ CAD (Canadian Dollar)', value: 'C$' },
+                        { name: 'A$ AUD (Australian Dollar)', value: 'A$' },
+                        { name: '¥ JPY (Japanese Yen)', value: '¥' },
+                        { name: 'R$ BRL (Brazilian Real)', value: 'R$' },
+                        { name: '₱ PHP (Philippine Peso)', value: '₱' },
+                        { name: '₩ KRW (Korean Won)', value: '₩' },
+                        { name: 'S$ SGD (Singapore Dollar)', value: 'S$' },
+                        { name: 'NZ$ NZD (New Zealand Dollar)', value: 'NZ$' }
+                      ]}
+                      text="Select Currency"
+                      className="settings-voice-dropdown"
+                    />
                   </div>
                 </div>
               </div>
