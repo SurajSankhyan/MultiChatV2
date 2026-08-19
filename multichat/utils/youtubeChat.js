@@ -26,7 +26,13 @@ export class YoutubeChatClient {
 
   mapToLocalProxy(url) {
     if (!url.startsWith('https://www.youtube.com')) return url;
-    return `/api/youtube/proxy?url=${encodeURIComponent(url)}`;
+    const path = url.replace('https://www.youtube.com', '');
+    
+    // Obfuscate /live_chat to avoid adblockers blocking the request
+    if (path.startsWith('/live_chat')) {
+      return path.replace('/live_chat', '/ytproxy/chat');
+    }
+    return '/ytproxy' + path;
   }
 
   getLiveUrl(channelName) {
@@ -50,12 +56,12 @@ export class YoutubeChatClient {
       return text.includes('ytInitialData') || text.includes('ytcfg') || text.includes('youtube.com') || text.includes('isLive') || text.includes('watch?v=');
     };
 
-    // 1. Try primary dedicated proxy endpoint
+    // 1. Try local proxy first
     if (url.startsWith('https://www.youtube.com')) {
-      const proxyUrl = this.mapToLocalProxy(url);
+      const localProxyUrl = this.mapToLocalProxy(url);
       try {
-        console.log(`YouTube client: trying primary proxy: ${proxyUrl}`);
-        const res = await fetch(proxyUrl);
+        console.log(`YouTube client: trying local proxy: ${localProxyUrl}`);
+        const res = await fetch(localProxyUrl);
         if (res.ok) {
           const text = await res.text();
           if (isValidYoutubeHtml(text)) {
@@ -63,13 +69,13 @@ export class YoutubeChatClient {
           }
         }
       } catch (err) {
-        console.warn('Primary proxy fetch failed, trying secondary proxy:', err.message);
+        console.warn('Local proxy fetch failed, trying query proxy:', err.message);
       }
 
-      // 1b. Try secondary ytproxy route
+      // 1b. Try dedicated query proxy (/api/youtube/proxy?url=...)
       try {
-        const secondaryUrl = url.replace('https://www.youtube.com', '/ytproxy');
-        const res2 = await fetch(secondaryUrl);
+        const queryProxyUrl = `/api/youtube/proxy?url=${encodeURIComponent(url)}`;
+        const res2 = await fetch(queryProxyUrl);
         if (res2.ok) {
           const text2 = await res2.text();
           if (isValidYoutubeHtml(text2)) {
@@ -77,7 +83,7 @@ export class YoutubeChatClient {
           }
         }
       } catch (err2) {
-        console.warn('Secondary ytproxy fetch failed, falling back to public proxies:', err2.message);
+        console.warn('Query proxy fetch failed, falling back to public proxies:', err2.message);
       }
     }
 
@@ -765,11 +771,11 @@ export class YoutubeChatClient {
         continuation: poll.continuationToken
       };
 
-      // 1. Try primary dedicated proxy endpoint for POST
+      // 1. Try local proxy first for the POST request
       let response;
       try {
-        const primaryEndpoint = `/api/youtube/proxy?url=${encodeURIComponent(endpoint)}`;
-        response = await fetch(primaryEndpoint, {
+        const localEndpoint = `/ytproxy/get_chat?key=${poll.apiKey}`;
+        response = await fetch(localEndpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -777,13 +783,13 @@ export class YoutubeChatClient {
           body: JSON.stringify(payload)
         });
         if (!response.ok) {
-          throw new Error(`Primary proxy responded with status ${response.status}`);
+          throw new Error(`Local proxy responded with status ${response.status}`);
         }
       } catch (err) {
-        // 1b. Fallback to secondary ytproxy endpoint
+        // 1b. Fallback to secondary query proxy
         try {
-          const secondaryEndpoint = `/ytproxy/get_chat?key=${poll.apiKey}`;
-          response = await fetch(secondaryEndpoint, {
+          const queryEndpoint = `/api/youtube/proxy?url=${encodeURIComponent(endpoint)}`;
+          response = await fetch(queryEndpoint, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
@@ -791,7 +797,7 @@ export class YoutubeChatClient {
             body: JSON.stringify(payload)
           });
           if (!response.ok) {
-            throw new Error(`Secondary proxy responded with status ${response.status}`);
+            throw new Error(`Query proxy responded with status ${response.status}`);
           }
         } catch (err2) {
           // 2. Fall back to public CORS proxy
