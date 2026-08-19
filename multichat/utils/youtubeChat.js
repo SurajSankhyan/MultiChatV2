@@ -133,7 +133,7 @@ export class YoutubeChatClient {
     const payload = {
       context: {
         client: {
-          clientName: 'MWEB',
+          clientName: 'WEB',
           clientVersion: '2.20240404.01.00',
           hl: 'en',
           gl: 'US'
@@ -149,11 +149,20 @@ export class YoutubeChatClient {
       if (!json || json.error || (!json.microformat && !json.videoDetails)) return null;
       const mf = json.microformat?.playerMicroformatRenderer;
       const liveDetails = mf?.liveBroadcastDetails;
-      const candidateTime = liveDetails?.actualStartTime || liveDetails?.startTimestamp || liveDetails?.scheduledStartTime || mf?.publishDate;
+      const candidateTime = liveDetails?.actualStartTime || liveDetails?.startTimestamp || liveDetails?.scheduledStartTime || mf?.publishDate || mf?.uploadDate;
       let startTime = null;
       if (candidateTime) {
-        const parsed = new Date(candidateTime).getTime();
-        if (!isNaN(parsed) && parsed > 0 && parsed <= Date.now() + 60000) startTime = parsed;
+        if (typeof candidateTime === 'number') {
+          startTime = candidateTime < 10000000000 ? candidateTime * 1000 : candidateTime;
+        } else if (typeof candidateTime === 'string') {
+          if (/^[0-9]{10,13}$/.test(candidateTime)) {
+            const rawNum = parseInt(candidateTime, 10);
+            startTime = rawNum < 10000000000 ? rawNum * 1000 : rawNum;
+          } else {
+            const parsed = Date.parse(candidateTime);
+            if (!isNaN(parsed) && parsed > 0 && parsed <= Date.now() + 60000) startTime = parsed;
+          }
+        }
       }
       let isShorts = false;
       const formats = json.streamingData?.adaptiveFormats || json.streamingData?.formats || [];
