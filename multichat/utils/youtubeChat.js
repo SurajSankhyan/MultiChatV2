@@ -26,13 +26,7 @@ export class YoutubeChatClient {
 
   mapToLocalProxy(url) {
     if (!url.startsWith('https://www.youtube.com')) return url;
-    const path = url.replace('https://www.youtube.com', '');
-    
-    // Obfuscate /live_chat to avoid adblockers blocking the request
-    if (path.startsWith('/live_chat')) {
-      return path.replace('/live_chat', '/ytproxy/chat');
-    }
-    return '/ytproxy' + path;
+    return `/api/youtube/proxy?url=${encodeURIComponent(url)}`;
   }
 
   getLiveUrl(channelName) {
@@ -56,12 +50,12 @@ export class YoutubeChatClient {
       return text.includes('ytInitialData') || text.includes('ytcfg') || text.includes('youtube.com') || text.includes('isLive') || text.includes('watch?v=');
     };
 
-    // 1. Try local proxy first
+    // 1. Try primary dedicated proxy endpoint
     if (url.startsWith('https://www.youtube.com')) {
-      const localProxyUrl = this.mapToLocalProxy(url);
+      const proxyUrl = this.mapToLocalProxy(url);
       try {
-        console.log(`YouTube client: trying local proxy: ${localProxyUrl}`);
-        const res = await fetch(localProxyUrl);
+        console.log(`YouTube client: trying primary proxy: ${proxyUrl}`);
+        const res = await fetch(proxyUrl);
         if (res.ok) {
           const text = await res.text();
           if (isValidYoutubeHtml(text)) {
@@ -69,7 +63,21 @@ export class YoutubeChatClient {
           }
         }
       } catch (err) {
-        console.warn('Local proxy fetch failed, falling back to public proxies:', err.message);
+        console.warn('Primary proxy fetch failed, trying secondary proxy:', err.message);
+      }
+
+      // 1b. Try secondary ytproxy route
+      try {
+        const secondaryUrl = url.replace('https://www.youtube.com', '/ytproxy');
+        const res2 = await fetch(secondaryUrl);
+        if (res2.ok) {
+          const text2 = await res2.text();
+          if (isValidYoutubeHtml(text2)) {
+            return text2;
+          }
+        }
+      } catch (err2) {
+        console.warn('Secondary ytproxy fetch failed, falling back to public proxies:', err2.message);
       }
     }
 
@@ -750,11 +758,11 @@ export class YoutubeChatClient {
         continuation: poll.continuationToken
       };
 
-      // 1. Try local proxy first for the POST request
+      // 1. Try primary dedicated proxy endpoint for POST
       let response;
       try {
-        const localEndpoint = `/ytproxy/get_chat?key=${poll.apiKey}`;
-        response = await fetch(localEndpoint, {
+        const primaryEndpoint = `/api/youtube/proxy?url=${encodeURIComponent(endpoint)}`;
+        response = await fetch(primaryEndpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -762,13 +770,13 @@ export class YoutubeChatClient {
           body: JSON.stringify(payload)
         });
         if (!response.ok) {
-          throw new Error(`Local proxy responded with status ${response.status}`);
+          throw new Error(`Primary proxy responded with status ${response.status}`);
         }
       } catch (err) {
-        // 2. Fall back to public CORS proxy
+        // 1b. Fallback to secondary ytproxy endpoint
         try {
-          const publicProxyUrl = `https://proxy.cors.sh/${endpoint}`;
-          response = await fetch(publicProxyUrl, {
+          const secondaryEndpoint = `/ytproxy/get_chat?key=${poll.apiKey}`;
+          response = await fetch(secondaryEndpoint, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
@@ -776,11 +784,26 @@ export class YoutubeChatClient {
             body: JSON.stringify(payload)
           });
           if (!response.ok) {
-            throw new Error(`Public proxy responded with status ${response.status}`);
+            throw new Error(`Secondary proxy responded with status ${response.status}`);
           }
-        } catch (e2) {
-          poll.retryCount = (poll.retryCount || 0) + 1;
-          return;
+        } catch (err2) {
+          // 2. Fall back to public CORS proxy
+          try {
+            const publicProxyUrl = `https://proxy.cors.sh/${endpoint}`;
+            response = await fetch(publicProxyUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(payload)
+            });
+            if (!response.ok) {
+              throw new Error(`Public proxy responded with status ${response.status}`);
+            }
+          } catch (e3) {
+            poll.retryCount = (poll.retryCount || 0) + 1;
+            return;
+          }
         }
       }
 
