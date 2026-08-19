@@ -9,7 +9,7 @@ export async function GET(request: Request) {
   if (!apiKey) return NextResponse.json({ error: 'YOUTUBE_API_KEY not configured' }, { status: 500 });
 
   try {
-    const res = await fetch(\https://www.googleapis.com/youtube/v3/videos?part=liveStreamingDetails&id=\&key=\\);
+    const res = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=liveStreamingDetails&id=${videoId}&key=${apiKey}`);
     const data = await res.json();
     const actualStartTime = data.items?.[0]?.liveStreamingDetails?.actualStartTime;
     return NextResponse.json({ actualStartTime: actualStartTime || null });
@@ -17,4 +17,3 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
-
