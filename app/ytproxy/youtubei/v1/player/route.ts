@@ -14,11 +14,11 @@ export async function POST(request: Request) {
       context: {
         ...(incomingBody.context || {}),
         client: {
+          ...(incomingBody.context?.client || {}),
           clientName: 'MWEB',
           clientVersion: '2.20240404.01.00',
           hl: 'en',
-          gl: 'US',
-          ...(incomingBody.context?.client || {})
+          gl: 'US'
         }
       }
     };
