@@ -2109,10 +2109,14 @@ export default function ChatDashboard({
 
     // 3. Calculate elapsed stream duration for this channel
     if (isChannelConnected) {
-      const startTimeStr = streamStartTimes[cleanName];
-      if (startTimeStr) {
-        const startMs = new Date(startTimeStr).getTime();
-        if (!isNaN(startMs)) {
+      const startTimeVal = streamStartTimes[cleanName] || streamStartTimes[`@${cleanName}`];
+      if (startTimeVal) {
+        const startMs = typeof startTimeVal === 'number' 
+          ? startTimeVal 
+          : (typeof startTimeVal === 'string' && /^\d+$/.test(startTimeVal.trim()) 
+              ? parseInt(startTimeVal.trim(), 10) 
+              : Date.parse(startTimeVal));
+        if (startMs && !isNaN(startMs)) {
           const elapsedSecs = Math.floor((Date.now() - startMs) / 1000);
           const currentEarliest = uptimesByPlatform[displayPlatform];
           const secs = elapsedSecs >= 0 ? elapsedSecs : 0;
@@ -2372,12 +2376,22 @@ export default function ChatDashboard({
                     const v = streamViewers[cleanName] || 0;
                     const l = streamLikes[cleanName] || 0;
                     const startTime = streamStartTimes[cleanName] || streamStartTimes[`@${cleanName}`];
-                    const isStreamLive = !!startTime;
+                    const isConnected = platformStatuses[cleanName] === 'connected' || platformStatuses[ch.platform] === 'connected';
+                    const isStreamLive = isConnected || v > 0 || !!startTime;
                     const isYoutube = ch.platform === 'youtube';
-                    let durationStr = 'offline';
-                    if (isStreamLive) {
-                      const diffSecs = Math.floor((Date.now() - new Date(startTime).getTime()) / 1000);
-                      durationStr = diffSecs >= 0 ? formatUptime(diffSecs) : '00:00:00';
+                    let durationStr = isStreamLive ? 'Live' : 'offline';
+                    if (startTime) {
+                      const startMs = typeof startTime === 'number' 
+                        ? startTime 
+                        : (typeof startTime === 'string' && /^\d+$/.test(startTime.trim()) 
+                            ? parseInt(startTime.trim(), 10) 
+                            : Date.parse(startTime));
+                      if (startMs && !isNaN(startMs)) {
+                        const diffSecs = Math.floor((Date.now() - startMs) / 1000);
+                        if (diffSecs >= 0) {
+                          durationStr = formatUptime(diffSecs);
+                        }
+                      }
                     }
                     return (
                       <div key={ch.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

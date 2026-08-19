@@ -304,7 +304,23 @@ export class YoutubeChatClient {
   parseLikesFromHtml(html) {
     if (!html) return null;
     
-    // 1. Try segmentedLikeDislikeButtonViewModel / toggleButtonRenderer accessibility or label
+    // 1. Direct likeCount (standard in YouTube live streams)
+    const countMatch = html.match(/"likeCount"\s*:\s*"([0-9.,KMBkmb]+)"/i) || html.match(/"likeCount"\s*:\s*([0-9]+)/i);
+    if (countMatch && countMatch[1]) {
+      const text = String(countMatch[1]).toLowerCase().replace(/,/g, '');
+      if (text.includes('k')) {
+        const val = parseFloat(text.replace(/[^0-9.]/g, ''));
+        return isNaN(val) ? null : Math.round(val * 1000);
+      } else if (text.includes('m')) {
+        const val = parseFloat(text.replace(/[^0-9.]/g, ''));
+        return isNaN(val) ? null : Math.round(val * 1000000);
+      } else {
+        const val = parseInt(text.replace(/[^0-9]/g, ''), 10);
+        if (!isNaN(val)) return val;
+      }
+    }
+
+    // 2. Accessibility label
     const labelMatch = html.match(/"label"\s*:\s*"([0-9.,KMBkmb]+)\s+likes?"/i) || 
                        html.match(/"accessibilityData"\s*:\s*\{"label"\s*:\s*"([0-9.,KMBkmb]+)\s+likes?"\}/i) ||
                        html.match(/"label"\s*:\s*"[Ll]ike (?:this video )?along with ([0-9.,KMBkmb]+) other people"/i) ||
@@ -324,30 +340,11 @@ export class YoutubeChatClient {
       }
     }
 
-    // 2. Try raw likeCount text or likeCount numeric
-    const likeCountMatch = html.match(/"likeCount"\s*:\s*"([^"]+)"/) || 
-                           html.match(/"likeCount"\s*:\s*([0-9]+)/) ||
-                           html.match(/"likes"\s*:\s*([0-9]+)/);
-    if (likeCountMatch && likeCountMatch[1]) {
-      const val = parseInt(String(likeCountMatch[1]).replace(/[^0-9]/g, ''), 10);
+    // 3. Fallback to likes numeric
+    const rawLikes = html.match(/"likes"\s*:\s*([0-9]+)/);
+    if (rawLikes && rawLikes[1]) {
+      const val = parseInt(rawLikes[1], 10);
       if (!isNaN(val)) return val;
-    }
-
-    // 3. Try factoid or toggleButton text
-    const factoidMatch = html.match(/"factoidRenderer"\s*:\s*\{"value"\s*:\s*\{"simpleText"\s*:\s*"([^"]+)"\}\s*,\s*"label"\s*:\s*\{"simpleText"\s*:\s*"Likes"/i) ||
-                         html.match(/"factoidRenderer"\s*:\s*\{"value"\s*:\s*\{"runs"\s*:\s*\[\{"text"\s*:\s*"([^"]+)"\}\]\}\s*,\s*"label"\s*:\s*\{"simpleText"\s*:\s*"Likes"/i);
-    if (factoidMatch && factoidMatch[1]) {
-      const text = factoidMatch[1].toLowerCase().replace(/,/g, '');
-      if (text.includes('k')) {
-        const val = parseFloat(text.replace(/[^0-9.]/g, ''));
-        return isNaN(val) ? null : Math.round(val * 1000);
-      } else if (text.includes('m')) {
-        const val = parseFloat(text.replace(/[^0-9.]/g, ''));
-        return isNaN(val) ? null : Math.round(val * 1000000);
-      } else {
-        const val = parseInt(text.replace(/[^0-9]/g, ''), 10);
-        return isNaN(val) ? null : val;
-      }
     }
 
     return null;
@@ -356,19 +353,19 @@ export class YoutubeChatClient {
   parseStartTimestamp(html) {
     if (!html) return null;
 
-    // 1. Try numeric timestamp (e.g. "scheduledStartTime":"1785271500" or "startTimestamp":"1785271500")
-    const numMatch = html.match(/"(startTimestamp|actualStartTime|scheduledStartTime)"\s*:\s*"([0-9]{10,13})"/);
-    if (numMatch && numMatch[2]) {
-      const rawNum = parseInt(numMatch[2], 10);
-      const timeMs = rawNum < 10000000000 ? rawNum * 1000 : rawNum;
-      return timeMs;
-    }
-
-    // 2. Try ISO date string (e.g. "actualStartTime":"2026-07-28T13:47:01-07:00")
-    const isoMatch = html.match(/"(startTimestamp|actualStartTime|scheduledStartTime|startDate)"\s*:\s*"([^"]+)"/);
-    if (isoMatch && isoMatch[2]) {
-      const parsed = Date.parse(isoMatch[2]);
-      if (!isNaN(parsed)) return parsed;
+    const matches = [
+      ...html.matchAll(/"(startTimestamp|actualStartTime|scheduledStartTime|publishDate|uploadDate|startDate)"\s*:\s*"([^"]+)"/gi)
+    ];
+    for (const m of matches) {
+      const str = m[2];
+      if (/^[0-9]{10,13}$/.test(str)) {
+        const rawNum = parseInt(str, 10);
+        return rawNum < 10000000000 ? rawNum * 1000 : rawNum;
+      }
+      const parsed = Date.parse(str);
+      if (!isNaN(parsed) && parsed > 0 && parsed <= Date.now() + 60000) {
+        return parsed;
+      }
     }
 
     return null;
