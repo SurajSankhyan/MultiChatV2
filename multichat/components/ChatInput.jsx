@@ -88,7 +88,8 @@ export default function ChatInput({
   const isYoutubeOffline = (ch) => {
     if (!ch || ch.platform !== 'youtube') return false;
     const cleanName = String(ch.name || '').toLowerCase().replace(/^@+/, '').trim();
-    return !streamStartTimes[cleanName] && !streamStartTimes[`@${cleanName}`];
+    const rawClean = String(ch.name || '').toLowerCase().replace('@', '').trim();
+    return !streamStartTimes[cleanName] && !streamStartTimes[rawClean] && !streamStartTimes[`@${cleanName}`] && !streamStartTimes[String(ch.name || '').toLowerCase()];
   };
 
   const activeChannelsLength = activeChannels.length;

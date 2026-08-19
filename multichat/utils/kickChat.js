@@ -619,8 +619,32 @@ export class KickChatClient {
         badgeImages: badgeImages,
         monthsSubscribed: monthsSubscribed,
         giftedSubsCount: giftedSubsCount,
-        rawTimestamp: Date.now(),
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+        rawTimestamp: (() => {
+          if (msg.created_at || msg.timestamp) {
+            const raw = msg.created_at || msg.timestamp;
+            let parseable = String(raw).trim();
+            if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}/.test(parseable)) {
+              parseable = parseable.replace(' ', 'T') + 'Z';
+            }
+            const parsed = Date.parse(parseable);
+            if (!isNaN(parsed) && parsed > 0) return parsed;
+          }
+          return Date.now();
+        })(),
+        timestamp: (() => {
+          if (msg.created_at || msg.timestamp) {
+            const raw = msg.created_at || msg.timestamp;
+            let parseable = String(raw).trim();
+            if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}/.test(parseable)) {
+              parseable = parseable.replace(' ', 'T') + 'Z';
+            }
+            const parsed = Date.parse(parseable);
+            if (!isNaN(parsed) && parsed > 0) {
+              return new Date(parsed).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+            }
+          }
+          return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+        })()
       };
 
       const isLiveReply = msg.metadata?.original_sender && msg.metadata?.original_message;

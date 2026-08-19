@@ -288,18 +288,27 @@ export class YoutubeChatClient {
     let startTime = null;
 
     if (playerJson && playerJson.videoDetails) {
-      isLive = !!playerJson.videoDetails.isLiveContent;
+      isLive = !!playerJson.videoDetails.isLiveContent || !!playerJson.videoDetails.isLive;
     }
 
     if (playerJson && playerJson.microformat && playerJson.microformat.playerMicroformatRenderer) {
       const mf = playerJson.microformat.playerMicroformatRenderer;
-      if (mf.liveBroadcastDetails && mf.liveBroadcastDetails.isLiveNow) {
-        isLive = true;
-        if (mf.liveBroadcastDetails.startTimestamp) {
-          const parsedTime = new Date(mf.liveBroadcastDetails.startTimestamp).getTime();
-          if (!isNaN(parsedTime)) {
+      if (mf.liveBroadcastDetails) {
+        if (mf.liveBroadcastDetails.isLiveNow !== false) {
+          isLive = true;
+        }
+        const candidateTime = mf.liveBroadcastDetails.actualStartTime || mf.liveBroadcastDetails.startTimestamp || mf.liveBroadcastDetails.scheduledStartTime;
+        if (candidateTime) {
+          const parsedTime = new Date(candidateTime).getTime();
+          if (!isNaN(parsedTime) && parsedTime > 0) {
             startTime = parsedTime;
           }
+        }
+      }
+      if (!startTime && mf.publishDate) {
+        const parsedPublish = new Date(mf.publishDate).getTime();
+        if (!isNaN(parsedPublish) && parsedPublish > 0 && parsedPublish <= Date.now() + 60000) {
+          startTime = parsedPublish;
         }
       }
     }
@@ -328,21 +337,28 @@ export class YoutubeChatClient {
        viewers = parseInt(playerJson.videoDetails.viewCount, 10) || 0;
     }
 
-    // Fallback for startTime if not found
+    // Fallback for startTime if not found: prioritize actualStartTime and startTimestamp first
     if (!startTime) {
-       const matches = [...html.matchAll(/"(startTimestamp|actualStartTime|scheduledStartTime|publishDate|uploadDate|startDate)"\s*:\s*"([^"]+)"/gi)];
-       for (const m of matches) {
-          const str = m[2];
-          if (/^[0-9]{10,13}$/.test(str)) {
-            const rawNum = parseInt(str, 10);
-            startTime = rawNum < 10000000000 ? rawNum * 1000 : rawNum;
-            break;
-          }
-          const parsed = Date.parse(str);
-          if (!isNaN(parsed) && parsed > 0 && parsed <= Date.now() + 60000) {
-            startTime = parsed;
-            break;
-          }
+       const priorityRegexes = [
+         /"(?:actualStartTime|startTimestamp|startDate)"\s*:\s*"([^"]+)"/gi,
+         /"(?:scheduledStartTime|publishDate|uploadDate|datePublished)"\s*:\s*"([^"]+)"/gi
+       ];
+       for (const rgx of priorityRegexes) {
+         if (startTime) break;
+         const matches = [...html.matchAll(rgx)];
+         for (const m of matches) {
+           const str = m[1];
+           if (/^[0-9]{10,13}$/.test(str)) {
+             const rawNum = parseInt(str, 10);
+             startTime = rawNum < 10000000000 ? rawNum * 1000 : rawNum;
+             break;
+           }
+           const parsed = Date.parse(str);
+           if (!isNaN(parsed) && parsed > 0 && parsed <= Date.now() + 60000) {
+             startTime = parsed;
+             break;
+           }
+         }
        }
     }
 
@@ -667,6 +683,23 @@ export class YoutubeChatClient {
             console.warn("Failed to resolve online channel display name:", e.message);
           }
         }
+      } else {
+        // Direct video ID or watch URL was provided -> fetch watch page to extract metadata
+        try {
+          const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+          pageHtml = await this.fetchWithProxyFallback(watchUrl);
+          if (pageHtml) {
+            const meta = this.parseMetadataFromHtml(pageHtml);
+            if (meta) {
+              localStartTime = meta.startTime;
+              localViewers = meta.viewers;
+              localLikes = meta.likes;
+              if (meta.isShorts) isShorts = true;
+            }
+          }
+        } catch (e) {
+          console.warn("YouTube client: error fetching metadata from watch page:", e.message);
+        }
       }
 
       if (!videoId) {
@@ -678,8 +711,11 @@ export class YoutubeChatClient {
       // If pageHtml wasn't parsed above, check it now
       if (pageHtml && !isShorts) {
         const meta = this.parseMetadataFromHtml(pageHtml);
-        if (meta && meta.isShorts) {
-          isShorts = true;
+        if (meta) {
+          if (meta.startTime && !localStartTime) localStartTime = meta.startTime;
+          if (meta.viewers !== null && localViewers === null) localViewers = meta.viewers;
+          if (meta.likes !== null && localLikes === null) localLikes = meta.likes;
+          if (meta.isShorts) isShorts = true;
         }
       }
 
@@ -726,7 +762,7 @@ export class YoutubeChatClient {
         timeoutId: null,
         viewerIntervalId: null,
         seenIds: existingSeenIds,
-        startTimestamp: localStartTime || Date.now(),
+        startTimestamp: localStartTime || null,
         isShorts,
         displayName: resolvedDisplayName,
         trimmedName: trimmedName,
@@ -785,9 +821,6 @@ export class YoutubeChatClient {
               if (meta.viewers !== null && meta.viewers !== undefined) pollInstance.viewers = meta.viewers;
               if (meta.likes !== null && meta.likes !== undefined) pollInstance.likes = meta.likes;
               pollInstance.isShorts = meta.isShorts;
-            }
-            if (!pollInstance.startTimestamp) {
-              pollInstance.startTimestamp = Date.now();
             }
 
             this.onStatus(pollKey, 'connected', { 
@@ -1350,8 +1383,22 @@ export class YoutubeChatClient {
         isSystemEvent,
         eventType,
         eventDetails,
-        rawTimestamp: Date.now(),
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }),
+        rawTimestamp: (() => {
+          if (renderer.timestampUsec) {
+            const usec = parseInt(renderer.timestampUsec, 10);
+            if (!isNaN(usec) && usec > 0) return Math.floor(usec / 1000);
+          }
+          return Date.now();
+        })(),
+        timestamp: (() => {
+          if (renderer.timestampUsec) {
+            const usec = parseInt(renderer.timestampUsec, 10);
+            if (!isNaN(usec) && usec > 0) {
+              return new Date(Math.floor(usec / 1000)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+            }
+          }
+          return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+        })(),
         youtubeChatMode: poll ? poll.chatMode : 'live'
       };
 

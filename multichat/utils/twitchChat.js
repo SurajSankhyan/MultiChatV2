@@ -534,8 +534,22 @@ export class TwitchChatClient {
         badges: badges,
         badgeImages: badgeImages,
         badgeVersions: badgeVersions,
-        rawTimestamp: Date.now(),
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+        rawTimestamp: (() => {
+          if (tags['tmi-sent-ts']) {
+            const parsed = parseInt(tags['tmi-sent-ts'], 10);
+            if (!isNaN(parsed) && parsed > 0) return parsed;
+          }
+          return Date.now();
+        })(),
+        timestamp: (() => {
+          if (tags['tmi-sent-ts']) {
+            const parsed = parseInt(tags['tmi-sent-ts'], 10);
+            if (!isNaN(parsed) && parsed > 0) {
+              return new Date(parsed).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+            }
+          }
+          return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+        })()
       };
 
       if (tags['reply-parent-msg-id']) {
