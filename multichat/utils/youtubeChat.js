@@ -222,6 +222,63 @@ export class YoutubeChatClient {
     return null;
   }
 
+  // Resolves the exact live stream broadcast start timestamp using an off-screen YouTube player bridge
+  resolveLiveStartTimeViaIFrame(videoId) {
+    if (typeof window === 'undefined' || !videoId) return Promise.resolve(null);
+
+    return new Promise((resolve) => {
+      let resolved = false;
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.top = '-9999px';
+      iframe.style.left = '-9999px';
+      iframe.style.width = '1px';
+      iframe.style.height = '1px';
+      iframe.style.opacity = '0';
+      iframe.style.pointerEvents = 'none';
+      iframe.setAttribute('tabindex', '-1');
+      iframe.setAttribute('aria-hidden', 'true');
+      iframe.src = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&autoplay=1&mute=1&controls=0&playsinline=1`;
+
+      const cleanup = () => {
+        if (resolved) return;
+        resolved = true;
+        window.removeEventListener('message', messageHandler);
+        clearTimeout(timeout);
+        try {
+          if (iframe.parentNode) {
+            iframe.parentNode.removeChild(iframe);
+          }
+        } catch (e) {}
+      };
+
+      const messageHandler = (e) => {
+        try {
+          const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+          if (data && data.event === 'infoDelivery' && data.info) {
+            const secs = typeof data.info.currentTime === 'number' && data.info.currentTime > 0
+              ? data.info.currentTime
+              : (typeof data.info.duration === 'number' && data.info.duration > 0 ? data.info.duration : 0);
+
+            if (secs > 0) {
+              const startMs = Date.now() - Math.floor(secs * 1000);
+              cleanup();
+              resolve(startMs);
+            }
+          }
+        } catch (err) {}
+      };
+
+      const timeout = setTimeout(() => {
+        cleanup();
+        resolve(null);
+      }, 5000);
+
+      window.addEventListener('message', messageHandler);
+      document.body.appendChild(iframe);
+    });
+  }
+
   // Resolves the YouTube channel display name from InnerTube browse endpoint with HTML scraper fallback
   async resolveChannelName(channelId) {
     if (!channelId) return null;
@@ -922,6 +979,24 @@ export class YoutubeChatClient {
         displayName: resolvedDisplayName
       });
 
+      // If startTimestamp is not yet resolved, use IFrame bridge to extract the exact live broadcast start time
+      if (videoId && !pollInstance.startTimestamp) {
+        this.resolveLiveStartTimeViaIFrame(videoId).then(exactStartTime => {
+          if (exactStartTime && this.activePolls.has(pollKey)) {
+            const active = this.activePolls.get(pollKey);
+            active.startTimestamp = exactStartTime;
+            console.log(`YouTube client: resolved exact live broadcast start time for ${pollKey}: ${new Date(exactStartTime).toISOString()}`);
+            this.onStatus(pollKey, 'connected', {
+              startTime: exactStartTime,
+              viewers: active.viewers,
+              likes: active.likes,
+              isShorts: active.isShorts,
+              displayName: active.displayName
+            });
+          }
+        }).catch(() => {});
+      }
+
       // Sequential Adaptive Polling Loop (avoids overlapping requests and invalidating tokens over internet/Netlify)
       const scheduleNextPoll = (delay = 1000) => {
         if (!this.activePolls.has(pollKey)) return;
@@ -971,6 +1046,21 @@ export class YoutubeChatClient {
                   if (pMeta.viewers && pollInstance.viewers === null) pollInstance.viewers = pMeta.viewers;
                 }
               } catch (e) {}
+            }
+            if (!pollInstance.startTimestamp && pollInstance.videoId) {
+              this.resolveLiveStartTimeViaIFrame(pollInstance.videoId).then(exactStartTime => {
+                if (exactStartTime && this.activePolls.has(pollKey)) {
+                  const active = this.activePolls.get(pollKey);
+                  active.startTimestamp = exactStartTime;
+                  this.onStatus(pollKey, 'connected', {
+                    startTime: exactStartTime,
+                    viewers: active.viewers,
+                    likes: active.likes,
+                    isShorts: active.isShorts,
+                    displayName: active.displayName
+                  });
+                }
+              }).catch(() => {});
             }
 
             this.onStatus(pollKey, 'connected', { 
