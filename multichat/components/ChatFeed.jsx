@@ -144,38 +144,46 @@ export default function ChatFeed({
     if (user) {
       const creatorAvatar = user?.avatarUrl || (typeof user?.avatar === 'string' && user?.avatar.startsWith('http') ? user.avatar : null);
       if (creatorAvatar) {
-        if (user?.username) GLOBAL_AVATAR_CACHE.set(user.username.toLowerCase().replace(/^@+/, ''), creatorAvatar);
-        if (user?.ytCustomHandle) GLOBAL_AVATAR_CACHE.set(user.ytCustomHandle.toLowerCase().replace(/^@+/, ''), creatorAvatar);
-        if (user?.ytChannelName) GLOBAL_AVATAR_CACHE.set(user.ytChannelName.toLowerCase().replace(/^@+/, ''), creatorAvatar);
+        const uName = (user?.username || '').toLowerCase().replace(/^@+/, '').trim();
+        if (uName && uName !== 'streamer') GLOBAL_AVATAR_CACHE.set(uName, creatorAvatar);
+        const ytHandle = (user?.ytCustomHandle || '').toLowerCase().replace(/^@+/, '').trim();
+        if (ytHandle) GLOBAL_AVATAR_CACHE.set(ytHandle, creatorAvatar);
+        const ytChan = (user?.ytChannelName || '').toLowerCase().replace(/^@+/, '').trim();
+        if (ytChan) GLOBAL_AVATAR_CACHE.set(ytChan, creatorAvatar);
       }
       const creatorTitle = user?.ytChannelName || user?.channel_name || null;
       if (creatorTitle) {
-        if (user?.username) GLOBAL_DISPLAY_NAME_CACHE.set(user.username.toLowerCase().replace(/^@+/, ''), creatorTitle);
-        if (user?.ytCustomHandle) GLOBAL_DISPLAY_NAME_CACHE.set(user.ytCustomHandle.toLowerCase().replace(/^@+/, ''), creatorTitle);
+        const uName = (user?.username || '').toLowerCase().replace(/^@+/, '').trim();
+        if (uName && uName !== 'streamer') GLOBAL_DISPLAY_NAME_CACHE.set(uName, creatorTitle);
+        const ytHandle = (user?.ytCustomHandle || '').toLowerCase().replace(/^@+/, '').trim();
+        if (ytHandle) GLOBAL_DISPLAY_NAME_CACHE.set(ytHandle, creatorTitle);
       }
     }
     if (Array.isArray(activeChannels)) {
       activeChannels.forEach(ch => {
         if (ch.avatar && typeof ch.avatar === 'string' && ch.avatar.startsWith('http')) {
-          const cleanName = ch.name.toLowerCase().replace(/^@+/, '').trim();
-          GLOBAL_AVATAR_CACHE.set(cleanName, ch.avatar);
-          if (ch.displayName) GLOBAL_AVATAR_CACHE.set(ch.displayName.toLowerCase().replace(/^@+/, '').trim(), ch.avatar);
+          const cleanName = ch.name ? ch.name.toLowerCase().replace(/^@+/, '').trim() : '';
+          if (cleanName) GLOBAL_AVATAR_CACHE.set(cleanName, ch.avatar);
+          const cleanDisplay = ch.displayName ? ch.displayName.toLowerCase().replace(/^@+/, '').trim() : '';
+          if (cleanDisplay) GLOBAL_AVATAR_CACHE.set(cleanDisplay, ch.avatar);
         }
         if (ch.displayName && !ch.displayName.startsWith('@')) {
-          const cleanName = ch.name.toLowerCase().replace(/^@+/, '').trim();
-          GLOBAL_DISPLAY_NAME_CACHE.set(cleanName, ch.displayName);
+          const cleanName = ch.name ? ch.name.toLowerCase().replace(/^@+/, '').trim() : '';
+          if (cleanName) GLOBAL_DISPLAY_NAME_CACHE.set(cleanName, ch.displayName);
         }
       });
     }
     messages.forEach(msg => {
       const raw = msg.avatarUrl || msg.avatar;
       if (raw && typeof raw === 'string' && raw.startsWith('http') && !isDefaultAvatar(raw)) {
-        if (msg.username) GLOBAL_AVATAR_CACHE.set(msg.username.toLowerCase().replace(/^@+/, ''), raw);
-        if (msg.displayName) GLOBAL_AVATAR_CACHE.set(msg.displayName.toLowerCase().replace(/^@+/, ''), raw);
+        const cleanUser = msg.username ? msg.username.toLowerCase().replace(/^@+/, '').trim() : '';
+        if (cleanUser) GLOBAL_AVATAR_CACHE.set(cleanUser, raw);
+        const cleanDisplay = msg.displayName ? msg.displayName.toLowerCase().replace(/^@+/, '').trim() : '';
+        if (cleanDisplay) GLOBAL_AVATAR_CACHE.set(cleanDisplay, raw);
       }
       if (msg.displayName && !msg.displayName.startsWith('@') && msg.username) {
-        const cleanUser = (msg.username || '').toLowerCase().replace(/^@+/, '');
-        GLOBAL_DISPLAY_NAME_CACHE.set(cleanUser, msg.displayName);
+        const cleanUser = (msg.username || '').toLowerCase().replace(/^@+/, '').trim();
+        if (cleanUser) GLOBAL_DISPLAY_NAME_CACHE.set(cleanUser, msg.displayName);
       }
     });
   }, [user, activeChannels, messages]);
@@ -1290,7 +1298,7 @@ export default function ChatFeed({
                 let avatarUrl = null;
                 if (msg.platform === 'kick') {
                   const uId = msg.userId ? String(msg.userId) : '';
-                  const cached = GLOBAL_AVATAR_CACHE.get(cleanUser) || GLOBAL_AVATAR_CACHE.get(cleanDisplay) || (isCreatorUser ? creatorAvatar : null);
+                  const cached = (cleanUser ? GLOBAL_AVATAR_CACHE.get(cleanUser) : null) || (cleanDisplay ? GLOBAL_AVATAR_CACHE.get(cleanDisplay) : null) || (isCreatorUser ? creatorAvatar : null);
                   const rawMsgAvatar = msg.avatarUrl || msg.avatar;
                   if (cached && typeof cached === 'string' && cached.length > 5) {
                     avatarUrl = proxifyAvatarUrl(cached);
@@ -1303,8 +1311,8 @@ export default function ChatFeed({
                   const rawMsgAvatar = msg.avatarUrl || msg.avatar;
                   let resolvedAvatar = rawMsgAvatar;
                   if (isDefaultAvatar(resolvedAvatar)) {
-                    resolvedAvatar = GLOBAL_AVATAR_CACHE.get(cleanUser) || 
-                                     GLOBAL_AVATAR_CACHE.get(cleanDisplay) || 
+                    resolvedAvatar = (cleanUser ? GLOBAL_AVATAR_CACHE.get(cleanUser) : null) || 
+                                     (cleanDisplay ? GLOBAL_AVATAR_CACHE.get(cleanDisplay) : null) || 
                                      (isCreatorUser ? creatorAvatar : null);
                   }
                   const isDefault = isDefaultAvatar(resolvedAvatar);

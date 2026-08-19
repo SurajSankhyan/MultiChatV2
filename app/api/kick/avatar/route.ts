@@ -189,6 +189,9 @@ async function resolveKickUserAvatarUrl(username: string | null, userId: string 
   return profilePicUrl;
 }
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -206,65 +209,26 @@ export async function GET(request: Request) {
       }
     }
 
-    // Stream image buffer directly with HTTP 200 OK or Redirect
+    // If valid remote image found, redirect browser directly to Kick CDN image for instant load
     if (targetUrl && (targetUrl.includes('files.kick.com') || (targetUrl.startsWith('http') && !targetUrl.includes('default-avatar')))) {
       targetUrl = decodeURIComponent(targetUrl).trim();
-
-      if (avatarCache.has(targetUrl)) {
-        const cached = avatarCache.get(targetUrl)!;
-        if (Date.now() - cached.timestamp < 3600000) {
-          return new NextResponse(cached.buffer, {
-            headers: {
-              'Content-Type': cached.contentType,
-              'Cache-Control': 'public, max-age=86400, immutable'
-            }
-          });
+      return NextResponse.redirect(targetUrl, {
+        status: 307,
+        headers: {
+          'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+          'Vary': 'Accept, Accept-Encoding'
         }
-      }
-
-      try {
-        const res = await fetch(targetUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-            'Referer': 'https://kick.com/'
-          }
-        });
-
-        if (res.ok) {
-          const contentType = res.headers.get('content-type') || 'image/webp';
-          const arrayBuffer = await res.arrayBuffer();
-
-          avatarCache.set(targetUrl, {
-            buffer: arrayBuffer,
-            contentType,
-            timestamp: Date.now()
-          });
-
-          return new NextResponse(arrayBuffer, {
-            headers: {
-              'Content-Type': contentType,
-              'Cache-Control': 'public, max-age=86400, immutable'
-            }
-          });
-        }
-      } catch (e) {
-        // Fetch failed
-      }
-
-      // If serverless fetch failed or was blocked by Cloudflare (non-200 OK), REDIRECT the browser directly to the image URL so the browser loads it!
-      if (targetUrl.startsWith('http')) {
-        return NextResponse.redirect(targetUrl, { status: 307 });
-      }
+      });
     }
 
-    // Fallback: return bundled default WebP buffer with HTTP 200 OK
+    // Fallback: return bundled default WebP buffer with HTTP 200 OK for this user
     const webpBuf = getDefaultWebpBuffer(username, userId, targetUrl);
     if (webpBuf) {
       return new NextResponse(new Uint8Array(webpBuf), {
         headers: {
           'Content-Type': 'image/webp',
-          'Cache-Control': 'public, max-age=86400, immutable'
+          'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800',
+          'Vary': 'Accept, Accept-Encoding'
         }
       });
     }
@@ -276,7 +240,7 @@ export async function GET(request: Request) {
       return new NextResponse(new Uint8Array(fallbackBuf), {
         headers: {
           'Content-Type': 'image/webp',
-          'Cache-Control': 'public, max-age=86400, immutable'
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
         }
       });
     }
