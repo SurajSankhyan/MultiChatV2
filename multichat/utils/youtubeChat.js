@@ -726,7 +726,7 @@ export class YoutubeChatClient {
         timeoutId: null,
         viewerIntervalId: null,
         seenIds: existingSeenIds,
-        startTimestamp: localStartTime || null,
+        startTimestamp: localStartTime || Date.now(),
         isShorts,
         displayName: resolvedDisplayName,
         trimmedName: trimmedName,
@@ -773,7 +773,7 @@ export class YoutubeChatClient {
             const currentVideoId = this.extractLiveVideoId(html);
             if (!currentVideoId) {
               console.log(`YouTube client: channel ${pollKey} went offline during 15s poll.`);
-              this.onStatus(pollKey, 'offline');
+              this.onStatus(pollKey, 'offline', { startTime: null, viewers: 0, likes: 0, displayName: pollInstance.displayName });
               this.leave(trimmedName);
               this.setupOfflinePoll(trimmedName, pollInstance.chatMode);
               return;
@@ -785,6 +785,9 @@ export class YoutubeChatClient {
               if (meta.viewers !== null && meta.viewers !== undefined) pollInstance.viewers = meta.viewers;
               if (meta.likes !== null && meta.likes !== undefined) pollInstance.likes = meta.likes;
               pollInstance.isShorts = meta.isShorts;
+            }
+            if (!pollInstance.startTimestamp) {
+              pollInstance.startTimestamp = Date.now();
             }
 
             this.onStatus(pollKey, 'connected', { 

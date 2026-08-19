@@ -140,7 +140,7 @@ export class TwitchChatClient {
           
           this.onStatus(formatted, 'connected', { startTime, viewers });
         } else {
-          this.onStatus(formatted, 'connected', { startTime: null, viewers: 0 });
+          this.onStatus(formatted, 'offline', { startTime: null, viewers: 0 });
         }
       } catch (e) {
         console.warn(`TwitchChatClient: failed to update viewers for ${formatted}:`, e.message);

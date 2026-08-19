@@ -280,12 +280,14 @@ export class KickChatClient {
 
       let startTime = null;
       let viewers = null;
-      if (data && data.livestream) {
+      if (data && data.livestream && data.livestream.is_live !== false) {
         if (data.livestream.created_at) startTime = data.livestream.created_at;
         if (data.livestream.viewer_count !== undefined) viewers = data.livestream.viewer_count;
+        this.onStatus(cleanName, 'connected', { startTime, viewers });
+      } else {
+        this.onStatus(cleanName, 'offline', { startTime: null, viewers: 0 });
       }
 
-      this.onStatus(cleanName, 'connected', { startTime, viewers });
       console.log(`Subscribed to Kick chat: ${cleanName} (id: ${chatroomId})`);
 
       // Periodic viewer count update for Kick
@@ -299,13 +301,13 @@ export class KickChatClient {
         try {
           console.log(`Kick client: polling viewer count for ${cleanName}`);
           const updatedData = await this.fetchWithProxyFallback(targetUrls[0]);
-          if (updatedData && updatedData.livestream) {
+          if (updatedData && updatedData.livestream && updatedData.livestream.is_live !== false) {
             const startT = updatedData.livestream.created_at;
             const viewC = updatedData.livestream.viewer_count || 0;
             this.onStatus(cleanName, 'connected', { startTime: startT, viewers: viewC });
           } else {
             // Stream offline
-            this.onStatus(cleanName, 'connected', { startTime: null, viewers: 0 });
+            this.onStatus(cleanName, 'offline', { startTime: null, viewers: 0 });
           }
         } catch (e) {
           console.warn(`Kick client: failed to update viewers for ${cleanName}:`, e.message);

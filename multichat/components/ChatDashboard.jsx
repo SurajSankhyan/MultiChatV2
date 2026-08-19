@@ -720,8 +720,12 @@ export default function ChatDashboard({
   useEffect(() => {
     const interval = setInterval(() => {
       const times = Object.values(streamStartTimes)
-        .map(t => new Date(t).getTime())
-        .filter(t => !isNaN(t));
+        .map(t => {
+          if (typeof t === 'number') return t;
+          if (typeof t === 'string' && /^\d+$/.test(t.trim())) return parseInt(t.trim(), 10);
+          return Date.parse(t);
+        })
+        .filter(t => !isNaN(t) && t > 0);
       
       if (times.length > 0) {
         const earliest = Math.min(...times);
@@ -939,23 +943,25 @@ export default function ChatDashboard({
 
       // Update stream start times and viewers count
       if (status === 'connected') {
-        if (metadata && metadata.startTime) {
-          setStreamStartTimes(prev => {
-            const next = { ...prev, [ch]: metadata.startTime };
-            localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next));
-            return next;
-          });
-        }
+        const rawClean = ch.replace(/^@+/, '').trim();
+        const atClean = `@${rawClean}`;
+        const startTimeVal = metadata?.startTime || Date.now();
+
+        setStreamStartTimes(prev => {
+          const next = { ...prev, [ch]: startTimeVal, [rawClean]: startTimeVal, [atClean]: startTimeVal };
+          localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next));
+          return next;
+        });
         if (metadata && metadata.viewers !== undefined) {
           setStreamViewers(prev => {
-            const next = { ...prev, [ch]: metadata.viewers };
+            const next = { ...prev, [ch]: metadata.viewers, [rawClean]: metadata.viewers, [atClean]: metadata.viewers };
             localStorage.setItem('prochat_cached_stream_viewers', JSON.stringify(next));
             return next;
           });
         }
         if (metadata && metadata.likes !== undefined) {
           setStreamLikes(prev => {
-            const next = { ...prev, [ch]: metadata.likes };
+            const next = { ...prev, [ch]: metadata.likes, [rawClean]: metadata.likes, [atClean]: metadata.likes };
             localStorage.setItem('prochat_cached_stream_likes', JSON.stringify(next));
             return next;
           });
@@ -965,8 +971,10 @@ export default function ChatDashboard({
             const next = new Set(prev);
             if (metadata.isShorts) {
               next.add(ch);
+              next.add(rawClean);
             } else {
               next.delete(ch);
+              next.delete(rawClean);
             }
             return next;
           });
@@ -2115,7 +2123,11 @@ export default function ChatDashboard({
     }
 
     // 3. Calculate elapsed stream duration for this channel
-    if (isChannelConnected) {
+    const isStreamActive = ch.platform === 'youtube'
+      ? (status === 'connected')
+      : (status === 'connected' && (realCount > 0 || !!(streamStartTimes[cleanName] || streamStartTimes[rawClean])));
+
+    if (isStreamActive) {
       const startTimeVal = streamStartTimes[cleanName] || streamStartTimes[rawClean] || streamStartTimes[`@${cleanName}`];
       if (startTimeVal) {
         const startMs = typeof startTimeVal === 'number' 
@@ -2386,25 +2398,31 @@ export default function ChatDashboard({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   {activeEnabledChannels.map(ch => {
                     const cleanName = ch.name.toLowerCase().replace(/^@+/, '').trim();
-                    const v = streamViewers[cleanName] || 0;
-                    const l = streamLikes[cleanName] || 0;
-                    const startTime = streamStartTimes[cleanName] || streamStartTimes[`@${cleanName}`];
+                    const rawClean = ch.name.toLowerCase().replace('@', '').trim();
+                    const v = streamViewers[cleanName] ?? streamViewers[rawClean] ?? 0;
+                    const l = streamLikes[cleanName] ?? streamLikes[rawClean] ?? 0;
+                    const startTime = streamStartTimes[cleanName] ?? streamStartTimes[rawClean] ?? streamStartTimes[`@${cleanName}`];
                     
-                    // Don't use global platform status for individual stream liveliness, it causes offline channels to appear live
-                    const isConnected = platformStatuses[cleanName] === 'connected';
-                    const isStreamLive = isConnected || v > 0 || !!startTime;
+                    const isConnected = platformStatuses[cleanName] === 'connected' || platformStatuses[rawClean] === 'connected';
+                    const isStreamLive = ch.platform === 'youtube'
+                      ? isConnected
+                      : (isConnected && (v > 0 || !!startTime));
+                    
                     const isYoutube = ch.platform === 'youtube';
-                    let durationStr = isStreamLive ? 'Live' : 'offline';
-                    if (startTime) {
-                      const startMs = typeof startTime === 'number' 
-                        ? startTime 
-                        : (typeof startTime === 'string' && /^\d+$/.test(startTime.trim()) 
-                            ? parseInt(startTime.trim(), 10) 
-                            : Date.parse(startTime));
-                      if (startMs && !isNaN(startMs)) {
-                        const diffSecs = Math.floor((Date.now() - startMs) / 1000);
-                        if (diffSecs >= 0) {
-                          durationStr = formatUptime(diffSecs);
+                    let durationStr = 'offline';
+                    if (isStreamLive) {
+                      durationStr = 'Live';
+                      if (startTime) {
+                        const startMs = typeof startTime === 'number' 
+                          ? startTime 
+                          : (typeof startTime === 'string' && /^\d+$/.test(startTime.trim()) 
+                              ? parseInt(startTime.trim(), 10) 
+                              : Date.parse(startTime));
+                        if (startMs && !isNaN(startMs)) {
+                          const diffSecs = Math.floor((Date.now() - startMs) / 1000);
+                          if (diffSecs >= 0) {
+                            durationStr = formatUptime(diffSecs);
+                          }
                         }
                       }
                     }
@@ -2415,7 +2433,7 @@ export default function ChatDashboard({
                         <span>
                           {v} viewers
                           {isYoutube ? ` • ${formatLikesNumber(l)} likes` : ''} 
-                          {` (${isStreamLive ? durationStr : 'offline'})`}
+                          {` (${durationStr})`}
                         </span>
                       </div>
                     );
@@ -2644,10 +2662,17 @@ export default function ChatDashboard({
                 {/* 5. Dynamic Active Channels List */}
                 {activeChannels.filter(ch => ch.enabled).map(ch => {
                   const cleanName = ch.name.toLowerCase().replace('@', '').trim();
+                  const rawClean = ch.name.toLowerCase().replace(/^@+/, '').trim();
                   const isActive = activeTab === ch.name.toLowerCase();
                   const cleanShortsName = ch.name.toLowerCase().replace('@', '').trim();
-                  const isOnline = !!streamStartTimes[cleanName];
-                  const viewers = streamViewers[cleanName] || 0;
+                  const isConnected = platformStatuses[cleanName] === 'connected' || platformStatuses[rawClean] === 'connected';
+                  const startTime = streamStartTimes[cleanName] ?? streamStartTimes[rawClean];
+                  const viewers = streamViewers[cleanName] ?? streamViewers[rawClean] ?? 0;
+                  const likes = streamLikes[cleanName] ?? streamLikes[rawClean] ?? 0;
+                  
+                  const isOnline = ch.platform === 'youtube'
+                    ? isConnected
+                    : (isConnected && (viewers > 0 || !!startTime));
                   
                   return (
                     <Tooltip key={ch.id} delayDuration={150}>
@@ -2685,7 +2710,7 @@ export default function ChatDashboard({
                         </button>
                       </TooltipTrigger>
                       <TooltipContent side="right">
-                        {getChannelDisplayName(ch)} {isOnline ? `(LIVE - ${viewers} viewers${ch.platform === 'youtube' ? ` • ${streamLikes[cleanName] || 0} likes` : ''})` : '(Offline)'}
+                        {getChannelDisplayName(ch)} {isOnline ? `(LIVE - ${viewers} viewers${ch.platform === 'youtube' ? ` • ${likes} likes` : ''})` : '(Offline)'}
                       </TooltipContent>
                     </Tooltip>
                   );
