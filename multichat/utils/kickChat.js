@@ -136,8 +136,12 @@ export class KickChatClient {
     };
 
     this.socket.onerror = (error) => {
-      console.error('Kick Pusher WebSocket Error:', error);
-      this.socket.close();
+      console.warn('Kick Pusher WebSocket notice:', error?.message || 'reconnecting');
+      try {
+        if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
+          this.socket.close();
+        }
+      } catch (e) {}
     };
   }
 
