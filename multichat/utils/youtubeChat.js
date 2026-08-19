@@ -497,8 +497,24 @@ export class YoutubeChatClient {
     let likes = 0;
     let startTime = null;
 
+    // 0. Extract exact ISO startDate / datePublished directly from HTML itemprop tags (exact to the second)
+    const startDateMatch = html.match(/itemprop="startDate"\s+content="([^"]+)"/i) || 
+                           html.match(/<meta\s+itemprop="startDate"\s+content="([^"]+)"/i) ||
+                           html.match(/"startDate"\s*:\s*"([^"]+)"/i);
+    if (startDateMatch && startDateMatch[1]) {
+      const parsedStart = Date.parse(startDateMatch[1]);
+      if (!isNaN(parsedStart) && parsedStart > 0 && parsedStart <= Date.now() + 60000) {
+        startTime = parsedStart;
+        isLive = true;
+      }
+    }
+
+    if (html.includes('itemprop="isLiveBroadcast" content="True"') || html.includes('itemprop="isLiveBroadcast" content="true"') || html.includes('BADGE_STYLE_TYPE_LIVE_NOW') || html.includes('"label":"LIVE"')) {
+      isLive = true;
+    }
+
     if (playerJson && playerJson.videoDetails) {
-      isLive = !!playerJson.videoDetails.isLiveContent || !!playerJson.videoDetails.isLive;
+      isLive = !!playerJson.videoDetails.isLiveContent || !!playerJson.videoDetails.isLive || isLive;
     }
 
     if (playerJson && playerJson.microformat && playerJson.microformat.playerMicroformatRenderer) {
@@ -551,6 +567,7 @@ export class YoutubeChatClient {
     if (!startTime) {
        const priorityRegexes = [
          /"(?:actualStartTime|startTimestamp|startDate)"\s*:\s*"([^"]+)"/gi,
+         /itemprop="(?:datePublished|uploadDate)"\s+content="([^"]+)"/gi,
          /"(?:scheduledStartTime|publishDate|uploadDate|datePublished)"\s*:\s*"([^"]+)"/gi
        ];
        for (const rgx of priorityRegexes) {
