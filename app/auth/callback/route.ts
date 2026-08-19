@@ -131,14 +131,20 @@ async function fetchYouTubeChannel(providerToken: string, userEmail?: string, fu
   return null;
 }
 
-function getCanonicalOrigin(requestUrl: string): string {
-  const envSiteUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.URL;
-  if (envSiteUrl && envSiteUrl.startsWith('http')) {
-    return envSiteUrl.replace(/\/$/, '');
+function getCanonicalOrigin(request: Request): string {
+  const forwardedHost = request.headers.get('x-forwarded-host') || request.headers.get('host');
+  const forwardedProto = request.headers.get('x-forwarded-proto') || 'https';
+  if (forwardedHost) {
+    let host = forwardedHost.split(',')[0].trim();
+    if (host.includes('--')) {
+      host = host.split('--')[1];
+    }
+    return `${forwardedProto}://${host}`;
   }
-  const url = new URL(requestUrl);
+
+  const url = new URL(request.url);
   let host = url.host;
-  if (host.includes('--multichatpro.netlify.app')) {
+  if (host.includes('--')) {
     host = host.split('--')[1];
     return `${url.protocol}//${host}`;
   }
@@ -146,7 +152,7 @@ function getCanonicalOrigin(requestUrl: string): string {
 }
 
 export async function GET(request: Request) {
-  const canonicalOrigin = getCanonicalOrigin(request.url);
+  const canonicalOrigin = getCanonicalOrigin(request);
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
   const next = searchParams.get('next') ?? '/dashboard';

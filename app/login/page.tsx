@@ -238,9 +238,9 @@ export function UnifiedAuth({ initialToggled = false }: UnifiedAuthProps) {
         if (session?.user) {
           const username = session.user.user_metadata?.username || session.user.email?.split('@')[0] || 'Streamer';
           const avatar = username.charAt(0).toUpperCase();
-          const cleanOrigin = typeof window !== 'undefined' && window.location.origin.includes('--multichatpro.netlify.app')
+          const cleanOrigin = typeof window !== 'undefined' && window.location.origin.includes('--')
             ? `${window.location.protocol}//${window.location.origin.split('--')[1]}`
-            : '';
+            : (typeof window !== 'undefined' ? window.location.origin : '');
           window.location.href = `${cleanOrigin}/dashboard?username=${encodeURIComponent(username)}&avatar=${encodeURIComponent(avatar)}`;
           return;
         }
@@ -273,9 +273,9 @@ export function UnifiedAuth({ initialToggled = false }: UnifiedAuthProps) {
           console.log('User already registered. Redirecting to overview.');
           const username = existingUser.username;
           const avatar = username.charAt(0).toUpperCase();
-          const cleanOrigin = typeof window !== 'undefined' && window.location.origin.includes('--multichatpro.netlify.app')
+          const cleanOrigin = typeof window !== 'undefined' && window.location.origin.includes('--')
             ? `${window.location.protocol}//${window.location.origin.split('--')[1]}`
-            : '';
+            : (typeof window !== 'undefined' ? window.location.origin : '');
           window.location.href = `${cleanOrigin}/dashboard?username=${encodeURIComponent(username)}&avatar=${encodeURIComponent(avatar)}`;
           return;
         }
@@ -534,7 +534,7 @@ export function UnifiedAuth({ initialToggled = false }: UnifiedAuthProps) {
   const getCleanOrigin = () => {
     if (typeof window === 'undefined') return '';
     let origin = window.location.origin;
-    if (origin.includes('--multichatpro.netlify.app')) {
+    if (origin.includes('--')) {
       const parts = origin.split('--');
       origin = `${window.location.protocol}//${parts[1]}`;
     }

@@ -12,14 +12,20 @@ function emailToUuid(email: string): string {
   return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
 }
 
-function getCanonicalOrigin(requestUrl: string): string {
-  const envSiteUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.URL;
-  if (envSiteUrl && envSiteUrl.startsWith('http')) {
-    return envSiteUrl.replace(/\/$/, '');
+function getCanonicalOrigin(request: Request): string {
+  const forwardedHost = request.headers.get('x-forwarded-host') || request.headers.get('host');
+  const forwardedProto = request.headers.get('x-forwarded-proto') || 'https';
+  if (forwardedHost) {
+    let host = forwardedHost.split(',')[0].trim();
+    if (host.includes('--')) {
+      host = host.split('--')[1];
+    }
+    return `${forwardedProto}://${host}`;
   }
-  const url = new URL(requestUrl);
+
+  const url = new URL(request.url);
   let host = url.host;
-  if (host.includes('--multichatpro.netlify.app')) {
+  if (host.includes('--')) {
     host = host.split('--')[1];
     return `${url.protocol}//${host}`;
   }
@@ -28,7 +34,7 @@ function getCanonicalOrigin(requestUrl: string): string {
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const canonicalOrigin = getCanonicalOrigin(request.url);
+  const canonicalOrigin = getCanonicalOrigin(request);
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
   const error = url.searchParams.get('error');
