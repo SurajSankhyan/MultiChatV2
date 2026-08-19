@@ -2819,7 +2819,7 @@ export default function ChatDashboard({
                           )}
                           <PlatformLogo 
                             platform={ch.platform} 
-                            isShorts={ch.platform === 'youtube' && youtubeShortsChannels.has(cleanShortsName)} 
+                            isShorts={ch.platform === 'youtube' && (youtubeShortsChannels.has(cleanName) || youtubeShortsChannels.has(rawClean) || youtubeShortsChannels.has(ch.name))} 
                             size={20} 
                           />
                           <span className="sidebar-nav-label" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', width: '100%', minWidth: 0 }}>
