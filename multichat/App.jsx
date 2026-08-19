@@ -78,7 +78,18 @@ export default function App({ logout }) {
   const modeDemo = false;
   const [page, setPage] = useState('chat');
   const [user, setUser] = useState({ username: 'Streamer', avatar: 'S' });
-  const [activeChannels, setActiveChannels] = useState([]);
+  const [activeChannels, setActiveChannels] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('prochat_channels');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch (e) {}
+    }
+    return DEFAULT_CHANNELS;
+  });
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [messages, setMessagesRaw] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -351,8 +362,13 @@ export default function App({ logout }) {
             const handleOrId = ytConnectedAccount.custom_handle || ytConnectedAccount.channel_id || ytConnectedAccount.channel_name;
 
             setActiveChannels(prevChannels => {
-              // Filter out any stale/unverified YouTube channels
-              const nonYtChannels = prevChannels.filter(ch => ch.platform !== 'youtube');
+              const cleanVerified = (handleOrId || '').toLowerCase().replace('@', '').trim();
+              const existingIdx = prevChannels.findIndex(ch => 
+                ch.platform === 'youtube' && (
+                  ch.id === ytConnectedAccount.channel_id || 
+                  (ch.name && ch.name.toLowerCase().replace('@', '').trim() === cleanVerified)
+                )
+              );
 
               const verifiedChannel = {
                 id: ytConnectedAccount.channel_id || handleOrId,
@@ -366,7 +382,14 @@ export default function App({ logout }) {
                 userEmail: session.user.email
               };
 
-              const updatedList = [verifiedChannel, ...nonYtChannels];
+              let updatedList;
+              if (existingIdx >= 0) {
+                updatedList = [...prevChannels];
+                updatedList[existingIdx] = { ...updatedList[existingIdx], ...verifiedChannel };
+              } else {
+                updatedList = [verifiedChannel, ...prevChannels];
+              }
+
               localStorage.setItem('prochat_channels', JSON.stringify(updatedList));
               return updatedList;
             });
@@ -408,7 +431,13 @@ export default function App({ logout }) {
                   localStorage.setItem('prochat_kick_username', kickData.username);
 
                   setActiveChannels(prev => {
-                    const nonKickChannels = prev.filter(ch => ch.platform !== 'kick');
+                    const existingIdx = prev.findIndex(ch => 
+                      ch.platform === 'kick' && (
+                        ch.id === `kick_${cleanKick}` || 
+                        (ch.name && ch.name.toLowerCase().replace('@', '').trim() === cleanKick)
+                      )
+                    );
+
                     const newKickCh = {
                       id: `kick_${cleanKick}`,
                       name: cleanKick,
@@ -418,7 +447,15 @@ export default function App({ logout }) {
                       enabled: true,
                       verified: true
                     };
-                    const updated = [newKickCh, ...nonKickChannels];
+
+                    let updated;
+                    if (existingIdx >= 0) {
+                      updated = [...prev];
+                      updated[existingIdx] = { ...updated[existingIdx], ...newKickCh };
+                    } else {
+                      updated = [newKickCh, ...prev];
+                    }
+
                     localStorage.setItem('prochat_channels', JSON.stringify(updated));
                     return updated;
                   });
@@ -467,14 +504,9 @@ export default function App({ logout }) {
                     });
                 }
               } else {
-                // Clear any stale Kick token/username from previous logged in user
+                // Clear any stale Kick token/username from previous logged in user without deleting user added channels
                 localStorage.removeItem('prochat_kick_auth_token');
                 localStorage.removeItem('prochat_kick_username');
-                setActiveChannels(prev => {
-                  const cleaned = prev.filter(ch => ch.platform !== 'kick');
-                  localStorage.setItem('prochat_channels', JSON.stringify(cleaned));
-                  return cleaned;
-                });
               }
             }
           } catch (kErr) {
@@ -527,7 +559,12 @@ export default function App({ logout }) {
         if (kickUser) {
           const cleanKick = kickUser.toLowerCase().replace(/^@+/, '').trim();
           setActiveChannels(prev => {
-            const nonKickChannels = prev.filter(ch => ch.platform !== 'kick');
+            const existingIdx = prev.findIndex(ch => 
+              ch.platform === 'kick' && (
+                ch.id === `kick_${cleanKick}` || 
+                (ch.name && ch.name.toLowerCase().replace('@', '').trim() === cleanKick)
+              )
+            );
             const newKickCh = {
               id: `kick_${cleanKick}`,
               name: cleanKick,
@@ -537,7 +574,13 @@ export default function App({ logout }) {
               enabled: true,
               verified: true
             };
-            const updated = [newKickCh, ...nonKickChannels];
+            let updated;
+            if (existingIdx >= 0) {
+              updated = [...prev];
+              updated[existingIdx] = { ...updated[existingIdx], ...newKickCh };
+            } else {
+              updated = [newKickCh, ...prev];
+            }
             localStorage.setItem('prochat_channels', JSON.stringify(updated));
             return updated;
           });
