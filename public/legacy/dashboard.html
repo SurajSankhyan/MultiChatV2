@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>StreamClips Hub - Live Clips & Timestamps</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=block" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=block" rel="stylesheet">
+
+  <!-- Tailwind CSS v3 with Plugins -->
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+
+  <!-- Tailwind Configuration for dark class and Inter font -->
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Supabase client -->
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+
+  <!-- YouTube IFrame API -->
+  <script src="https://www.youtube.com/iframe_api"></script>
+
+  <!-- Plyr.io Player -->
+  <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
+  <script src="https://cdn.plyr.io/3.7.8/plyr.js"></script>
+
+  <!-- Styles -->
+  <link href="/option.css?v=14.6" rel="stylesheet" type="text/css" />
+
+  <!-- Main JS -->
+  <script type="module" src="/option.js?v=14.6"></script>
+
+  <style>
+    .card {
+      content-visibility: visible !important;
+      contain-intrinsic-size: none !important;
+    }
+    /* Optimize glass blur value (down to 16px from 30px) for much faster GPU computation */
+    :root {
+      --glass-blur: blur(16px) !important;
+    }
+    /* Optimize background glow orb rendering by removing heavy screen blend-mode */
+    .bg-glow {
+      mix-blend-mode: normal !important;
+    }
+
+    /* Promote dynamic background containers to their own GPU compositor layers and maintain centering */
+    .dynamic-bg-container,
+    .dynamic-bg-overlay {
+      will-change: transform;
+      transform: translateX(-50%) translate3d(0, 0, 0);
+      backface-visibility: hidden;
+    }
+    /* Keep all card content styling in dark-theme colors regardless of Day/Light mode toggle */
+    body.light-mode .card {
+      background-color: rgba(10, 11, 20, 0.8) !important;
+      border-color: rgba(255, 255, 255, 0.08) !important;
+      box-shadow: 
+        0 12px 30px rgba(0, 0, 0, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+    }
+    body.light-mode .card:hover {
+      background-color: rgba(15, 17, 30, 0.9) !important;
+      border-color: rgba(255, 255, 255, 0.18) !important;
+      box-shadow: 
+        0 20px 40px rgba(0, 0, 0, 0.25),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+    }
+    body.light-mode .card .chip-input {
+      color: #f1f5f9 !important;
+    }
+    body.light-mode .card .clipper-name {
+      color: #dedede !important;
+    }
+    body.light-mode .card .clipper-link:hover .clipper-name {
+      color: var(--primary) !important;
+    }
+    body.light-mode .card .timer-display {
+      background-color: rgba(30, 41, 59, 0.4) !important;
+      border-color: rgba(255, 255, 255, 0.08) !important;
+      color: #8b9bb4 !important;
+    }
+    body.light-mode .card .timer-display svg {
+      stroke: currentColor !important;
+      color: #8b9bb4 !important;
+    }
+    body.light-mode .card .clock-icon-wrapper {
+      background-color: #8b9bb4 !important;
+      color: #1e293b !important;
+    }
+    body.light-mode .card .card-actions-bar {
+      border-color: rgba(255, 255, 255, 0.06) !important;
+    }
+    body.light-mode .card .hidden-badge {
+      background-color: rgba(245, 158, 11, 0.1) !important;
+      color: #fbbf24 !important;
+    }
+    body.light-mode .card .hidden-badge svg {
+      stroke: currentColor !important;
+      color: #fbbf24 !important;
+    }
+
+    /* Edit description buttons */
+    body.light-mode .card .edit-btn {
+      color: rgba(255, 255, 255, 0.5) !important;
+    }
+    body.light-mode .card .edit-btn:hover {
+      color: #ffffff !important;
+    }
+    body.light-mode .card .save-btn {
+      color: #34d399 !important;
+    }
+    body.light-mode .card .save-btn:hover {
+      color: #6ee7b7 !important;
+    }
+
+    /* Action buttons (copy, delete, favorite, hide) inside card stay dark mode style */
+    body.light-mode .card .delete-btn,
+    body.light-mode .card .fav-star-btn,
+    body.light-mode .card .copy-clip-btn,
+    body.light-mode .card .hide-btn {
+      background-color: #ffffff !important;
+      color: #0f172a !important;
+      border-color: rgba(255, 255, 255, 0.1) !important;
+    }
+    body.light-mode .card .copy-clip-btn:hover {
+      background-color: #3b82f6 !important;
+      color: #ffffff !important;
+      border-color: #3b82f6 !important;
+    }
+    body.light-mode .card .delete-btn:not(:disabled):hover {
+      background-color: #ef4444 !important;
+      color: #ffffff !important;
+      border-color: #ef4444 !important;
+    }
+    body.light-mode .card .hide-btn:hover {
+      background-color: #6366f1 !important;
+      color: #ffffff !important;
+      border-color: #6366f1 !important;
+    }
+    body.light-mode .card .fav-star-btn:not(:disabled):hover {
+      background-color: #f59e0b !important;
+      color: #ffffff !important;
+      border-color: #f59e0b !important;
+    }
+    body.light-mode .card .delete-btn svg,
+    body.light-mode .card .fav-star-btn svg,
+    body.light-mode .card .copy-clip-btn svg,
+    body.light-mode .card .hide-btn svg {
+      color: inherit !important;
+      stroke: currentColor !important;
+      fill: none;
+    }
+    body.light-mode .card .fav-star-btn.active svg {
+      fill: #f59e0b !important;
+      stroke: #f59e0b !important;
+      color: #f59e0b !important;
+    }
+    body.light-mode .card .hide-btn svg {
+      fill: currentColor !important;
+    }
+
+    /* Premium Empty State Box Styling */
+    .empty-state {
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      justify-content: center !important;
+      text-align: center !important;
+      padding: 60px 40px !important;
+      border-radius: 20px !important;
+      max-width: 500px !important;
+      margin: 40px auto !important;
+      grid-column: 1 / -1 !important;
+      width: 100% !important;
+      background: rgba(255, 255, 255, 0.02) !important;
+      border: 1.5px dashed rgba(255, 255, 255, 0.15) !important;
+      box-shadow: 
+        0 10px 30px rgba(0, 0, 0, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+      color: #8b9bb4 !important;
+    }
+    body.light-mode .empty-state {
+      background: rgba(255, 255, 255, 0.8) !important;
+      border: 1.5px dashed rgba(15, 23, 42, 0.15) !important;
+      color: #64748b !important;
+      box-shadow: 
+        0 10px 30px rgba(0, 0, 0, 0.03),
+        inset 0 1px 0 rgba(255, 255, 255, 1) !important;
+    }
+    .empty-state-icon {
+      width: 56px !important;
+      height: 56px !important;
+      border-radius: 50% !important;
+      background: rgba(255, 255, 255, 0.03) !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      margin-bottom: 20px !important;
+      border: 1px solid rgba(255, 255, 255, 0.08) !important;
+      color: #8b9bb4 !important;
+      transition: all 0.3s ease !important;
+    }
+    body.light-mode .empty-state-icon {
+      background: rgba(0, 0, 0, 0.02) !important;
+      border-color: rgba(0, 0, 0, 0.06) !important;
+      color: #64748b !important;
+    }
+    .empty-state-icon svg {
+      width: 24px !important;
+      height: 24px !important;
+      stroke-width: 1.5 !important;
+      stroke: currentColor !important;
+    }
+    .empty-state h3 {
+      font-size: 18px !important;
+      font-weight: 600 !important;
+      margin: 0 0 8px 0 !important;
+      color: #f1f5f9 !important;
+    }
+    body.light-mode .empty-state h3 {
+      color: #1e293b !important;
+    }
+    .empty-state p {
+      font-size: 14px !important;
+      margin: 0 !important;
+      color: #8b9bb4 !important;
+      max-width: 360px !important;
+      line-height: 1.5 !important;
+    }
+    body.light-mode .empty-state p {
+      color: #64748b;
+    }
+
+    /* Lock Creator Profile banner child elements to dark theme colors in Day Mode */
+    body.light-mode #creator-profile #creator-name {
+      color: #ffffff !important;
+    }
+    body.light-mode #creator-profile svg {
+      color: #ffffff !important;
+    }
+    body.light-mode #creator-profile #creator-clips-count {
+      color: rgba(255, 255, 255, 0.7) !important;
+    }
+    body.light-mode #creator-profile #creator-total-badge {
+      background-color: rgba(255, 255, 255, 0.1) !important;
+      color: #e2e8f0 !important;
+      border-color: rgba(255, 255, 255, 0.15) !important;
+    }
+    body.light-mode #creator-profile hr {
+      border-color: rgba(255, 255, 255, 0.12) !important;
+    }
+    body.light-mode .filter-field-label {
+      color: rgba(255, 255, 255, 0.7) !important;
+    }
+  </style>
+</head>
+<body class="dark-mode"> <!-- Default to dark mode for premium aesthetic -->
+
+  <!-- 🌅 DYNAMIC CINEMATIC BACKGROUND -->
+  <div id="dynamic-bg-container" class="dynamic-bg-container"></div>
+  <div class="dynamic-bg-overlay"></div>
+
+  <!-- 🌅 BACKGROUND GLOW ORBS -->
+  <div class="bg-glow bg-glow-orange"></div>
+  <div class="bg-glow bg-glow-purple"></div>
+  <div class="bg-glow bg-glow-blue"></div>
+  <header id="main-header" class="main-header">
+    <div class="header-container">
+      <div id="brand-logo" class="brand-logo">
+        <img src="/logo.svg" alt="StreamPayClips" class="brand-logo-img" />
+        <span class="logo-text">Stream<span class="logo-accent">PayClips</span></span>
+      </div>
+
+      <!-- Center: Links -->
+      <div class="flex-grow flex justify-center">
+        <div class="flex items-center gap-3 sm:gap-6">
+          <a href="/features.html" class="header-nav-link text-[12px] sm:text-[14px] font-semibold text-slate-300 hover:text-white transition-colors">Features</a>
+          <a href="#" class="header-nav-link text-[12px] sm:text-[14px] font-semibold text-slate-300 hover:text-white transition-colors">Pricing</a>
+          <a href="#" class="header-nav-link text-[12px] sm:text-[14px] font-semibold text-slate-300 hover:text-white transition-colors">Special</a>
+          <a href="#creators-section" class="header-nav-link text-[12px] sm:text-[14px] font-semibold text-slate-300 hover:text-white transition-colors">Creators</a>
+        </div>
+      </div>
+
+      <div class="header-actions">
+
+        <!-- 🌓 THEME TOGGLE -->
+        <div class="darkThemeBtn">
+          <input id="darkmode-toggle" type="checkbox" />
+          <label for="darkmode-toggle" class="neumorphic-toggle-label">
+            <div class="circle neumorphic-toggle-circle">
+              <svg class="sun" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2.25a.75.75 0 0 1 .75.75v2.25a.75.75 0 0 1-1.5 0V3a.75.75 0 0 1 .75-.75ZM7.5 12a4.5 4.5 0 1 1 9 0 4.5 4.5 0 0 1-9 0ZM18.894 6.166a.75.75 0 0 0-1.06-1.06l-1.591 1.59a.75.75 0 1 0 1.06 1.061l1.591-1.59ZM21.75 12a.75.75 0 0 1-.75.75h-2.25a.75.75 0 0 1 0-1.5H21a.75.75 0 0 1 .75.75ZM17.834 18.894a.75.75 0 0 0 1.06-1.06l-1.59-1.591a.75.75 0 1 0-1.061 1.06l1.59 1.591ZM12 18a.75.75 0 0 1 .75.75V21a.75.75 0 0 1-1.5 0v-2.25A.75.75 0 0 1 12 18ZM7.758 17.303a.75.75 0 0 0-1.06-1.06l-1.591 1.59a.75.75 0 0 0 1.06 1.061l1.591-1.59ZM6 12a.75.75 0 0 1-.75.75H3a.75.75 0 0 1 0-1.5h2.25A.75.75 0 0 1 6 12ZM6.697 7.757a.75.75 0 0 0 1.06-1.06l-1.59-1.591a.75.75 0 0 0-1.061 1.06l1.59 1.591Z" />
+              </svg>
+              <svg class="moon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                <path fill-rule="evenodd" d="M9.528 1.718a.75.75 0 0 1 .162.819A8.97 8.97 0 0 0 9 6a9 9 0 0 0 9 9 8.97 8.97 0 0 0 3.463-.69.75.75 0 0 1 .981.98 10.503 10.503 0 0 1-9.694 6.46c-5.799 0-10.5-4.7-10.5-10.5 0-4.368 2.667-8.112 6.46-9.694a.75.75 0 0 1 .818.162Z" clip-rule="evenodd" />
+              </svg>                               
+            </div>
+          </label>
+        </div>
+
+        <!-- Header Icons Group -->
+        <div class="flex items-center gap-2 mr-1">
+          <!-- Updates Bell Button -->
+          <button id="updatesNavBtn" class="updates-bell-btn relative">
+            <svg viewBox="0 0 448 512" class="bell-svg"><path d="M224 0c-17.7 0-32 14.3-32 32V49.9C119.5 61.4 64 124.2 64 200v33.4c0 45.4-15.5 89.5-43.8 124.9L5.3 377c-5.8 7.2-6.9 17.1-2.9 25.4S14.8 416 24 416H424c9.2 0 17.6-5.3 21.6-13.6s2.9-18.2-2.9-25.4l-14.9-18.6C399.5 322.9 384 278.8 384 233.4V200c0-75.8-55.5-138.6-128-150.1V32c0-17.7-14.3-32-32-32zm0 96h8c57.4 0 104 46.6 104 104v33.4c0 47.9 13.9 94.6 39.7 134.6H72.3C98.1 328 112 281.3 112 233.4V200c0-57.4 46.6-104 104-104h8zm64 352H224 160c0 17 6.7 33.3 18.7 45.3s28.3 18.7 45.3 18.7s33.3-6.7 45.3-18.7s18.7-28.3 18.7-45.3z"></path></svg>
+            <span class="updates-badge absolute -top-1 -right-1 bg-purple-600 text-white text-[10px] font-bold h-4 w-4 rounded-full flex items-center justify-center border border-black animate-pulse">1</span>
+            <span class="tooltip">What's New</span>
+          </button>
+
+          <!-- Bug Report Button -->
+          <button id="bugReportNavBtn" class="BugButton relative">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 43 42"
+              class="bugsvg"
+            >
+              <path
+                stroke-width="4"
+                stroke="#cfcfcf"
+                d="M20 7H23C26.866 7 30 10.134 30 14V28.5C30 33.1944 26.1944 37 21.5 37C16.8056 37 13 33.1944 13 28.5V14C13 10.134 16.134 7 20 7Z"
+              ></path>
+              <path
+                stroke-linecap="round"
+                stroke-width="4"
+                stroke="#cfcfcf"
+                d="M18 2V7"
+              ></path>
+              <path
+                stroke-linecap="round"
+                stroke-width="4"
+                stroke="#cfcfcf"
+                d="M25 2V7"
+              ></path>
+              <path
+                stroke-linecap="round"
+                stroke-width="4"
+                stroke="#cfcfcf"
+                d="M31 22H41"
+              ></path>
+              <path
+                stroke-linecap="round"
+                stroke-width="4"
+                stroke="#cfcfcf"
+                d="M2 22H12"
+              ></path>
+              <path
+                stroke-linecap="round"
+                stroke-width="4"
+                stroke="#cfcfcf"
+                d="M12.5785 15.2681C3.5016 15.2684 4.99951 12.0004 5 4"
+              ></path>
+              <path
+                stroke-linecap="round"
+                stroke-width="4"
+                stroke="#cfcfcf"
+                d="M12.3834 29.3877C3.20782 29.3874 4.72202 32.4736 4.72252 40.0291"
+              ></path>
+              <path
+                stroke-linecap="round"
+                stroke-width="4"
+                stroke="#cfcfcf"
+                d="M30.0003 14.8974C39.0545 15.553 37.7958 12.1852 38.3718 4.20521"
+              ></path>
+              <path
+                stroke-linecap="round"
+                stroke-width="4"
+                stroke="#cfcfcf"
+                d="M29.9944 29.7379C39.147 29.1188 37.8746 32.2993 38.4568 39.8355"
+              ></path>
+            </svg>
+            <span class="tooltip">Bug Report</span>
+          </button>
+        </div>
+
+        <button id="setupGuideNavBtn" class="px-5 h-10 rounded-lg border border-white/10 bg-transparent text-sm font-semibold text-zinc-300 hover:text-white hover:bg-white/5 hover:border-white/20 active:scale-95 transition-all flex items-center gap-2 hidden">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
+          </svg>
+          Setup Guide
+        </button>
+
+        <button id="connectYoutubeNavBtn" class="px-5 h-10 rounded-lg border border-white/10 bg-transparent text-sm font-semibold text-zinc-300 hover:text-white hover:bg-white/5 hover:border-white/20 active:scale-95 transition-all flex items-center gap-2 hidden">
+          <svg class="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path fill="#FF0000" d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.107C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.388.511a3.002 3.002 0 0 0-2.11 2.107C0 8.053 0 12 0 12s0 3.947.502 5.837a3.003 3.003 0 0 0 2.11 2.107C4.495 20.455 12 20.455 12 20.455s7.505 0 9.388-.511a3.002 3.002 0 0 0 2.11 2.107C24 15.947 24 12 24 12s0-3.947-.502-5.837z"/>
+            <polygon fill="#FFFFFF" points="9.545,15.568 15.818,12 9.545,8.432"/>
+          </svg>
+          Connect YouTube
+        </button>
+
+        <!-- 🔐 AUTH ACTIONS -->
+        <div id="auth-unlogged" class="auth-unlogged flex items-center gap-3">
+          <button id="showLoginBtn" class="btn btn-secondary">Sign In</button>
+        </div>
+        <div id="auth-logged" class="auth-logged hidden flex items-center gap-4 relative">
+          <!-- Sliding Profile Card -->
+          <div id="user-profile-button" class="profile-card">
+            <div class="profile-card-outer">
+              <div class="profile-card-inner">
+                <!-- Avatar Wrapper -->
+                <div class="profile-avatar-wrapper">
+                  <!-- Ambient Glow -->
+                  <div class="profile-glow"></div>
+                  <!-- Avatar Image -->
+                  <img id="user-display-avatar" class="profile-avatar-img" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNTAiIGhlaWdodD0iMTUwIiB2aWV3Qm94PSIwIDAgMTUwIDE1MCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzFlMjkzYiIvPjxjaXJjbGUgY3g9Ijc1IiBjeT0iNzUiIHI9IjQwIiBmaWxsPSIjNDc1NTY5Ii8+PC9zdmc+" alt="avatar" />
+                  <!-- Status Dot -->
+                  
+                </div>
+                <!-- Text Content -->
+                <div class="profile-text-content">
+                  <div class="profile-name-row">
+                    <h3 id="user-display" class="profile-name-text">Admin</h3>
+                  </div>
+                  <div class="profile-role-row">
+                    <span class="profile-role-text">Creator</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- User Profile Popover Dropdown (Matches Premium React Popover Design) -->
+          <div id="userProfilePopover" class="user-profile-popover absolute top-[calc(100%+12px)] right-0 w-60 bg-zinc-950/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-[0_10px_40px_-5px_rgba(0,0,0,0.8)] z-50 p-4 origin-top-right">
+            <!-- Header -->
+            <div class="flex items-center gap-3 pb-3 border-b border-white/5">
+              <div class="w-10 h-10 rounded-full overflow-hidden border border-white/10 flex-shrink-0">
+                <img id="popover-avatar" class="w-full h-full object-cover" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNTAiIGhlaWdodD0iMTUwIiB2aWV3Qm94PSIwIDAgMTUwIDE1MCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzFlMjkzYiIvPjxjaXJjbGUgY3g9Ijc1IiBjeT0iNzUiIHI9IjQwIiBmaWxsPSIjNDc1NTY5Ii8+PC9zdmc+" alt="avatar" />
+              </div>
+              <div class="min-w-0 flex-grow">
+                <h4 id="popover-username" class="text-xs font-bold text-white truncate">John Doe</h4>
+                <p id="popover-email" class="text-[10px] text-zinc-400 truncate">john.doe@example.com</p>
+              </div>
+            </div>
+            <!-- Body -->
+            <div class="flex flex-col gap-1 py-2">
+              <button id="popoverConnectYoutubeBtn" class="flex items-center justify-center gap-2.5 w-full px-3 py-2 rounded-lg text-xs font-semibold text-white bg-red-600 hover:bg-red-700 active:scale-95 transition-all text-center hidden">
+                <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.518 3.545 12 3.545 12 3.545s-7.518 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.87.508 9.388.508 9.388.508s7.518 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                </svg>
+                Connect YouTube
+              </button>
+              <button id="popoverViewProfileBtn" class="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-xs font-semibold text-zinc-300 hover:text-white hover:bg-white/5 transition-all text-left">
+                <svg class="w-3.5 h-3.5 text-zinc-400 fill-current" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.518 3.545 12 3.545 12 3.545s-7.518 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.87.508 9.388.508 9.388.508s7.518 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                </svg>
+                Your Clips
+              </button>
+              <button id="popoverSubscriptionBtn" class="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-xs font-semibold text-zinc-300 hover:text-white hover:bg-white/5 transition-all text-left">
+                <svg class="w-3.5 h-3.5 text-zinc-400 fill-none stroke-current" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="2" y="5" width="20" height="14" rx="2" ry="2"></rect>
+                  <line x1="2" y1="10" x2="22" y2="10"></line>
+                </svg>
+                My Subscription
+              </button>
+              <button id="popoverSetupGuideBtn" class="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-xs font-semibold text-zinc-300 hover:text-white hover:bg-white/5 transition-all text-left">
+                <svg class="w-3.5 h-3.5 text-zinc-400 fill-none stroke-current" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
+                </svg>
+                Setup Guide
+              </button>
+            </div>
+            <!-- Footer -->
+            <div class="pt-2 border-t border-white/5">
+              <button id="popoverSignOutBtn" class="flex items-center justify-center w-full h-8 rounded-lg border border-white/10 hover:border-white/20 bg-transparent text-[10px] font-bold text-white hover:bg-white/5 transition-all">
+                Sign Out
+              </button>
+            </div>
+          </div>
+          
+          <button id="logoutBtn" class="Btn hidden md:flex">
+            <div class="sign"><svg viewBox="0 0 512 512"><path d="M377.9 105.9L500.7 228.7c7.2 7.2 11.3 17.1 11.3 27.3s-4.1 20.1-11.3 27.3L377.9 406.1c-6.4 6.4-15 9.9-24 9.9c-18.7 0-33.9-15.2-33.9-33.9l0-62.1-128 0c-17.7 0-32-14.3-32-32l0-64c0-17.7 14.3-32 32-32l128 0 0-62.1c0-18.7 15.2-33.9 33.9-33.9c9 0 17.6 3.6 24 9.9zM160 96L96 96c-17.7 0-32 14.3-32 32l0 256c0 17.7 14.3 32 32 32l64 0c17.7 0 32 14.3 32 32s-14.3 32-32 32l-64 0c-53 0-96-43-96-96L0 128C0 75 43 32 96 32l64 0c17.7 0 32 14.3 32 32s-14.3 32-32 32z"></path></svg></div>
+            <div class="text">Logout</div>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+
+
+  <!-- 🌐 VIEW 1: CREATOR HUB (LANDING PAGE) -->
+  <main id="hubView" class="container view-section">
+    <!-- Hero Section -->
+    <section class="hero-section">
+      <h1 class="hero-title">Track and Share Live Stream Moments</h1>
+      <p class="hero-subtitle">Instantly clip streams from chat with Nightbot and display them on your custom creator page.</p>
+      <div class="hero-actions mt-8 flex justify-center gap-4">
+        <a href="index.html" class="btn btn-primary text-sm font-semibold flex items-center gap-2.5 px-6 py-3 rounded-full hover:scale-105 active:scale-95 transition-all shadow-lg shadow-indigo-600/30">
+          <span class="flex h-2.5 w-2.5 relative">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-purple-500"></span>
+          </span>
+          Experience 3D Landing Page
+        </a>
+      </div>
+    </section>
+
+    <!-- Setup Guide / Commands -->
+    <section class="setup-section glassmorphism">
+      <div class="setup-header">
+        <span class="setup-badge">Setup Guide</span>
+        <h2>Add Clip commands to your Stream</h2>
+      </div>
+      <p>Simply copy the command below and add it to your channel chat via Nightbot to let your moderators and viewers save timestamps instantly:</p>
+      
+      <div class="code-container">
+        <code id="setup-command">!addcom !clip $(urlfetch https://yt-timestamp-central-auth-project.onrender.com/api/clip?streamerId=$(channelid)&chatid=$(request_id)&text=$(querystring)&user=$(user)&userlevel=$(userlevel)&channelId=$(userid))</code>
+        <button id="copy-cmd-btn" class="btn btn-copy" onclick="navigator.clipboard.writeText(document.getElementById('setup-command').innerText); this.innerText = 'Copied!'; setTimeout(() => this.innerText = 'Copy', 2000)">Copy</button>
+      </div>
+    </section>
+
+    <!-- Active Creators Grid -->
+    <section id="creators-section" class="creators-section">
+      <h2 class="section-title">Active Creators</h2>
+      <div id="creator-grid" class="creator-grid">
+        <div class="skeleton-grid">
+          <div class="skeleton-creator-card"><div class="skeleton-avatar"></div><div class="skeleton-title"></div><div class="skeleton-subtitle"></div></div>
+          <div class="skeleton-creator-card"><div class="skeleton-avatar"></div><div class="skeleton-title"></div><div class="skeleton-subtitle"></div></div>
+          <div class="skeleton-creator-card"><div class="skeleton-avatar"></div><div class="skeleton-title"></div><div class="skeleton-subtitle"></div></div>
+          <div class="skeleton-creator-card"><div class="skeleton-avatar"></div><div class="skeleton-title"></div><div class="skeleton-subtitle"></div></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 📊 VIEW 2: CREATOR DASHBOARD (CREATOR SPECIFIC CLIPS) -->
+  <main id="dashboardView" class="container view-section max-w-[1352px] w-[calc(100%-48px)] mx-auto glassmorphism rounded-3xl p-6 md:p-10 shadow-2xl hidden" data-purpose="dashboard-wrapper">
+
+    <!-- ⚠️ User Not Found Error State -->
+    <div id="creator-not-found-error" class="hidden flex-col items-center justify-center py-20 text-center w-full">
+      <div class="flex items-center justify-center mb-8">
+        <div class="loader">
+          <svg viewBox="0 0 80 80">
+            <circle r="32" cy="40" cx="40" id="test"></circle>
+          </svg>
+        </div>
+
+        <div class="loader triangle">
+          <svg viewBox="0 0 86 80">
+            <polygon points="43 8 79 72 7 72"></polygon>
+          </svg>
+        </div>
+
+        <div class="loader">
+          <svg viewBox="0 0 80 80">
+            <rect height="64" width="64" y="8" x="8"></rect>
+          </svg>
+        </div>
+      </div>
+      <h2 class="text-2xl font-extrabold text-white mb-3">User Does Not Exist</h2>
+      <p class="text-zinc-400 text-sm md:text-base max-w-md mx-auto mb-8 leading-relaxed">The channel profile you are looking for does not exist in our database. Please check the handle and try again.</p>
+      <a href="/" class="inline-block mt-2">
+        <button class="uiverse-btn">
+          Go to Home
+        </button>
+      </a>
+    </div>
+
+    <!-- Creator Header Banner -->
+    <header id="creator-profile" class="flex flex-col md:flex-row items-center md:items-start gap-6 md:gap-8 mb-10 pb-6 border-b border-slate-200 dark:border-slate-800/80">
+      <a id="creator-avatar-link" href="#" target="_blank" class="w-28 h-28 md:w-36 md:h-36 rounded-full overflow-hidden border-4 border-slate-300 dark:border-slate-700/80 shadow-2xl flex-shrink-0 relative hover:scale-105 active:scale-95 transition-transform duration-200 cursor-pointer block">
+        <img id="creator-avatar" class="w-full h-full object-cover" src="" alt="Profile Avatar" onerror="this.onerror=null; this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNTAiIGhlaWdodD0iMTUwIiB2aWV3Qm94PSIwIDAgMTUwIDE1MCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzFlMjkzYiIvPjxjaXJjbGUgY3g9Ijc1IiBjeT0iNzUiIHI9IjQwIiBmaWxsPSIjNDc1NTY5Ii8+PC9zdmc+'" />
+      </a>
+      <div class="flex flex-col gap-3 flex-grow text-center md:text-left w-full md:w-auto">
+        <div class="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 justify-center md:justify-start">
+          <div class="flex items-center gap-3 justify-center md:justify-start flex-wrap">
+            <h1 id="creator-name" class="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white">Creator Clips...</h1>
+            <!-- 🧭 Help/Tour Button -->
+            <div class="relative group">
+              <button id="startTourBtn" class="flex items-center justify-center w-8 h-8 rounded-full bg-white/10 border border-white/20 text-white hover:bg-white hover:text-slate-900 hover:scale-105 active:scale-95 transition-all cursor-pointer shadow-sm shadow-white/5">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                  <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+              </button>
+              <span class="tooltip">Start Page Tour</span>
+            </div>
+            <span id="creator-total-badge" class="inline-flex items-center px-3 py-1 rounded-full text-sm font-bold bg-slate-100 dark:bg-slate-800/60 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700/80 shadow-sm select-none">0 Total Clips</span>
+          </div>
+        </div>
+        <div class="flex items-center justify-center md:justify-start text-sm text-slate-500 dark:text-slate-400 font-medium">
+          <!-- Scissors icon -->
+          <svg class="w-4 h-4 mr-2 text-slate-900 dark:text-white flex-shrink-0" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M0 0 C4.70276789 0.65403193 6.61147421 3.00820202 9.79248047 6.36523438 C10.383284 6.96452759 10.97408752 7.5638208 11.58279419 8.18127441 C13.46153762 10.09353183 15.31832178 12.02560055 17.17529297 13.95898438 C18.44733607 15.26112925 19.72075906 16.56192766 20.99560547 17.86132812 C24.11337928 21.04515976 27.21162392 24.24692044 30.30029297 27.45898438 C34.38511717 25.85678383 36.99859906 22.91451558 39.94873047 19.79492188 C41.04709505 18.66153367 42.14607233 17.52873897 43.24560547 16.39648438 C44.96603085 14.61408827 46.68137368 12.82757395 48.38623047 11.03027344 C50.03939028 9.29236062 51.71095343 7.57398774 53.38623047 5.85742188 C53.88955902 5.3168515 54.39288757 4.77628113 54.91146851 4.21932983 C57.46799527 1.62654777 58.9081727 0.51023752 62.56713867 0.03198242 C65.30029297 0.45898438 65.30029297 0.45898438 66.94482422 1.89257812 C70.78516715 8.4815277 72.35974544 14.37066926 70.42529297 21.89648438 C68.15199781 27.83805126 63.71711449 32.02142661 59.30029297 36.45898438 C58.01832031 37.76222656 58.01832031 37.76222656 56.71044922 39.09179688 C54.5887813 41.23022362 52.45310203 43.35197977 50.30029297 45.45898438 C50.98887421 47.50422663 50.98887421 47.50422663 52.30029297 49.45898438 C54.29096083 50.01252653 54.29096083 50.01252653 56.55029297 49.95898438 C61.13586921 50.28336597 63.73927602 51.40668413 67.30029297 54.45898438 C70.28250237 58.26387224 71.13984745 61.6456187 71.30029297 66.45898438 C70.5244879 71.26237321 69.11311674 75.28465237 65.36279297 78.52148438 C60.42370799 81.54798751 54.8709914 81.29458914 49.30029297 80.45898438 C44.79631389 78.3255206 42.31546641 76.01964006 40.30029297 71.45898438 C40.14560547 69.69554688 40.14560547 69.69554688 39.98779297 67.89648438 C39.61113415 64.24461114 39.61113415 64.24461114 36.55029297 61.95898438 C33.50880184 60.26541208 33.50880184 60.26541208 30.73779297 60.52148438 C29.93341797 60.83085938 29.12904297 61.14023438 28.30029297 61.45898438 C27.41341797 61.78898437 26.52654297 62.11898437 25.61279297 62.45898438 C22.5248916 65.12960177 22.55692996 67.33082485 21.89013672 71.23632812 C20.68368921 75.78247802 17.02743897 77.97422037 13.30029297 80.45898438 C7.74631074 81.14822315 2.82919152 81.18319948 -2.26220703 78.77148438 C-6.43720138 74.8105923 -8.23264673 71.41627396 -8.76220703 65.58007812 C-8.61543495 60.59900064 -6.86508558 56.76146628 -3.57470703 53.08398438 C-0.34418399 51.25803657 2.4837475 50.568207 6.11669922 49.95117188 C8.42093823 49.43179063 10.23635436 48.59157654 12.30029297 47.45898438 C10.64832058 43.0679352 7.30327271 40.36684595 3.98779297 37.20898438 C-8.25285894 25.19587876 -8.25285894 25.19587876 -8.84033203 15.76367188 C-8.53147942 10.70192083 -6.6738611 6.36090422 -4.38720703 1.89648438 C-2.69970703 0.45898438 -2.69970703 0.45898438 0 0 Z M30.30029297 40.45898438 C29.31029297 41.11898437 28.32029297 41.77898438 27.30029297 42.45898438 C26.8836263 44.95898438 26.8836263 44.95898438 27.30029297 47.45898438 C27.96029297 48.11898437 28.62029297 48.77898438 29.30029297 49.45898438 C32.60712763 49.16915169 32.60712763 49.16915169 35.30029297 47.45898438 C35.34093129 45.79281322 35.34301397 44.12510343 35.30029297 42.45898438 C32.97174833 41.26060229 32.97174833 41.26060229 30.30029297 40.45898438 Z M1.30029297 59.45898438 C-0.57372964 61.95768119 -0.70276821 63.31204778 -0.63720703 66.45898438 C0.56153406 70.29495587 1.80242211 71.51572279 5.30029297 73.45898438 C9.27161173 73.5400317 10.77785131 72.92784228 13.73779297 70.27148438 C15.53728362 67.54882613 15.53728362 67.54882613 15.36279297 64.39648438 C14.03727449 60.73181563 12.61172842 59.46124767 9.30029297 57.45898438 C5.53114893 57.45898438 4.29318288 57.46372443 1.30029297 59.45898438 Z M50.61279297 59.08398438 C48.12501343 61.3124616 48.12501343 61.3124616 47.23779297 64.39648438 C47.06330231 67.54882613 47.06330231 67.54882613 48.86279297 70.27148438 C51.82273463 72.92784228 53.32897421 73.5400317 57.30029297 73.45898438 C60.79816383 71.51572279 62.03905188 70.29495587 63.23779297 66.45898438 C63.30335415 63.31204778 63.17431558 61.95768119 61.30029297 59.45898438 C57.55718793 56.96358102 54.56231451 56.69590158 50.61279297 59.08398438 Z" transform="translate(18.69970703125,9.541015625)" fill="currentColor"/>
+          </svg>
+          <span id="creator-clips-count">0 clips captured from recent streams</span>
+        </div>
+        <hr class="border-slate-200 dark:border-slate-800/80 my-1 w-full" />
+        <div class="flex flex-wrap items-center justify-center md:justify-start gap-3 mt-1">
+          <!-- Gift Membership Button -->
+          <a id="creator-gift-btn" href="#" target="_blank" class="gift-membership-btn">
+            <div class="gift-membership-btn-outer">
+              <div class="gift-membership-btn-inner">
+                <span>Gift Membership</span>
+              </div>
+            </div>
+          </a>
+          <!-- Watch Channel Button -->
+          <div class="creator-action-buttons flex items-center gap-3">
+            <a id="creator-yt-link" href="#" target="_blank" class="watch-channel-btn">
+              <div class="watch-channel-btn-outer">
+                <div class="watch-channel-btn-inner">
+                  <span>Watch Channel</span>
+                </div>
+              </div>
+            </a>
+            <a id="creator-analytics-btn" href="#" class="watch-channel-btn">
+              <div class="watch-channel-btn-outer">
+                <div class="watch-channel-btn-inner">
+                  <span>Analytics</span>
+                </div>
+              </div>
+            </a>
+          </div>
+        </div>
+      </div>
+      <!-- Hidden elements to preserve JS functionality -->
+      <p id="creator-meta-desc" class="hidden"></p>
+    </header>
+
+    <!-- Search + Filter Controls -->
+    <div class="filter-main-bar" data-purpose="filter-bar-container">
+      
+      <!-- Game Cards Carousel Slider -->
+      <section class="game-cards-slider-section" id="gameCardsSliderSection">
+        <div class="game-slider-wrapper">
+          <button class="slider-nav-btn prev-btn" id="sliderPrevBtn" aria-label="Previous Games">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+          </button>
+          <div class="game-cards-track" id="gameCardsTrack">
+            <!-- Dynamically populated -->
+          </div>
+          <button class="slider-nav-btn next-btn" id="sliderNextBtn" aria-label="Next Games">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+          </button>
+        </div>
+      </section>
+
+      <section class="filter-card-section">
+        <div class="filter-flex-container">
+          
+          <div class="filter-inputs-group">
+            <!-- Filter by Level -->
+            <div class="filter-field-item min-w-180">
+              <label class="filter-field-label" for="levelFilter">
+                Filter by Level
+              </label>
+              <div class="custom-dropdown-wrapper" id="levelDropdownContainer">
+                <select class="hidden-select" id="levelFilter">
+                  <option value="">All Levels</option>
+                  <option value="owner">Owner</option>
+                  <option value="moderator">Moderator</option>
+                  <option value="subscriber">Subscriber</option>
+                  <option value="regular">Regular</option>
+                  <option value="everyone">Everyone</option>
+                </select>
+                <button class="custom-dropdown-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+                  <span class="trigger-text">All Levels</span>
+                  <svg class="chevron-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                  </svg>
+                </button>
+                <div class="custom-dropdown-menu" role="listbox">
+                  <!-- Synced from select -->
+                </div>
+              </div>
+            </div>
+
+            <!-- Filter by Game -->
+            <div class="filter-field-item min-w-180">
+              <label class="filter-field-label" for="gameFilter">
+                Filter by Game
+              </label>
+              <div class="custom-dropdown-wrapper" id="gameDropdownContainer">
+                <select class="hidden-select" id="gameFilter">
+                  <option value="">All Games</option>
+                </select>
+                <button class="custom-dropdown-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+                  <span class="trigger-text">All Games</span>
+                  <svg class="chevron-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                  </svg>
+                </button>
+                <div class="custom-dropdown-menu" role="listbox">
+                  <!-- Synced from select -->
+                </div>
+              </div>
+            </div>
+
+            <!-- Search Clips -->
+            <div class="filter-field-item flex-grow min-w-280">
+              <label class="filter-field-label" for="filter">
+                Search clips
+              </label>
+              <div class="filter-input-relative custom-focus">
+                <div class="filter-search-icon-overlay">
+                  <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                  </svg>
+                </div>
+                <input class="filter-text-input" id="filter" autocomplete="off" placeholder="" type="search"/>
+                <div class="search-placeholder-overlay" id="searchPlaceholderOverlay">
+                  <span class="placeholder-text"></span><span class="placeholder-cursor"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Toggles -->
+          <div class="filter-toggles-group">
+            <!-- Show Favorites Toggle -->
+            <div class="filter-toggle-item">
+              <span class="filter-field-label text-center-label">
+                Show Favorites
+              </span>
+              <label class="gooey-toggle-wrapper">
+                <input type="checkbox" id="favFilterToggle" class="gooey-toggle-input" />
+                <svg viewBox="0 0 52 32" filter="url(#goo)" class="gooey-toggle-svg">
+                  <circle class="gooey-circle circle-left" cx="16" cy="16" r="10" />
+                  <circle class="gooey-circle circle-right" cx="36" cy="16" r="10" />
+                  <circle class="gooey-drop" cx="35" cy="-1" r="2.5" />
+                </svg>
+              </label>
+            </div>
+
+            <!-- Group by Stream Toggle -->
+            <div class="filter-toggle-item">
+              <span class="filter-field-label text-center-label">
+                Group by Stream
+              </span>
+              <label class="gooey-toggle-wrapper">
+                <input type="checkbox" id="groupByStreamToggle" class="gooey-toggle-input" checked />
+                <svg viewBox="0 0 52 32" filter="url(#goo)" class="gooey-toggle-svg">
+                  <circle class="gooey-circle circle-left" cx="16" cy="16" r="10" />
+                  <circle class="gooey-circle circle-right" cx="36" cy="16" r="10" />
+                  <circle class="gooey-drop" cx="35" cy="-1" r="2.5" />
+                </svg>
+              </label>
+            </div>
+          </div>
+
+        </div>
+      </section>
+      <!-- Gooey Filter definition -->
+      <svg style="position: absolute; width: 0; height: 0; pointer-events: none;">
+        <defs>
+          <filter id="goo">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
+            <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -7" result="goo" />
+            <feComposite in="SourceGraphic" in2="goo" operator="atop" />
+          </filter>
+        </defs>
+      </svg>
+    </div>
+
+    <!-- Bookmarks Grid -->
+    <section id="bookmark-list" class="bookmarks-list">
+      <div class="skeleton-clips-grid">
+        <div class="skeleton-card"><div class="skeleton-card-thumb"></div><div class="skeleton-card-body"><div class="skeleton-card-line long"></div><div class="skeleton-card-line short"></div><div class="skeleton-card-footer"><div class="skeleton-card-avatar-small"></div><div class="skeleton-card-meta"></div></div></div></div>
+        <div class="skeleton-card"><div class="skeleton-card-thumb"></div><div class="skeleton-card-body"><div class="skeleton-card-line long"></div><div class="skeleton-card-line short"></div><div class="skeleton-card-footer"><div class="skeleton-card-avatar-small"></div><div class="skeleton-card-meta"></div></div></div></div>
+        <div class="skeleton-card"><div class="skeleton-card-thumb"></div><div class="skeleton-card-body"><div class="skeleton-card-line long"></div><div class="skeleton-card-line short"></div><div class="skeleton-card-footer"><div class="skeleton-card-avatar-small"></div><div class="skeleton-card-meta"></div></div></div></div>
+        <div class="skeleton-card"><div class="skeleton-card-thumb"></div><div class="skeleton-card-body"><div class="skeleton-card-line long"></div><div class="skeleton-card-line short"></div><div class="skeleton-card-footer"><div class="skeleton-card-avatar-small"></div><div class="skeleton-card-meta"></div></div></div></div>
+      </div>
+    </section>
+    <!-- 🧭 PAGE TOUR GUIDE POPOVER -->
+    <div id="tour-popover" class="tour-popover glassmorphism hidden">
+      <button id="tour-close-btn" class="tour-close-btn" aria-label="Close Tour">&times;</button>
+      <div class="tour-content">
+        <h3 id="tour-title" class="tour-title">🚀 Stage 1: Page Overview</h3>
+        <p id="tour-desc" class="tour-description">This tour explores the main layout, including filters and global search tools. Hover over any icon for a quick explanation.</p>
+      </div>
+      <div class="tour-footer">
+        <span id="tour-step-counter" class="tour-step-counter">1 of 5</span>
+        <div class="tour-actions">
+          <button id="tour-prev-btn" class="tour-btn tour-btn-prev" disabled>&larr; Previous</button>
+          <button id="tour-next-btn" class="tour-btn tour-btn-next">Next &rarr;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 🧭 PAGE TOUR GUIDE BACKDROP -->
+    <div id="tour-backdrop" class="tour-backdrop hidden"></div>
+
+  </main>
+
+  <!-- 📜 PREMIUM FOOTER -->
+  <footer id="main-footer" class="md:rounded-t-[48px] relative w-[calc(100%-48px)] md:w-[calc(100%-96px)] mx-auto flex flex-col items-center justify-center rounded-t-3xl border-t border-white/10 bg-[radial-gradient(35%_128px_at_50%_0%,rgba(255,255,255,0.08),transparent)] px-6 py-12 lg:py-16 mt-20 text-white z-10 max-w-none">
+    <div class="bg-white/20 absolute top-0 right-1/2 left-1/2 h-px w-1/3 -translate-x-1/2 -translate-y-1/2 rounded-full blur"></div>
+
+    <div class="grid w-full gap-8 xl:grid-cols-3 xl:gap-8">
+      <div class="space-y-4 animated-container" style="transition-delay: 0.1s;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-frame size-8 text-purple-500"><line x1="22" x2="2" y1="6" y2="6"/><line x1="22" x2="2" y1="18" y2="18"/><line x1="6" x2="6" y1="2" y2="22"/><line x1="18" x2="18" y1="2" y2="22"/></svg>
+        <p class="text-slate-400 mt-8 text-sm md:mt-0">
+          &copy; <span id="footer-year"></span> StreamClips Hub. All rights reserved.
+        </p>
+      </div>
+
+      <div class="mt-10 grid grid-cols-2 gap-8 md:grid-cols-3 xl:col-span-2 xl:mt-0">
+        <!-- Product -->
+        <div class="animated-container" style="transition-delay: 0.2s;">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">Product</h3>
+          <ul class="text-slate-400 mt-4 space-y-2 text-sm">
+            <li><a href="#features" class="hover:text-white transition-all duration-300">Features</a></li>
+            <li><a href="#pricing" class="hover:text-white transition-all duration-300">Pricing</a></li>
+            <li><a href="/help" class="hover:text-white transition-all duration-300">Help & Support</a></li>
+          </ul>
+        </div>
+        <!-- Company -->
+        <div class="animated-container" style="transition-delay: 0.3s;">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">Company</h3>
+          <ul class="text-slate-400 mt-4 space-y-2 text-sm">
+            <li><a href="/faqs" class="hover:text-white transition-all duration-300">FAQs</a></li>
+            <li><a href="/about" class="hover:text-white transition-all duration-300">About Us</a></li>
+            <li><a href="/privacy" class="hover:text-white transition-all duration-300">Privacy Policy</a></li>
+            <li><a href="/terms" class="hover:text-white transition-all duration-300">Terms of Services</a></li>
+          </ul>
+        </div>
+        <!-- Social -->
+        <div class="animated-container" style="transition-delay: 0.4s;">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">Social Links</h3>
+          <ul class="text-slate-400 mt-4 space-y-2 text-sm">
+            <li>
+              <a href="https://discord.com/invite/D9Pp2xZG3k" target="_blank" rel="noopener noreferrer" class="hover:text-white inline-flex items-center transition-all duration-300">
+                  <svg class="mr-1.5 h-4 w-4" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.094 13.094 0 0 1-1.873-.894.077.077 0 0 1-.008-.128c.126-.093.252-.19.372-.287a.075.075 0 0 1 .077-.011c3.92 1.793 8.18 1.793 12.061 0a.073.073 0 0 1 .078.009c.12.099.246.195.373.289a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.894.077.077 0 0 1-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.156-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.156 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.156-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.156 2.418z"/></svg>
+                  Discord
+                </a>
+            </li>
+            <li>
+              <a href="https://www.instagram.com/bunnysank_yt" target="_blank" rel="noopener noreferrer" class="hover:text-white inline-flex items-center transition-all duration-300">
+                  <svg class="mr-1.5 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="20" height="20" rx="5" ry="5" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></rect><path d="M16 11.37A4 4 0 1112.63 8 4 4 0 0116 11.37z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></line></svg>
+                  Instagram
+                </a>
+            </li>
+            <li>
+              <a href="https://www.youtube.com/@bunnysank" target="_blank" rel="noopener noreferrer" class="hover:text-white inline-flex items-center transition-all duration-300">
+                  <svg class="mr-1.5 h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17z"></path>
+                  <polygon points="10 15 15 12 10 9"></polygon>
+                </svg>
+                  Youtube
+                </a>
+            </li>
+            <li>
+              <a href="#" class="hover:text-white inline-flex items-center transition-all duration-300">
+                <svg class="mr-1.5 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path><rect x="2" y="9" width="4" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></rect><circle cx="4" cy="4" r="2" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></circle></svg>
+                LinkedIn
+              </a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    document.getElementById('footer-year').textContent = new Date().getFullYear();
+
+    // Footer animations scroll observer
+    const footerObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('active');
+        }
+      });
+    }, { threshold: 0.1 });
+
+    document.querySelectorAll('.animated-container').forEach(el => {
+      footerObserver.observe(el);
+    });
+  </script>
+
+  <!-- 🗑 CUSTOM CONFIRMATION MODAL -->
+  <div id="confirmModal" class="modal-overlay hidden">
+    <div class="modal-content glassmorphism">
+      <div class="modal-header">
+        <h3 id="confirmTitle">Delete Clip</h3>
+        <button id="closeConfirmModal" class="close-modal-btn">&times;</button>
+      </div>
+      <div class="modal-body py-4">
+        <p id="confirmMessage" style="color: var(--text-secondary); font-size: 14px; line-height: 1.5;">Are you sure you want to delete this clip?</p>
+      </div>
+      <div class="modal-actions">
+        <button id="confirmCancelBtn" class="btn btn-secondary">Cancel</button>
+        <button id="confirmYesBtn" class="btn btn-danger">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 📜 SETUP GUIDE MODAL -->
+  <div id="setupModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md opacity-0 pointer-events-none transition-all duration-300">
+    <!-- Modal Backdrop Close Target -->
+    <div class="absolute inset-0" onclick="toggleSetupModal(false)"></div>
+    
+    <!-- Modal Content Card -->
+    <div class="relative w-full max-w-2xl bg-slate-950/95 border border-white/10 rounded-3xl p-8 md:p-10 shadow-2xl text-white transform scale-95 transition-all duration-300 flex flex-col gap-6 mx-4">
+      
+      <!-- Close button -->
+      <button onclick="toggleSetupModal(false)" class="absolute top-4 right-4 w-8 h-8 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white flex items-center justify-center transition-all active:scale-90">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+      </button>
+
+      <div class="flex items-center gap-3">
+        <span class="px-3 py-1 text-xs font-bold uppercase tracking-wider bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-full badge-glow">Setup Guide</span>
+        <h2 class="text-2xl font-extrabold tracking-tight">Add Clip commands to your Stream</h2>
+      </div>
+      
+      <p class="text-slate-400 leading-relaxed text-sm md:text-base">Simply copy the command below and add it to your channel chat via Nightbot to let your moderators and viewers save timestamps instantly:</p>
+      
+      <div class="bg-black/60 border border-white/5 rounded-2xl p-4 md:p-6 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+        <code id="setup-command-3d" class="text-xs md:text-sm font-mono text-purple-300 break-all select-all flex-grow p-1">!addcom !clip $(urlfetch https://yt-timestamp-central-auth-project.onrender.com/api/clip?streamerId=$(channelid)&chatid=$(request_id)&text=$(querystring)&user=$(user)&userlevel=$(userlevel)&channelId=$(userid))</code>
+        <button id="copy-btn-3d" class="px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-sm font-semibold transition-all active:scale-95 shadow-lg shadow-purple-600/20 flex-shrink-0">Copy</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 🔔 UPDATES MODAL -->
+  <div id="updatesModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md opacity-0 pointer-events-none transition-all duration-300">
+    <!-- Modal Backdrop Close Target -->
+    <div class="absolute inset-0" onclick="toggleUpdatesModal(false)"></div>
+    
+    <!-- Modal Content Card -->
+    <div class="relative w-full max-w-lg bg-zinc-950/90 border border-white/10 rounded-2xl p-6 md:p-8 shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto transform scale-95 transition-all duration-300 mx-4">
+      <!-- Header -->
+      <div class="flex items-center justify-between pb-4 border-b border-white/10 mb-6">
+        <h3 class="text-xl font-bold text-white flex items-center gap-2">
+          <svg class="w-5 h-5 text-purple-400" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
+          </svg>
+          What's New & Updates
+        </h3>
+        <button id="closeUpdatesBtn" class="text-slate-400 hover:text-white transition-colors">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Content -->
+      <div class="flex-grow space-y-6">
+        <!-- Update Item 1 -->
+        <div class="flex gap-4">
+          <div class="w-8 h-8 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
+            <span class="text-xs font-bold text-purple-400">1</span>
+          </div>
+          <div>
+            <h4 class="text-sm font-semibold text-white">Smooth Scroll Fade-in & Out</h4>
+            <p class="text-xs text-zinc-400 mt-1 leading-relaxed">The "!clip = Best Moments" title and statistics card now fade in and out gradually based on your exact scroll position, creating a cinematic entrance.</p>
+          </div>
+        </div>
+
+        <!-- Update Item 2 -->
+        <div class="flex gap-4">
+          <div class="w-8 h-8 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
+            <span class="text-xs font-bold text-purple-400">2</span>
+          </div>
+          <div>
+            <h4 class="text-sm font-semibold text-white">Tactile Notification Hover Cards</h4>
+            <p class="text-xs text-zinc-400 mt-1 leading-relaxed">Notifications displayed on the 3D laptop showcase are now fully interactive, glowing and lifting dynamically when hovered.</p>
+          </div>
+        </div>
+
+        <!-- Update Item 3 -->
+        <div class="flex gap-4">
+          <div class="w-8 h-8 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
+            <span class="text-xs font-bold text-purple-400">3</span>
+          </div>
+          <div>
+            <h4 class="text-sm font-semibold text-white">Centered Navigation Bar</h4>
+            <p class="text-xs text-zinc-400 mt-1 leading-relaxed">Cleaned up header alignment by centering Features, Pricing, and Special links while maintaining setup buttons and profile layout on the right.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Button -->
+      <button id="dismissUpdatesBtn" class="mt-8 w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-sm tracking-wide transition-all shadow-lg active:scale-[0.98]">
+        Got it!
+      </button>
+    </div>
+  </div>
+  <!-- 🐛 BUG REPORT MODAL -->
+  <div id="bugModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md opacity-0 pointer-events-none transition-all duration-300">
+    <!-- Modal Backdrop Close Target -->
+    <div class="absolute inset-0" onclick="toggleBugModal(false)"></div>
+    
+    <!-- Modal Content Card -->
+    <div class="relative w-full max-w-md bg-zinc-950/95 border border-white/10 rounded-2xl p-6 md:p-8 shadow-2xl flex flex-col gap-6 mx-4 transform scale-95 transition-all duration-300">
+      
+      <!-- Close button -->
+      <button onclick="toggleBugModal(false)" class="absolute top-4 right-4 w-8 h-8 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white flex items-center justify-center transition-all active:scale-90">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+      </button>
+
+      <div class="flex items-center gap-3">
+        <span class="px-3 py-1 text-xs font-bold uppercase tracking-wider bg-red-500/20 text-red-400 border border-red-500/30 rounded-full support-badge-glow">Support</span>
+        <h2 class="text-xl font-extrabold tracking-tight text-white">Report a Bug</h2>
+      </div>
+
+      <form id="bugReportForm" class="flex flex-col gap-4">
+        <div class="flex flex-col gap-1.5">
+          <label for="bugTitle" class="text-xs font-semibold text-zinc-400">Issue Title</label>
+          <input type="text" id="bugTitle" required placeholder="What is the issue?" class="bug-input" />
+        </div>
+
+        <div class="flex flex-col gap-1.5 relative bug-severity-dropdown-wrapper">
+          <label class="text-xs font-semibold text-zinc-400">Severity Level</label>
+          
+          <input type="hidden" id="bugSeverity" value="medium" />
+          
+          <button type="button" id="bugSeverityToggleBtn" class="bug-input flex items-center justify-between select-none">
+            <span id="bugSeveritySelectedText">Medium - Feature behavior issue</span>
+            <svg class="w-4 h-4 text-zinc-400 transition-transform duration-200" id="bugSeverityChevron" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path>
+            </svg>
+          </button>
+          
+          <div id="bugSeverityDropdownMenu" class="bug-severity-dropdown-menu absolute top-[calc(100%+8px)] left-0 w-full bg-zinc-950 border-2 border-zinc-800 rounded-xl shadow-[0_10px_25px_-5px_rgba(0,0,0,0.5)] z-[110] flex flex-col overflow-hidden opacity-0 pointer-events-none transition-all duration-200 origin-top transform translate-y-2">
+            <button type="button" data-value="low" class="bug-severity-option-btn w-full px-4 py-3 text-left text-xs font-semibold text-zinc-100 hover:text-white bg-zinc-900 hover:bg-zinc-800 border-b-2 border-zinc-800 transition-all">Low - Minor styling or visual tweak</button>
+            <button type="button" data-value="medium" class="bug-severity-option-btn w-full px-4 py-3 text-left text-xs font-semibold text-zinc-100 hover:text-white bg-zinc-900 hover:bg-zinc-800 border-b-2 border-zinc-800 transition-all">Medium - Feature behavior issue</button>
+            <button type="button" data-value="high" class="bug-severity-option-btn w-full px-4 py-3 text-left text-xs font-semibold text-zinc-100 hover:text-white bg-zinc-900 hover:bg-zinc-800 border-b-2 border-zinc-800 transition-all">High - Feature completely broken</button>
+            <button type="button" data-value="critical" class="bug-severity-option-btn w-full px-4 py-3 text-left text-xs font-semibold text-zinc-100 hover:text-white bg-zinc-900 hover:bg-zinc-800 transition-all">Critical - Crash or security risk</button>
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <label for="bugDescription" class="text-xs font-semibold text-zinc-400">Steps to Reproduce / Description</label>
+          <textarea id="bugDescription" required rows="4" placeholder="How did it happen? What did you expect vs what actually happened?" class="bug-input resize-none"></textarea>
+        </div>
+
+        <button type="submit" id="submitBugBtn" class="pushable mt-4 w-full">
+          <span class="shadow"></span>
+          <span class="edge"></span>
+          <span class="front flex items-center justify-center gap-2 font-bold text-sm tracking-wide py-3 px-6 select-none">
+            Submit Bug Report
+          </span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+</body>
+</html>

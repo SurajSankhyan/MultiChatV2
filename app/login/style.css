@@ -1,0 +1,765 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@100;200;300;400;500;600;700;800;900&display=swap');
+
+.auth-page-container {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    height: 100vh;
+    background: #050505;
+    padding: 0;
+    margin: 0;
+    font-family: 'Poppins', sans-serif;
+    position: relative;
+    overflow: hidden;
+    width: 100vw;
+    color: #fff;
+}
+
+.auth-page-container * {
+    box-sizing: border-box;
+}
+
+.auth-page-container input,
+.auth-page-container button,
+.auth-page-container select,
+.auth-page-container textarea {
+    font-family: 'Poppins', sans-serif;
+}
+
+.auth-wrapper {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+}
+
+/* ============================================================
+   Left Column: Spline 3D Robot Panel
+   ============================================================ */
+.left-spline-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 60%; /* Expanded from 50% to prevent 3D scene cropping */
+    height: 100%;
+    z-index: 5; /* Lowered to render behind the credentials form overlay */
+    overflow: hidden;
+    /* No background — the Spline canvas sits directly on the particles */
+    /* Coordinated Staggered Page Entrance Animation */
+    animation: slideInLeftPanel 1.4s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+    /* Enable 3D space rendering for perspective rotations */
+    perspective: 1000px;
+}
+
+.left-spline-panel::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 200px;
+    height: 100%;
+    background: linear-gradient(to right, rgba(5, 5, 5, 0), #050505);
+    z-index: 25; /* Overlay on top of Spline embed but below logos/text */
+    pointer-events: none; /* Let all mouse events pass through to Spline canvas below */
+}
+
+.left-panel-logo {
+    position: absolute;
+    top: 48px;
+    left: 48px;
+    z-index: 40;
+}
+
+.left-panel-welcome {
+    position: absolute;
+    top: 20%;
+    left: 48px;
+    right: 48px;
+    z-index: 40;
+}
+
+/* Spline canvas itself — absolute, fills the whole left panel */
+.spline-embed {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    /* Push the bottom 70px off-screen to hide the Spline watermark */
+    height: calc(100% + 70px) !important;
+    bottom: -70px !important;
+    z-index: 5;
+    /* Centered in the left panel */
+    transform: translateX(0px);
+    /* Make the black canvas background transparent to blend with particles background */
+    mix-blend-mode: screen;
+    /* Smoothly mask/fade both left and right edges to blend canvas boundaries */
+    -webkit-mask-image: linear-gradient(to right, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 30%, rgba(0, 0, 0, 1) 70%, rgba(0, 0, 0, 0) 95%);
+    mask-image: linear-gradient(to right, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) 30%, rgba(0, 0, 0, 1) 70%, rgba(0, 0, 0, 0) 95%);
+}
+
+.spline-embed a,
+.spline-canvas-container a {
+    display: none !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    visibility: hidden !important;
+}
+
+/* Inner wrapper to apply vertical fade mask to blend 3D pedestal/platform */
+.spline-canvas-container {
+    /* Smoothly mask/fade the bottom edge to blend the platform base into particles */
+    -webkit-mask-image: linear-gradient(to top, rgba(0, 0, 0, 1) 70%, rgba(0, 0, 0, 0) 95%);
+    mask-image: linear-gradient(to top, rgba(0, 0, 0, 1) 70%, rgba(0, 0, 0, 0) 95%);
+}
+
+
+
+/* ============================================================
+   Right Column: Credentials Panels
+   ============================================================ */
+.auth-wrapper .credentials-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 50%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 20; /* Increased to render above the overlapping 3D spline panel */
+    background: transparent;
+    transition: opacity 0.7s ease, visibility 0.7s ease;
+}
+
+.credentials-panel.signin {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+.auth-wrapper.toggled .credentials-panel.signin {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.credentials-panel-content {
+    width: 100%;
+    max-width: 440px;
+    display: flex;
+    flex-direction: column;
+    background: rgba(255, 255, 255, 0.035);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 24px;
+    padding: 36px;
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    /* Coordinated Staggered Page Entrance Animation */
+    animation: slideUpCard 1.2s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+/* Slide elements animations */
+.credentials-panel.signin .slide-element {
+    transform: translateX(0%);
+    transition: .5s cubic-bezier(0.25, 1, 0.5, 1);
+    opacity: 1;
+}
+
+.credentials-panel.signin .slide-element:nth-child(1) { transition-delay: 0.3s; }
+.credentials-panel.signin .slide-element:nth-child(2) { transition-delay: 0.33s; }
+.credentials-panel.signin .slide-element:nth-child(3) { transition-delay: 0.36s; }
+.credentials-panel.signin .slide-element:nth-child(4) { transition-delay: 0.39s; }
+.credentials-panel.signin .slide-element:nth-child(5) { transition-delay: 0.42s; }
+.credentials-panel.signin .slide-element:nth-child(6) { transition-delay: 0.45s; }
+.credentials-panel.signin .slide-element:nth-child(7) { transition-delay: 0.48s; }
+.credentials-panel.signin .slide-element:nth-child(8) { transition-delay: 0.51s; }
+
+.auth-wrapper.toggled .credentials-panel.signin .slide-element {
+    transform: translateX(120%);
+    opacity: 0;
+    transition: .4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.auth-wrapper.toggled .credentials-panel.signin .slide-element:nth-child(1) { transition-delay: 0s; }
+.auth-wrapper.toggled .credentials-panel.signin .slide-element:nth-child(2) { transition-delay: 0.03s; }
+.auth-wrapper.toggled .credentials-panel.signin .slide-element:nth-child(3) { transition-delay: 0.06s; }
+.auth-wrapper.toggled .credentials-panel.signin .slide-element:nth-child(4) { transition-delay: 0.09s; }
+.auth-wrapper.toggled .credentials-panel.signin .slide-element:nth-child(5) { transition-delay: 0.12s; }
+.auth-wrapper.toggled .credentials-panel.signin .slide-element:nth-child(6) { transition-delay: 0.15s; }
+.auth-wrapper.toggled .credentials-panel.signin .slide-element:nth-child(7) { transition-delay: 0.18s; }
+.auth-wrapper.toggled .credentials-panel.signin .slide-element:nth-child(8) { transition-delay: 0.21s; }
+
+.credentials-panel.signup {
+    right: 0;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.auth-wrapper.toggled .credentials-panel.signup {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+.credentials-panel.signup .slide-element {
+    transform: translateX(120%);
+    transition: .4s cubic-bezier(0.25, 1, 0.5, 1);
+    opacity: 0;
+}
+
+.credentials-panel.signup .slide-element:nth-child(1) { transition-delay: 0s; }
+.credentials-panel.signup .slide-element:nth-child(2) { transition-delay: 0.03s; }
+.credentials-panel.signup .slide-element:nth-child(3) { transition-delay: 0.06s; }
+.credentials-panel.signup .slide-element:nth-child(4) { transition-delay: 0.09s; }
+.credentials-panel.signup .slide-element:nth-child(5) { transition-delay: 0.12s; }
+.credentials-panel.signup .slide-element:nth-child(6) { transition-delay: 0.15s; }
+.credentials-panel.signup .slide-element:nth-child(7) { transition-delay: 0.18s; }
+.credentials-panel.signup .slide-element:nth-child(8) { transition-delay: 0.21s; }
+
+.auth-wrapper.toggled .credentials-panel.signup .slide-element {
+    transform: translateX(0%);
+    opacity: 1;
+    transition: .5s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.auth-wrapper.toggled .credentials-panel.signup .slide-element:nth-child(1) { transition-delay: 0.3s; }
+.auth-wrapper.toggled .credentials-panel.signup .slide-element:nth-child(2) { transition-delay: 0.33s; }
+.auth-wrapper.toggled .credentials-panel.signup .slide-element:nth-child(3) { transition-delay: 0.36s; }
+.auth-wrapper.toggled .credentials-panel.signup .slide-element:nth-child(4) { transition-delay: 0.39s; }
+.auth-wrapper.toggled .credentials-panel.signup .slide-element:nth-child(5) { transition-delay: 0.42s; }
+.auth-wrapper.toggled .credentials-panel.signup .slide-element:nth-child(6) { transition-delay: 0.45s; }
+.auth-wrapper.toggled .credentials-panel.signup .slide-element:nth-child(7) { transition-delay: 0.48s; }
+.auth-wrapper.toggled .credentials-panel.signup .slide-element:nth-child(8) { transition-delay: 0.51s; }
+
+.credentials-panel h2 {
+    font-size: 36px;
+    text-align: center;
+    font-weight: 800;
+    letter-spacing: -1px;
+    margin-bottom: 8px;
+    background: linear-gradient(135deg, #fff 0%, rgba(255, 255, 255, 0.7) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* ============================================================
+   Premium Floating Label Input Fields
+   ============================================================ */
+.credentials-panel .field-wrapper {
+    position: relative;
+    width: 100%;
+    height: 56px;
+    margin-top: 22px;
+}
+
+.field-wrapper input {
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
+    outline: none;
+    font-size: 15px;
+    color: #fff;
+    font-weight: 500;
+    padding: 18px 45px 4px 16px;
+    transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.field-wrapper input:focus,
+.field-wrapper input.has-value,
+.field-wrapper input:not(:placeholder-shown),
+.field-wrapper input:-webkit-autofill {
+    border: 1px solid rgba(0, 240, 255, 0.25);
+    background: rgba(0, 240, 255, 0.02);
+    box-shadow: 0 0 20px rgba(0, 240, 255, 0.04);
+}
+
+.field-wrapper label {
+    position: absolute;
+    top: 50%;
+    left: 16px;
+    transform: translateY(-50%);
+    font-size: 15px;
+    color: var(--text-muted);
+    transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+    pointer-events: none;
+}
+
+.field-wrapper input:focus~label,
+.field-wrapper input.has-value~label,
+.field-wrapper input:not(:placeholder-shown)~label,
+.field-wrapper input:-webkit-autofill~label {
+    top: 13px;
+    font-size: 9px;
+    color: var(--primary);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.field-wrapper .input-icon {
+    position: absolute;
+    top: 50%;
+    right: 16px;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+    pointer-events: none;
+}
+
+.field-wrapper input:focus~.input-icon,
+.field-wrapper input.has-value~.input-icon,
+.field-wrapper input:not(:placeholder-shown)~.input-icon,
+.field-wrapper input:-webkit-autofill~.input-icon {
+    color: var(--primary);
+}
+
+.field-wrapper .password-toggle-btn {
+    position: absolute;
+    top: 50%;
+    right: 42px;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    transition: all 0.2s ease;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    outline: none;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.field-wrapper .password-toggle-btn:hover {
+    color: var(--primary);
+}
+
+.forgot-password-wrapper {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 12px;
+}
+
+.field-wrapper.button-field {
+    margin-top: 28px;
+}
+
+/* ============================================================
+   Submit Button
+   ============================================================ */
+.submit-button {
+    position: relative;
+    width: 100%;
+    height: 52px;
+    background: linear-gradient(135deg, #00F0FF 0%, #00B8D4 100%);
+    border-radius: 14px;
+    cursor: pointer;
+    font-size: 15px;
+    color: #040A15;
+    font-weight: 700;
+    border: none;
+    overflow: hidden;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-shadow: 0 4px 20px rgba(0, 240, 255, 0.2);
+    transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.submit-button:hover {
+    box-shadow: 0 0 30px rgba(0, 240, 255, 0.45);
+    transform: translateY(-1px) scale(1.02);
+    filter: brightness(1.05);
+}
+
+.submit-button:active {
+    transform: translateY(0);
+}
+
+.submit-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* ============================================================
+   Google Button
+   ============================================================ */
+.google-button {
+    width: 100%;
+    height: 52px;
+    background: rgba(255, 255, 255, 0.01);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 14px;
+    cursor: pointer;
+    font-size: 15px;
+    color: #fff;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+    transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.google-button:hover {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(0, 240, 255, 0.18);
+    box-shadow: 0 0 20px rgba(0, 240, 255, 0.05);
+}
+
+.google-button svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* ============================================================
+   Premium Divider
+   ============================================================ */
+.divider-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 22px 0;
+}
+
+.divider-wrapper .divider-line {
+    height: 1px;
+    flex: 1;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.divider-wrapper span {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+/* ============================================================
+   Switch Link
+   ============================================================ */
+.switch-link {
+    font-size: 14px;
+    text-align: center;
+    margin: 24px 0 0;
+    color: var(--text-muted);
+}
+
+.switch-link p {
+    color: var(--text-muted);
+}
+
+.switch-link a {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--primary);
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    transition: .3s ease;
+}
+
+.switch-link a:hover {
+    text-decoration: underline;
+    filter: brightness(1.1);
+}
+
+/* ============================================================
+   Mobile Responsive Styles
+   ============================================================ */
+@media (max-width: 1024px) {
+    .left-spline-panel {
+        display: none;
+    }
+
+    .auth-wrapper .credentials-panel {
+        width: 100%;
+        left: 0;
+        right: 0;
+    }
+
+    .credentials-panel-content {
+        width: 92%;
+        max-width: 440px;
+        margin: 0 auto;
+        padding: 40px 24px;
+    }
+}
+
+/* ============================================================
+   Page Entrance Animations
+   ============================================================ */
+#particles-js {
+    animation: fadeInParticles 2.2s ease-out forwards;
+}
+
+#particles-js canvas {
+    will-change: transform;
+    transform: translate3d(0, 0, 0);
+    backface-visibility: hidden;
+}
+
+@keyframes fadeInParticles {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes slideInLeftPanel {
+    from {
+        transform: translateX(-100px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideUpCard {
+    from {
+        transform: translateY(60px);
+        opacity: 0;
+      }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+/* Custom Select Dropdown Styling */
+.field-wrapper select {
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
+    outline: none;
+    font-size: 15px;
+    color: #fff;
+    font-weight: 500;
+    padding: 18px 45px 4px 16px;
+    transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+}
+
+.field-wrapper select:focus,
+.field-wrapper select.has-value {
+    border: 1px solid rgba(0, 240, 255, 0.25);
+    background: rgba(0, 240, 255, 0.02);
+    box-shadow: 0 0 20px rgba(0, 240, 255, 0.04);
+}
+
+.field-wrapper.select-field {
+    z-index: 50; /* Create a stacking context to overlay the popover on top of the submit button */
+}
+
+.field-wrapper.select-field::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: 48px;
+    transform: translateY(-50%);
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 5px solid var(--text-muted);
+    pointer-events: none;
+    transition: transform 0.3s ease;
+}
+
+.field-wrapper select:focus ~ label,
+.field-wrapper select.has-value ~ label {
+    top: 13px;
+    font-size: 9px;
+    color: var(--primary);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.field-wrapper select option {
+    background: #09090b !important;
+    color: #fff !important;
+}
+
+/* Custom Dropdown Trigger */
+.custom-dropdown-trigger {
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
+    outline: none;
+    font-size: 15px;
+    color: #fff;
+    font-weight: 500;
+    padding: 18px 45px 4px 45px;
+    transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: relative;
+    user-select: none;
+}
+
+.custom-dropdown-trigger:hover,
+.custom-dropdown-trigger.active {
+    border: 1px solid rgba(0, 240, 255, 0.25);
+    background: rgba(0, 240, 255, 0.02);
+    box-shadow: 0 0 20px rgba(0, 240, 255, 0.04);
+}
+
+.custom-dropdown-trigger .chevron-icon {
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+}
+
+.custom-dropdown-trigger .dropdown-label {
+    position: absolute;
+    top: 50%;
+    left: 45px;
+    transform: translateY(-50%);
+    font-size: 15px;
+    color: var(--text-muted);
+    transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+    pointer-events: none;
+}
+
+.custom-dropdown-trigger.has-value .dropdown-label,
+.custom-dropdown-trigger.active .dropdown-label {
+    top: 13px;
+    font-size: 9px;
+    color: var(--primary);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.custom-dropdown-trigger .dropdown-value {
+    margin-top: 10px;
+    display: block;
+    font-size: 15px;
+    text-align: left;
+}
+
+/* Custom Dropdown Popover */
+.custom-dropdown-popover {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    width: 100%;
+    background: #09090b;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    box-shadow: 0 10px 35px rgba(0, 0, 0, 0.9), 0 0 30px rgba(0, 240, 255, 0.08);
+    backdrop-filter: blur(20px);
+    z-index: 9999; /* Higher z-index to overlay on top of all other elements */
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* Search input inside dropdown */
+.custom-dropdown-popover .search-wrapper {
+    width: 100%;
+    position: relative;
+}
+
+.custom-dropdown-popover .search-wrapper input {
+    width: 100%;
+    height: 38px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    outline: none;
+    font-size: 13px;
+    color: #fff;
+    padding: 0 12px;
+    transition: all 0.2s ease;
+}
+
+.custom-dropdown-popover .search-wrapper input:focus {
+    border: 1px solid rgba(0, 240, 255, 0.3);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+/* Dropdown list */
+.dropdown-options-list {
+    max-height: 180px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-right: 4px;
+}
+
+/* Custom Scrollbar */
+.dropdown-options-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.dropdown-options-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.dropdown-options-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+}
+
+.dropdown-options-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 240, 255, 0.3);
+}
+
+/* Option item */
+.dropdown-option-item {
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+    text-align: left;
+}
+
+.dropdown-option-item:hover {
+    background: rgba(0, 240, 255, 0.08);
+    color: #fff;
+}
+
+.dropdown-option-item.selected {
+    background: rgba(0, 240, 255, 0.15);
+    color: var(--primary);
+    font-weight: 700;
+}
+
+.no-options-found {
+    padding: 16px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-muted);
+}

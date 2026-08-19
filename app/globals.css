@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg-base: var(--bg-base);
+  --color-bg-deep: var(--bg-deep);
+  --color-bg-surface: var(--bg-surface);
+  --color-bg-card: var(--bg-card);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-border: var(--border);
+  --color-border-glow: var(--border-glow);
+  --color-primary: var(--primary);
+  --color-primary-dim: var(--primary-dim);
+  --color-green: var(--green);
+  --color-gold: var(--gold);
+  --color-bronze: var(--bronze);
+  --color-error: var(--error);
+  --color-warning: var(--warning);
+  --color-text-primary: var(--text-primary);
+  --color-text-muted: var(--text-muted);
+  --color-text-faint: var(--text-faint);
+
+  --font-inter: var(--font-inter);
+}
+
+:root {
+  --bg-base: #000000;
+  --bg-deep: #040A15;
+  --bg-surface: #0D1117;
+  --bg-card: #161B26;
+  --bg-elevated: #1A2238;
+  --border: #2E3447;
+  --border-glow: rgba(0,240,255,0.25);
+  --primary: #00F0FF;
+  --primary-dim: rgba(0,240,255,0.08);
+  --green: #10B981;
+  --gold: #FFD700;
+  --bronze: #CD7F32;
+  --error: #FF3B30;
+  --warning: #F59E0B;
+  --text-primary: #E5E2E3;
+  --text-muted: #64748B;
+  --text-faint: #2E3447;
+}
+
+body {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-inter), sans-serif;
+  overflow-x: hidden;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-base);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bg-surface);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border);
+}
+
+@layer utilities {
+  .glass-card {
+    background: rgba(22, 27, 38, 0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 16px;
+  }
+  
+  .glow-btn {
+    box-shadow: 0 0 30px rgba(0,240,255,0.08), 0 4px 24px rgba(0,0,0,0.6);
+    transition: all 0.25s ease;
+  }
+
+  .glow-btn:hover {
+    box-shadow: 0 0 40px rgba(0,240,255,0.2), 0 4px 24px rgba(0,0,0,0.8);
+  }
+
+}
+
+/* Fix browser autofill background globally */
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus, 
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #0D1117 inset !important;
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff !important;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer-bg {
+  background: linear-gradient(
+    90deg,
+    var(--primary) 0%,
+    rgba(255, 255, 255, 0.6) 30%,
+    var(--primary) 60%,
+    var(--primary) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 3s infinite linear;
+}

@@ -1,0 +1,8 @@
+{
+  "name": "streampayclips-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "mkdir -p dist && cp index.html dashboard.html logo.svg option.css option.js pencil.png scissor.svg user.png dist/"
+  }
+}

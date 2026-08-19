@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "StreamClips YouTube Session Sync",
+  "version": "1.0.0",
+  "description": "Automatically extracts and syncs your active YouTube session credentials and cookies to StreamClips MultiChat Website.",
+  "permissions": [
+    "cookies",
+    "storage",
+    "activeTab",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://youtube.com/*",
+    "*://*.youtube.com/*",
+    "https://youtube.com/*",
+    "https://www.youtube.com/*",
+    "*://*.google.com/*",
+    "https://accounts.google.com/*",
+    "http://localhost:5000/*",
+    "http://localhost:3000/*",
+    "http://127.0.0.1:5000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://youtube.com/*",
+        "*://*.youtube.com/*",
+        "https://youtube.com/*",
+        "https://www.youtube.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "StreamClips Sync"
+  }
+}

@@ -1,0 +1,1078 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>StreamClips Hub - Interactive 3D Experience</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=block" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=block" rel="stylesheet">
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Supabase client -->
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+
+  <!-- Styles -->
+  <link href="/option.css?v=14.6" rel="stylesheet" type="text/css" />
+
+  <!-- Custom Styles for 3D Demo -->
+  <style>
+    html {
+      scroll-snap-type: y mandatory;
+    }
+    html, body {
+      height: auto !important;
+      min-height: 100% !important;
+      overflow: visible !important;
+    }
+    body {
+      background-color: #000000 !important;
+      color: #ffffff !important;
+      margin: 0;
+      padding: 0;
+      overflow-x: hidden;
+      font-family: 'Inter', sans-serif;
+    }
+    .snap-point {
+      scroll-snap-align: start;
+      scroll-snap-stop: always;
+    }
+    
+    /* Custom Scrollbar for premium theme */
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #09090b !important;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1 !important;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #e2e8f0 !important;
+    }
+
+    .video-vignette {
+      background: linear-gradient(to right, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0) 25%, rgba(0, 0, 0, 0) 75%, rgba(0, 0, 0, 1) 100%),
+                  linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0) 85%, rgba(0, 0, 0, 1) 100%);
+    }
+
+    /* Pulse animation for CTA badge */
+    @keyframes pulse-glow {
+      0%, 100% {
+        box-shadow: 0 0 15px rgba(168, 85, 247, 0.4);
+        border-color: rgba(168, 85, 247, 0.6);
+      }
+      50% {
+        box-shadow: 0 0 25px rgba(168, 85, 247, 0.7);
+        border-color: rgba(168, 85, 247, 1);
+      }
+    }
+    .badge-glow {
+      animation: pulse-glow 2s infinite;
+    }
+
+    /* Fade in up animation for landing titles */
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    .animate-fade-in-up {
+      animation: fadeInUp 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    
+    /* Disperse character styles */
+    .disperse-char {
+      display: inline-block;
+      font-family: 'Outfit', sans-serif;
+      font-weight: 800;
+      color: #ffffff;
+      text-shadow: 0 2px 10px rgba(255, 255, 255, 0.4);
+      transition: all 0.75s cubic-bezier(0.33, 1, 0.68, 1);
+    }
+    #disperseWord:hover .disperse-char {
+      text-shadow: 0 0 10px rgba(255, 255, 255, 0.65);
+      color: #ffffff;
+    }
+
+    /* Register custom CSS variable for smooth gradient rotation without physical layout rotation */
+    @property --rainbow-angle {
+      syntax: '<angle>';
+      initial-value: 0deg;
+      inherits: false;
+    }
+
+    @keyframes rainbow-sweep {
+      0% {
+        --rainbow-angle: 0deg;
+      }
+      100% {
+        --rainbow-angle: 360deg;
+      }
+    }
+
+    /* Wrapper container to allow overflow: visible for glow and border animation */
+    .premium-info-card-wrapper {
+      position: relative;
+      width: 100%;
+      perspective: 1000px;
+      overflow: visible;
+    }
+
+    /* Conic rainbow border sweep matching special active creator card */
+    .premium-info-card-wrapper::before {
+      content: '';
+      position: absolute;
+      inset: -1.5px;
+      border-radius: 25.5px;
+      background: conic-gradient(
+        from var(--rainbow-angle),
+        #ff0055,
+        #7a00ff,
+        #00e5ff,
+        #00ff66,
+        #ffcc00,
+        #ff0055
+      );
+      pointer-events: none;
+      z-index: 1; /* Render in front of glow, behind card content */
+      animation: rainbow-sweep 5s linear infinite;
+    }
+
+    /* Conic rainbow animated glow matching special active creator card - decreased spread */
+    .premium-info-card-wrapper::after {
+      content: '';
+      position: absolute;
+      inset: -2px; /* Decreased offset to decrease spread glow */
+      border-radius: 26px;
+      background: conic-gradient(
+        from var(--rainbow-angle),
+        #ff0055,
+        #7a00ff,
+        #00e5ff,
+        #00ff66,
+        #ffcc00,
+        #ff0055
+      );
+      pointer-events: none;
+      z-index: -1;
+      filter: blur(4px); /* Decreased blur from 8px to 4px to decrease spread glow */
+      opacity: 0.35; /* Decreased opacity from 0.6 to 0.35 */
+      animation: rainbow-sweep 5s linear infinite;
+      transition: opacity 0.4s ease, filter 0.4s ease;
+    }
+    .premium-info-card-wrapper:hover::after {
+      opacity: 0.55;
+      filter: blur(6px);
+    }
+
+    /* Inner card with overflow: hidden to support Uiverse flip animations perfectly */
+    .premium-info-card {
+      width: 100%;
+      height: 100%;
+      background: #0f172a;
+      border-radius: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden; /* Clips the rotated content */
+      position: relative;
+      z-index: 2; /* Render in front of glow and border */
+      transition: all 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.05);
+    }
+    .premium-info-card-wrapper:hover .premium-info-card {
+      box-shadow: 0 8px 16px rgba(255, 255, 255, 0.15);
+      border-color: transparent;
+    }
+    .premium-info-card svg {
+      width: 48px;
+      fill: #ffffff;
+      transition: all 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    .premium-info-card-wrapper:hover .premium-info-card svg {
+      transform: scale(0);
+    }
+    .premium-info-card-logo-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      transition: all 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    .premium-info-card-content {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      padding: 1.5rem;
+      box-sizing: border-box;
+      background: #0f172a; /* Same background color as card */
+      transform: rotateX(-90deg);
+      transform-origin: bottom;
+      transition: all 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: flex-start;
+      border-radius: 24px;
+    }
+    .premium-info-card-wrapper:hover .premium-info-card-content {
+      transform: rotateX(0deg);
+    }
+    .yt-preview-card {
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.05);
+    }
+    .yt-play-btn {
+      transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .yt-preview-card:hover .yt-play-btn {
+      background-color: #ff0000;
+      transform: scale(1.15);
+      box-shadow: 0 0 25px rgba(255, 0, 0, 0.6);
+    }
+    .yt-play-btn-svg {
+      filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+    }
+
+    /* Mobile Menu Toggle & SVG Morphing Transitions */
+    #menuToggleIcon.open {
+      transform: rotate(-45deg);
+    }
+    #menuToggleIcon.open #menuPath1 {
+      stroke-dasharray: 20 300;
+      stroke-dashoffset: -32.42px;
+    }
+    #menuToggleIcon.open #menuPath2 {
+      opacity: 0;
+      transform: scaleX(0);
+    }
+  </style>
+</head>
+<body class="dark bg-black selection:bg-purple-600/30 selection:text-white">
+
+  <!-- 🧭 FLOATING NAVBAR -->
+  <nav class="fixed top-0 left-0 right-0 z-50 bg-black/40 backdrop-blur-xl border-b border-white/5 px-6 md:px-12 py-3 transition-all duration-300">
+    <div class="w-full flex items-center justify-between">
+      <!-- Left: Logo / Back Link -->
+      <a href="index.html" class="flex items-center gap-2.5 group">
+        <div class="w-10 h-10 rounded-lg bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center shadow-md shadow-purple-600/20 group-hover:scale-105 active:scale-95 transition-all">
+          <svg class="w-5.5 h-5.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+          </svg>
+        </div>
+        <span class="text-2xl font-extrabold tracking-tight text-white group-hover:text-white transition-all select-none">
+          Stream<span class="bg-gradient-to-r from-purple-400 to-indigo-400 bg-clip-text text-transparent">PayClip</span>
+        </span>
+      </a>
+
+      <!-- Center: Links -->
+      <div class="flex-grow flex justify-center">
+        <div class="flex items-center gap-3 sm:gap-6">
+          <a href="/features.html" class="header-nav-link text-[12px] sm:text-[14px] font-semibold text-slate-300 hover:text-white transition-colors">Features</a>
+          <a href="#" class="header-nav-link text-[12px] sm:text-[14px] font-semibold text-slate-300 hover:text-white transition-colors">Pricing</a>
+          <a href="#" class="header-nav-link text-[12px] sm:text-[14px] font-semibold text-slate-300 hover:text-white transition-colors">Special</a>
+          <a href="#creators-section" class="header-nav-link text-[12px] sm:text-[14px] font-semibold text-slate-300 hover:text-white transition-colors">Creators</a>
+        </div>
+      </div>
+
+      <!-- Right: Buttons -->
+      <div class="flex items-center gap-3">
+        <!-- Header Icons Group -->
+        <div class="flex items-center gap-2 mr-1">
+          <!-- Updates Bell Button -->
+          <button id="updatesNavBtn" class="updates-bell-btn relative">
+            <svg viewBox="0 0 448 512" class="bell-svg"><path d="M224 0c-17.7 0-32 14.3-32 32V49.9C119.5 61.4 64 124.2 64 200v33.4c0 45.4-15.5 89.5-43.8 124.9L5.3 377c-5.8 7.2-6.9 17.1-2.9 25.4S14.8 416 24 416H424c9.2 0 17.6-5.3 21.6-13.6s2.9-18.2-2.9-25.4l-14.9-18.6C399.5 322.9 384 278.8 384 233.4V200c0-75.8-55.5-138.6-128-150.1V32c0-17.7-14.3-32-32-32zm0 96h8c57.4 0 104 46.6 104 104v33.4c0 47.9 13.9 94.6 39.7 134.6H72.3C98.1 328 112 281.3 112 233.4V200c0-57.4 46.6-104 104-104h8zm64 352H224 160c0 17 6.7 33.3 18.7 45.3s28.3 18.7 45.3 18.7s33.3-6.7 45.3-18.7s18.7-28.3 18.7-45.3z"></path></svg>
+            <span class="updates-badge absolute -top-1 -right-1 bg-purple-600 text-white text-[10px] font-bold h-4 w-4 rounded-full flex items-center justify-center border border-black animate-pulse">1</span>
+            <span class="tooltip">What's New</span>
+          </button>
+
+          <!-- Bug Report Button -->
+          <button id="bugReportNavBtn" class="BugButton relative">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 43 42"
+              class="bugsvg"
+            >
+              <path
+                stroke-width="4"
+                stroke="#cfcfcf"
+                d="M20 7H23C26.866 7 30 10.134 30 14V28.5C30 33.1944 26.1944 37 21.5 37C16.8056 37 13 33.1944 13 28.5V14C13 10.134 16.134 7 20 7Z"
+              ></path>
+              <path
+                stroke-linecap="round"
+                stroke-width="4"
+                stroke="#cfcfcf"
+                d="M18 2V7"
+              ></path>
+              <path
+                stroke-linecap="round"
+                stroke-width="4"
+                stroke="#cfcfcf"
+                d="M25 2V7"
+              ></path>
+              <path
+                stroke-linecap="round"
+                stroke-width="4"
+                stroke="#cfcfcf"
+                d="M31 22H41"
+              ></path>
+              <path
+                stroke-linecap="round"
+                stroke-width="4"
+                stroke="#cfcfcf"
+                d="M2 22H12"
+              ></path>
+              <path
+                stroke-linecap="round"
+                stroke-width="4"
+                stroke="#cfcfcf"
+                d="M12.5785 15.2681C3.5016 15.2684 4.99951 12.0004 5 4"
+              ></path>
+              <path
+                stroke-linecap="round"
+                stroke-width="4"
+                stroke="#cfcfcf"
+                d="M12.3834 29.3877C3.20782 29.3874 4.72202 32.4736 4.72252 40.0291"
+              ></path>
+              <path
+                stroke-linecap="round"
+                stroke-width="4"
+                stroke="#cfcfcf"
+                d="M30.0003 14.8974C39.0545 15.553 37.7958 12.1852 38.3718 4.20521"
+              ></path>
+              <path
+                stroke-linecap="round"
+                stroke-width="4"
+                stroke="#cfcfcf"
+                d="M29.9944 29.7379C39.147 29.1188 37.8746 32.2993 38.4568 39.8355"
+              ></path>
+            </svg>
+            <span class="tooltip">Bug Report</span>
+          </button>
+        </div>
+
+        <button id="setupGuideNavBtn" class="px-5 h-10 rounded-lg border border-white/10 bg-transparent text-sm font-semibold text-zinc-300 hover:text-white hover:bg-white/5 hover:border-white/20 active:scale-95 transition-all flex items-center gap-2 hidden">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
+          </svg>
+          Setup Guide
+        </button>
+        <a href="index.html" class="px-5 h-10 rounded-lg border border-white/10 bg-white/5 text-sm font-semibold text-slate-300 hover:text-white hover:bg-white/10 hover:border-white/20 active:scale-95 transition-all flex items-center gap-2">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+          </svg>
+          Classic View
+        </a>
+
+        <!-- 🔐 AUTH ACTIONS -->
+        <div id="auth-unlogged" class="auth-unlogged flex items-center gap-3">
+          <button id="showLoginBtn" class="px-5 h-10 rounded-lg border border-white/15 bg-black/40 text-sm font-bold text-white hover:bg-white/5 transition-all active:scale-95">
+            Sign In
+          </button>
+          <button class="px-5 h-10 rounded-lg bg-slate-100 text-sm font-bold text-black hover:bg-white transition-all active:scale-95">
+            Get Started
+          </button>
+        </div>
+
+        <div id="auth-logged" class="auth-logged hidden flex items-center gap-4 relative">
+          <!-- Sliding Profile Card -->
+          <div id="user-profile-button" class="profile-card">
+            <div class="profile-card-outer">
+              <div class="profile-card-inner">
+                <!-- Avatar Wrapper -->
+                <div class="profile-avatar-wrapper">
+                  <!-- Ambient Glow -->
+                  <div class="profile-glow"></div>
+                  <!-- Avatar Image -->
+                  <img id="user-display-avatar" class="profile-avatar-img" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNTAiIGhlaWdodD0iMTUwIiB2aWV3Qm94PSIwIDAgMTUwIDE1MCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzFlMjkzYiIvPjxjaXJjbGUgY3g9Ijc1IiBjeT0iNzUiIHI9IjQwIiBmaWxsPSIjNDc1NTY5Ii8+PC9zdmc+" alt="avatar" />
+                  <!-- Status Dot -->
+                  
+                </div>
+                <!-- Text Content -->
+                <div class="profile-text-content">
+                  <div class="profile-name-row">
+                    <h3 id="user-display" class="profile-name-text">Admin</h3>
+                  </div>
+                  <div class="profile-role-row">
+                    <span class="profile-role-text">Creator</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- User Profile Popover Dropdown (Matches Premium React Popover Design) -->
+          <div id="userProfilePopover" class="user-profile-popover absolute top-[calc(100%+12px)] right-0 w-60 bg-zinc-950/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-[0_10px_40px_-5px_rgba(0,0,0,0.8)] z-50 p-4 origin-top-right">
+            <!-- Header -->
+            <div class="flex items-center gap-3 pb-3 border-b border-white/5">
+              <div class="w-10 h-10 rounded-full overflow-hidden border border-white/10 flex-shrink-0">
+                <img id="popover-avatar" class="w-full h-full object-cover" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNTAiIGhlaWdodD0iMTUwIiB2aWV3Qm94PSIwIDAgMTUwIDE1MCI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iIzFlMjkzYiIvPjxjaXJjbGUgY3g9Ijc1IiBjeT0iNzUiIHI9IjQwIiBmaWxsPSIjNDc1NTY5Ii8+PC9zdmc+" alt="avatar" />
+              </div>
+              <div class="min-w-0 flex-grow">
+                <h4 id="popover-username" class="text-xs font-bold text-white truncate">John Doe</h4>
+                <p id="popover-email" class="text-[10px] text-zinc-400 truncate">john.doe@example.com</p>
+              </div>
+            </div>
+            <!-- Body -->
+            <div class="flex flex-col gap-1 py-2">
+              <button id="popoverConnectYoutubeBtn" class="flex items-center justify-center gap-2.5 w-full px-3 py-2 rounded-lg text-xs font-semibold text-white bg-red-600 hover:bg-red-700 active:scale-95 transition-all text-center hidden">
+                <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.518 3.545 12 3.545 12 3.545s-7.518 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.87.508 9.388.508 9.388.508s7.518 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                </svg>
+                Connect YouTube
+              </button>
+              <button id="popoverViewProfileBtn" class="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-xs font-semibold text-zinc-300 hover:text-white hover:bg-white/5 transition-all text-left">
+                <svg class="w-3.5 h-3.5 text-zinc-400 fill-current" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M23.498 6.163a3.003 3.003 0 0 0-2.11-2.11C19.518 3.545 12 3.545 12 3.545s-7.518 0-9.388.508a3.003 3.003 0 0 0-2.11 2.11C0 8.033 0 12 0 12s0 3.967.502 5.837a3.003 3.003 0 0 0 2.11 2.11c1.87.508 9.388.508 9.388.508s7.518 0 9.388-.508a3.003 3.003 0 0 0 2.11-2.11C24 15.967 24 12 24 12s0-3.967-.502-5.837zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                </svg>
+                Your Clips
+              </button>
+              <button id="popoverSubscriptionBtn" class="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-xs font-semibold text-zinc-300 hover:text-white hover:bg-white/5 transition-all text-left">
+                <svg class="w-3.5 h-3.5 text-zinc-400 fill-none stroke-current" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="2" y="5" width="20" height="14" rx="2" ry="2"></rect>
+                  <line x1="2" y1="10" x2="22" y2="10"></line>
+                </svg>
+                My Subscription
+              </button>
+              <button id="popoverSetupGuideBtn" class="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-xs font-semibold text-zinc-300 hover:text-white hover:bg-white/5 transition-all text-left">
+                <svg class="w-3.5 h-3.5 text-zinc-400 fill-none stroke-current" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
+                </svg>
+                Setup Guide
+              </button>
+            </div>
+            <!-- Footer -->
+            <div class="pt-2 border-t border-white/5 flex justify-center">
+              <button id="popoverSignOutBtn" class="popover-signout-btn">
+                <span class="popover-signout-btn-text">Sign Out</span>
+              </button>
+            </div>
+          </div>
+          
+          <button id="logoutBtn" class="Btn hidden md:flex">
+            <div class="sign"><svg viewBox="0 0 512 512"><path d="M377.9 105.9L500.7 228.7c7.2 7.2 11.3 17.1 11.3 27.3s-4.1 20.1-11.3 27.3L377.9 406.1c-6.4 6.4-15 9.9-24 9.9c-18.7 0-33.9-15.2-33.9-33.9l0-62.1-128 0c-17.7 0-32-14.3-32-32l0-64c0-17.7 14.3-32 32-32l128 0 0-62.1c0-18.7 15.2-33.9 33.9-33.9c9 0 17.6 3.6 24 9.9zM160 96L96 96c-17.7 0-32 14.3-32 32l0 256c0 17.7 14.3 32 32 32l64 0c17.7 0 32 14.3 32 32s-14.3 32-32 32l-64 0c-53 0-96-43-96-96L0 128C0 75 43 32 96 32l64 0c17.7 0 32 14.3 32 32s-14.3 32-32 32z"></path></svg></div>
+            <div class="text">Logout</div>
+          </button>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- 🎬 SCROLL CONTROLLER CONTAINER (400vh tall to drive the video scrubbing) -->
+  <div class="scroll-container relative w-full" style="height: 400vh;">
+    
+    <div class="sticky-section sticky top-[80px] w-full h-[calc(100vh-80px)] overflow-hidden flex items-center justify-center bg-black">
+      
+      <!-- 16:9 Aspect Ratio Video Wrapper to align vignette boundary with video content -->
+      <div class="relative w-[100vw] h-[56.25vw] max-w-[177.78vh] max-h-[calc(100vh-80px)] overflow-hidden flex items-center justify-center">
+        <!-- Canvas Element for frame rendering -->
+        <canvas id="scrubCanvas" class="absolute inset-0 w-full h-full object-cover select-none pointer-events-none opacity-90" style="transform: translate3d(0, 0, 0); backface-visibility: hidden; will-change: transform; z-index: 10;"></canvas>
+
+        <!-- Vignette Overlay -->
+        <div class="video-vignette absolute inset-0 pointer-events-none" style="z-index: 15;"></div>
+      </div>
+
+      <!-- Notifications Container for 4th Scroll Done -->
+      <div id="laptopNotifications" class="absolute inset-0 pointer-events-none z-20 overflow-hidden"></div>
+
+      <!-- Diagnostic Overlay -->
+      <div id="videoDebug" class="absolute bottom-4 right-4 bg-slate-950/90 backdrop-blur border border-white/10 text-[10px] font-mono text-slate-400 p-3 rounded-xl z-50 pointer-events-none select-none flex flex-col gap-0.5 shadow-xl">
+        <span>Loading diagnostics...</span>
+      </div>
+
+      <!-- Floating Title overlay (visible at scroll top) -->
+      <div id="introTitle" class="absolute top-[18%] left-0 right-0 mx-auto text-center px-4 max-w-3xl transition-all duration-700 pointer-events-none z-10" style="opacity: 1; transform: translateY(0px);">
+        <h1 class="text-4xl md:text-6xl font-['Outfit'] font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-b from-white via-zinc-100 to-zinc-400 leading-tight py-2 animate-fade-in-up" style="opacity: 0;">Power Up Your Stream With Us.</h1>
+        <p class="text-sm md:text-lg text-slate-400 font-medium tracking-normal mt-4 max-w-2xl mx-auto leading-relaxed animate-fade-in-up" style="opacity: 0; animation-delay: 0.3s;">
+          Never miss a moment. Capture live highlights instantly and automatically with just one command.
+        </p>
+      </div>
+
+      <!-- Disperse Typing Title Overlay (visible as you scroll down) -->
+      <div id="typingTitleContainer" class="absolute top-[28%] left-0 right-0 mx-auto text-center px-4 max-w-3xl transition-opacity duration-700 ease-out z-10 flex flex-col items-center justify-center" style="opacity: 0; pointer-events: none;">
+        <div id="disperseWord" class="relative flex justify-between tracking-tight text-[5vw] md:text-[3.5vw] select-none cursor-pointer">
+          <!-- Spans for "!clip = Best Moments" will be injected dynamically -->
+        </div>
+      </div>
+
+      <!-- Scroll Down Indicator -->
+      <div id="scrollIndicator" class="absolute bottom-10 flex flex-col items-center justify-center text-white transition-opacity duration-300 pointer-events-none z-10" style="opacity: 1;">
+        <span class="text-xs font-semibold tracking-widest uppercase text-slate-400 mb-2.5">Scroll Down</span>
+        <div class="w-6 h-10 border-2 border-white/20 rounded-full flex justify-center p-1.5">
+          <div class="w-1.5 h-3 bg-purple-500 rounded-full animate-bounce"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Scroll Snap Target Points -->
+    <div class="absolute inset-0 pointer-events-none flex flex-col">
+      <div class="snap-point w-full h-screen"></div>
+      <div class="snap-point w-full h-screen"></div>
+      <div class="snap-point w-full h-screen"></div>
+      <div class="snap-point w-full h-screen"></div>
+    </div>
+  </div>
+
+  <!-- 👥 ACTIVE CREATORS SECTION -->
+  <section id="creators-section" class="snap-point relative z-30 bg-black pt-24 pb-0 px-6 border-t border-white/5">
+    <div class="max-w-7xl mx-auto">
+      
+      <!-- Info and Tutorial Video Cards -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-16 max-w-5xl mx-auto w-full">
+        
+        <!-- Left Card: StreamSnip Info (wrapped to allow overflow-visible for outer glow and border animation) -->
+        <div class="premium-info-card-wrapper aspect-[16/9] w-full">
+          <div class="premium-info-card w-full h-full">
+            <!-- Window controls (Static overlay at top-left) -->
+            <div class="align absolute top-4 left-5 flex gap-1.5 z-30">
+              <span class="red w-2.5 h-2.5 rounded-full bg-[#ff605c] shadow-[0_2px_4px_rgba(0,0,0,0.15)]"></span>
+              <span class="yellow w-2.5 h-2.5 rounded-full bg-[#ffbd44] shadow-[0_2px_4px_rgba(0,0,0,0.15)]"></span>
+              <span class="green w-2.5 h-2.5 rounded-full bg-[#00ca4e] shadow-[0_2px_4px_rgba(0,0,0,0.15)]"></span>
+            </div>
+
+            <!-- Centered Website Logo (visible initially) -->
+            <div class="premium-info-card-logo-container w-full h-full flex items-center justify-center">
+              <div class="w-24 h-24 flex items-center justify-center bg-gradient-to-tr from-purple-600 to-indigo-600 rounded-2xl shadow-lg shadow-purple-600/20 p-1 transition-all duration-300">
+                <svg class="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                </svg>
+              </div>
+            </div>
+
+            <!-- Flip Content Overlay -->
+            <div class="premium-info-card-content">
+              <!-- Window controls duplicate inside flip content to maintain continuity -->
+              <div class="align absolute top-4 left-5 flex gap-1.5">
+                <span class="red w-2.5 h-2.5 rounded-full bg-[#ff605c] shadow-[0_2px_4px_rgba(0,0,0,0.15)]"></span>
+                <span class="yellow w-2.5 h-2.5 rounded-full bg-[#ffbd44] shadow-[0_2px_4px_rgba(0,0,0,0.15)]"></span>
+                <span class="green w-2.5 h-2.5 rounded-full bg-[#00ca4e] shadow-[0_2px_4px_rgba(0,0,0,0.15)]"></span>
+              </div>
+              
+              <div class="mt-4 w-full">
+                <h3 class="text-2xl md:text-3xl font-extrabold font-['Outfit'] text-white leading-none tracking-tight">StreamClips Hub</h3>
+                <p class="text-base font-medium text-slate-300 italic mt-1 font-sans">is freemium</p>
+                
+                <div class="mt-4 flex flex-col gap-1 w-full border-t border-white/5 pt-3">
+                  <span class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">with free trial</span>
+                  <span class="text-xs md:text-sm font-medium text-slate-300">starting @ <span class="text-emerald-400 font-extrabold text-base">49₹</span>/month</span>
+                  <a href="javascript:void(0)" class="text-[10px] font-semibold text-slate-400 hover:text-white underline mt-2 transition-colors duration-200 cursor-pointer w-fit">click here to learn more</a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Card: YouTube Tutorial Video Player Mockup -->
+        <div id="tutorialVideoCard" class="yt-preview-card border border-white/5 rounded-3xl overflow-hidden cursor-pointer relative aspect-[16/9] w-full group transition-all duration-300 hover:scale-[1.02] hover:border-red-500/30 hover:shadow-[0_15px_40px_rgba(239,68,68,0.15)]">
+          <!-- Video Thumbnail Image -->
+          <img src="https://img.youtube.com/vi/bp8QKSlOvoM/maxresdefault.jpg" alt="Streamsnip Tutorial" class="absolute inset-0 w-full h-full object-cover opacity-75 transition-all duration-500 group-hover:scale-105 group-hover:opacity-90" onerror="this.onerror=null; this.src='https://img.youtube.com/vi/bp8QKSlOvoM/hqdefault.jpg';" />
+          
+          <!-- Dark gradient overlay for readability -->
+          <div class="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-black/60 z-10"></div>
+          
+          <!-- Top Bar Overlay (Title, Channel DP & name) -->
+          <div class="absolute top-3 left-4 right-4 flex items-start gap-2.5 z-20">
+            <!-- Channel Avatar (Bunny Sank DP) -->
+            <img class="w-8 h-8 rounded-full shadow-md border border-white/10 flex-shrink-0 object-cover" src="https://yt3.googleusercontent.com/gmyKE-UPzE-gSSW6Yj8tzDsROv6G7vIDHWJVinHS-79keGJ_2qMhUqzRisf6jCdDBJM42sjvCw=s100-c-k-c0x00ffffff-no-rj" alt="Bunny Sank" />
+            <!-- Title and Channel name -->
+            <div class="min-w-0 flex-grow">
+              <h4 class="text-xs md:text-sm font-bold text-white leading-snug truncate shadow-sm">If I Fail This CODM Rank Push, I Eat the Spiciest Chip</h4>
+              <p class="text-[10px] text-slate-300 font-semibold mt-0.5 tracking-wide flex items-center gap-1.5">
+                Bunny Sank
+                <span class="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse"></span>
+                YouTube
+              </p>
+            </div>
+          </div>
+
+          <!-- Center YouTube Play Icon Overlay -->
+          <div class="absolute inset-0 flex items-center justify-center z-20">
+            <div class="yt-play-btn w-16 h-11 bg-black/60 backdrop-blur-sm rounded-xl flex items-center justify-center text-white border border-white/10 group-hover:bg-red-600 shadow-xl group-hover:scale-110">
+              <svg class="yt-play-btn-svg w-7 h-7 fill-current" viewBox="0 0 24 24">
+                <path d="M8 5v14l11-7z"/>
+              </svg>
+            </div>
+          </div>
+
+          <!-- Bottom controls matching authentic Player overlay -->
+          <div class="absolute bottom-3.5 left-4 right-4 flex items-center justify-between z-20 text-white/70 text-[11px]">
+            <!-- Left icons -->
+            <div class="flex items-center gap-3">
+              <!-- Share -->
+              <svg class="w-4 h-4 hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 10.742l4.828-2.414m0 0a3 3 0 10-3.62-3.62l-4.83 2.414M15 11.25a3 3 0 11-6 0 3 3 0 016 0zm-6 2.5l-4.83 2.414a3 3 0 11-1.18-2.617l4.83-2.414"></path>
+              </svg>
+              <!-- Watch Later (Clock) -->
+              <svg class="w-4 h-4 hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+            </div>
+            <!-- Watch on YouTube logo -->
+            <div class="flex items-center gap-1 font-semibold text-white/80 hover:text-white transition-colors">
+              <span>Watch on</span>
+              <span class="flex items-center gap-0.5 bg-black/35 px-1.5 py-0.5 rounded border border-white/5 text-[10px] font-extrabold tracking-tight">
+                <svg class="w-3.5 h-3 text-red-500 fill-current" viewBox="0 0 24 24">
+                  <path d="M23.498 6.163c-.272-.98-1.04-1.748-2.02-2.02C19.694 3.75 12 3.75 12 3.75s-7.693 0-9.477.393c-.98.272-1.748 1.04-2.02 2.02C0 7.948 0 12 0 12s0 4.052.523 5.837c.272.98 1.04 1.748 2.02 2.02 1.784.393 9.477.393 9.477.393s7.694 0 9.477-.393c.98-.272 1.748-1.04 2.02-2.02C24 16.052 24 12 24 12s0-4.052-.502-5.837z"></path>
+                  <path d="M9.545 15.568V8.432L15.818 12l-6.273 3.568z" fill="white"></path>
+                </svg>
+                YouTube
+              </span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Section Header -->
+      <div class="text-center mb-10">
+        <h2 class="text-3xl md:text-5xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-slate-500 tracking-tight mb-4">Active Creators</h2>
+        <p class="text-slate-400 max-w-xl mx-auto text-sm md:text-base">Explore clips from your favorite streamers and discover their best moments.</p>
+      </div>
+
+      <!-- Filter Creators Card -->
+      <section class="filter-card-section max-w-3xl mx-auto mb-12">
+        <div class="filter-flex-container">
+          <div class="filter-inputs-group w-full">
+            
+            <!-- Search Creators -->
+            <div class="filter-field-item flex-grow min-w-[280px]">
+              <label class="filter-field-label" for="creatorFilterInput">
+                Search Creators
+              </label>
+              <div class="filter-input-relative custom-focus custom-dropdown-wrapper" id="creatorSearchSuggestionsWrapper">
+                <div class="filter-search-icon-overlay">
+                  <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+                  </svg>
+                </div>
+                <input class="filter-text-input" id="creatorFilterInput" autocomplete="off" placeholder="" type="search"/>
+                <div class="search-placeholder-overlay" id="creatorSearchPlaceholderOverlay">
+                  <span class="placeholder-text"></span><span class="placeholder-cursor"></span>
+                </div>
+                
+                <!-- Autocomplete suggestions dropdown -->
+                <div class="custom-dropdown-menu hidden w-full" id="creatorSearchSuggestions" style="top: calc(100% + 4px); transform: none; opacity: 1; pointer-events: auto; display: none;">
+                  <!-- Autocomplete suggestions will be populated here -->
+                </div>
+              </div>
+            </div>
+
+            <!-- Filter by Game -->
+            <div class="filter-field-item min-w-[180px]">
+              <label class="filter-field-label" for="gameFilter">
+                Filter by Game
+              </label>
+              <div class="custom-dropdown-wrapper" id="gameDropdownContainer">
+                <select class="hidden-select" id="gameFilter">
+                  <option value="">All Games</option>
+                </select>
+                <button class="custom-dropdown-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+                  <span class="trigger-text">All Games</span>
+                  <svg class="chevron-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                  </svg>
+                </button>
+                <div class="custom-dropdown-menu" role="listbox">
+                  <!-- Synced from select -->
+                </div>
+              </div>
+            </div>
+            
+          </div>
+        </div>
+      </section>
+
+      <!-- Game Cards Carousel Slider -->
+      <section class="game-cards-slider-section mb-16" id="gameCardsSliderSection">
+        <div class="game-slider-wrapper">
+          <button class="slider-nav-btn prev-btn" id="sliderPrevBtn" aria-label="Previous Games">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+          </button>
+          <div class="game-cards-track" id="gameCardsTrack">
+            <!-- Dynamically populated -->
+          </div>
+          <button class="slider-nav-btn next-btn" id="sliderNextBtn" aria-label="Next Games">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+          </button>
+        </div>
+      </section>
+
+      <!-- Dynamic Grid -->
+      <div id="creator-grid-3d" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
+        <!-- Skeleton cards loaded initially -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6 w-full">
+          <div class="skeleton-creator-card"><div class="skeleton-avatar"></div><div class="skeleton-title"></div><div class="skeleton-subtitle"></div></div>
+          <div class="skeleton-creator-card"><div class="skeleton-avatar"></div><div class="skeleton-title"></div><div class="skeleton-subtitle"></div></div>
+          <div class="skeleton-creator-card"><div class="skeleton-avatar"></div><div class="skeleton-title"></div><div class="skeleton-subtitle"></div></div>
+          <div class="skeleton-creator-card"><div class="skeleton-avatar"></div><div class="skeleton-title"></div><div class="skeleton-subtitle"></div></div>
+          <div class="skeleton-creator-card"><div class="skeleton-avatar"></div><div class="skeleton-title"></div><div class="skeleton-subtitle"></div></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 📜 PREMIUM FOOTER -->
+    <footer class="md:rounded-t-[48px] relative w-[calc(100%-48px)] md:w-[calc(100%-96px)] mx-auto flex flex-col items-center justify-center rounded-t-3xl border-t border-white/10 bg-[radial-gradient(35%_128px_at_50%_0%,rgba(255,255,255,0.08),transparent)] px-6 py-12 lg:py-16 mt-20 text-white z-10 max-w-none">
+      <div class="bg-white/20 absolute top-0 right-1/2 left-1/2 h-px w-1/3 -translate-x-1/2 -translate-y-1/2 rounded-full blur"></div>
+
+      <div class="grid w-full gap-8 xl:grid-cols-3 xl:gap-8">
+        <div class="space-y-4 animated-container" style="transition-delay: 0.1s;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-frame size-8 text-purple-500"><line x1="22" x2="2" y1="6" y2="6"/><line x1="22" x2="2" y1="18" y2="18"/><line x1="6" x2="6" y1="2" y2="22"/><line x1="18" x2="18" y1="2" y2="22"/></svg>
+          <p class="text-slate-400 mt-8 text-sm md:mt-0">
+            &copy; <span id="footer-year"></span> StreamClips Hub. All rights reserved.
+          </p>
+        </div>
+
+        <div class="mt-10 grid grid-cols-2 gap-8 md:grid-cols-3 xl:col-span-2 xl:mt-0">
+          <!-- Product -->
+          <div class="animated-container" style="transition-delay: 0.2s;">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">Product</h3>
+            <ul class="text-slate-400 mt-4 space-y-2 text-sm">
+              <li><a href="#features" class="hover:text-white transition-all duration-300">Features</a></li>
+              <li><a href="#pricing" class="hover:text-white transition-all duration-300">Pricing</a></li>
+              <li><a href="/help" class="hover:text-white transition-all duration-300">Help & Support</a></li>
+            </ul>
+          </div>
+          <!-- Company -->
+          <div class="animated-container" style="transition-delay: 0.3s;">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">Company</h3>
+            <ul class="text-slate-400 mt-4 space-y-2 text-sm">
+              <li><a href="/faqs" class="hover:text-white transition-all duration-300">FAQs</a></li>
+              <li><a href="/about" class="hover:text-white transition-all duration-300">About Us</a></li>
+              <li><a href="/privacy" class="hover:text-white transition-all duration-300">Privacy Policy</a></li>
+              <li><a href="/terms" class="hover:text-white transition-all duration-300">Terms of Services</a></li>
+            </ul>
+          </div>
+          <!-- Social -->
+          <div class="animated-container" style="transition-delay: 0.4s;">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">Social Links</h3>
+            <ul class="text-slate-400 mt-4 space-y-2 text-sm">
+              <li>
+                <a href="https://discord.com/invite/D9Pp2xZG3k" target="_blank" rel="noopener noreferrer" class="hover:text-white inline-flex items-center transition-all duration-300">
+                  <svg class="mr-1.5 h-4 w-4" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.094 13.094 0 0 1-1.873-.894.077.077 0 0 1-.008-.128c.126-.093.252-.19.372-.287a.075.075 0 0 1 .077-.011c3.92 1.793 8.18 1.793 12.061 0a.073.073 0 0 1 .078.009c.12.099.246.195.373.289a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.894.077.077 0 0 1-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.156-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.156 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.156-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.156 2.418z"/></svg>
+                  Discord
+                </a>
+              </li>
+              <li>
+                <a href="https://www.instagram.com/bunnysank_yt" target="_blank" rel="noopener noreferrer" class="hover:text-white inline-flex items-center transition-all duration-300">
+                  <svg class="mr-1.5 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="20" height="20" rx="5" ry="5" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></rect><path d="M16 11.37A4 4 0 1112.63 8 4 4 0 0116 11.37z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></line></svg>
+                  Instagram
+                </a>
+              </li>
+              <li>
+                <a href="https://www.youtube.com/@bunnysank" target="_blank" rel="noopener noreferrer" class="hover:text-white inline-flex items-center transition-all duration-300">
+                  <svg class="mr-1.5 h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M2.5 17a24.12 24.12 0 0 1 0-10 2 2 0 0 1 1.4-1.4 49.56 49.56 0 0 1 16.2 0A2 2 0 0 1 21.5 7a24.12 24.12 0 0 1 0 10 2 2 0 0 1-1.4 1.4 49.55 49.55 0 0 1-16.2 0A2 2 0 0 1 2.5 17z"></path>
+                    <polygon points="10 15 15 12 10 9"></polygon>
+                  </svg>
+                  Youtube
+                </a>
+              </li>
+              <li>
+                <a href="#" class="hover:text-white inline-flex items-center transition-all duration-300">
+                  <svg class="mr-1.5 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M16 8a6 6 0 016 6v7h-4v-7a2 2 0 00-2-2 2 2 0 00-2 2v7h-4v-7a6 6 0 016-6z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path><rect x="2" y="9" width="4" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></rect><circle cx="4" cy="4" r="2" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></circle></svg>
+                  LinkedIn
+                </a>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </footer>
+
+    <script>
+      document.getElementById('footer-year').textContent = new Date().getFullYear();
+
+      // Footer animations scroll observer
+      const footerObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('active');
+          }
+        });
+      }, { threshold: 0.1 });
+
+      document.querySelectorAll('.animated-container').forEach(el => {
+        footerObserver.observe(el);
+      });
+    </script>
+  </section>
+
+  <!-- 📜 SETUP GUIDE MODAL -->
+  <div id="setupModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md opacity-0 pointer-events-none transition-all duration-300">
+    <!-- Modal Backdrop Close Target -->
+    <div class="absolute inset-0" onclick="toggleSetupModal(false)"></div>
+    
+    <!-- Modal Content Card -->
+    <div class="relative w-full max-w-2xl bg-slate-950/95 border border-white/10 rounded-3xl p-8 md:p-10 shadow-2xl text-white transform scale-95 transition-all duration-300 flex flex-col gap-6 mx-4">
+      
+      <!-- Close button -->
+      <button onclick="toggleSetupModal(false)" class="absolute top-4 right-4 w-8 h-8 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white flex items-center justify-center transition-all active:scale-90">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+      </button>
+
+      <div class="flex items-center gap-3">
+        <span class="px-3 py-1 text-xs font-bold uppercase tracking-wider bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-full badge-glow">Setup Guide</span>
+        <h2 class="text-2xl font-extrabold tracking-tight">Add Clip commands to your Stream</h2>
+      </div>
+      
+      <p class="text-slate-400 leading-relaxed text-sm md:text-base">Simply copy the command below and add it to your channel chat via Nightbot to let your moderators and viewers save timestamps instantly:</p>
+      
+      <div class="bg-black/60 border border-white/5 rounded-2xl p-4 md:p-6 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+        <code id="setup-command-3d" class="text-xs md:text-sm font-mono text-purple-300 break-all select-all flex-grow p-1">!addcom !clip $(urlfetch https://yt-timestamp-central-auth-project.onrender.com/api/clip?streamerId=$(channelid)&chatid=$(request_id)&text=$(querystring)&user=$(user)&userlevel=$(userlevel)&channelId=$(userid))</code>
+        <button id="copy-btn-3d" class="px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-sm font-semibold transition-all active:scale-95 shadow-lg shadow-purple-600/20 flex-shrink-0">Copy</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 🔔 UPDATES MODAL -->
+  <div id="updatesModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md opacity-0 pointer-events-none transition-all duration-300">
+    <!-- Modal Backdrop Close Target -->
+    <div class="absolute inset-0" onclick="toggleUpdatesModal(false)"></div>
+    
+    <!-- Modal Content Card -->
+    <div class="relative w-full max-w-lg bg-zinc-950/90 border border-white/10 rounded-2xl p-6 md:p-8 shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto transform scale-95 transition-all duration-300 mx-4">
+      <!-- Header -->
+      <div class="flex items-center justify-between pb-4 border-b border-white/10 mb-6">
+        <h3 class="text-xl font-bold text-white flex items-center gap-2">
+          <svg class="w-5 h-5 text-purple-400" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
+          </svg>
+          What's New & Updates
+        </h3>
+        <button id="closeUpdatesBtn" class="text-slate-400 hover:text-white transition-colors">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Content -->
+      <div class="flex-grow space-y-6">
+        <!-- Update Item 1 -->
+        <div class="flex gap-4">
+          <div class="w-8 h-8 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
+            <span class="text-xs font-bold text-purple-400">1</span>
+          </div>
+          <div>
+            <h4 class="text-sm font-semibold text-white">Smooth Scroll Fade-in & Out</h4>
+            <p class="text-xs text-zinc-400 mt-1 leading-relaxed">The "!clip = Best Moments" title and statistics card now fade in and out gradually based on your exact scroll position, creating a cinematic entrance.</p>
+          </div>
+        </div>
+
+        <!-- Update Item 2 -->
+        <div class="flex gap-4">
+          <div class="w-8 h-8 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
+            <span class="text-xs font-bold text-purple-400">2</span>
+          </div>
+          <div>
+            <h4 class="text-sm font-semibold text-white">Tactile Notification Hover Cards</h4>
+            <p class="text-xs text-zinc-400 mt-1 leading-relaxed">Notifications displayed on the 3D laptop showcase are now fully interactive, glowing and lifting dynamically when hovered.</p>
+          </div>
+        </div>
+
+        <!-- Update Item 3 -->
+        <div class="flex gap-4">
+          <div class="w-8 h-8 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center flex-shrink-0">
+            <span class="text-xs font-bold text-purple-400">3</span>
+          </div>
+          <div>
+            <h4 class="text-sm font-semibold text-white">Centered Navigation Bar</h4>
+            <p class="text-xs text-zinc-400 mt-1 leading-relaxed">Cleaned up header alignment by centering Features, Pricing, and Special links while maintaining setup buttons and profile layout on the right.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Button -->
+      <button id="dismissUpdatesBtn" class="mt-8 w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-sm tracking-wide transition-all shadow-lg active:scale-[0.98]">
+        Got it!
+      </button>
+    </div>
+  </div>
+
+  <!-- 🐛 BUG REPORT MODAL -->
+  <div id="bugModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md opacity-0 pointer-events-none transition-all duration-300">
+    <!-- Modal Backdrop Close Target -->
+    <div class="absolute inset-0" onclick="toggleBugModal(false)"></div>
+    
+    <!-- Modal Content Card -->
+    <div class="relative w-full max-w-md bg-zinc-950/95 border border-white/10 rounded-2xl p-6 md:p-8 shadow-2xl flex flex-col gap-6 mx-4 transform scale-95 transition-all duration-300">
+      
+      <!-- Close button -->
+      <button onclick="toggleBugModal(false)" class="absolute top-4 right-4 w-8 h-8 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white flex items-center justify-center transition-all active:scale-90">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+      </button>
+
+      <div class="flex items-center gap-3">
+        <span class="px-3 py-1 text-xs font-bold uppercase tracking-wider bg-red-500/20 text-red-400 border border-red-500/30 rounded-full support-badge-glow">Support</span>
+        <h2 class="text-xl font-extrabold tracking-tight text-white">Report a Bug</h2>
+      </div>
+
+      <form id="bugReportForm" class="flex flex-col gap-4">
+        <div class="flex flex-col gap-1.5">
+          <label for="bugTitle" class="text-xs font-semibold text-zinc-400">Issue Title</label>
+          <input type="text" id="bugTitle" required placeholder="What is the issue?" class="bug-input" />
+        </div>
+
+        <div class="flex flex-col gap-1.5 relative bug-severity-dropdown-wrapper">
+          <label class="text-xs font-semibold text-zinc-400">Severity Level</label>
+          
+          <input type="hidden" id="bugSeverity" value="medium" />
+          
+          <button type="button" id="bugSeverityToggleBtn" class="bug-input flex items-center justify-between select-none">
+            <span id="bugSeveritySelectedText">Medium - Feature behavior issue</span>
+            <svg class="w-4 h-4 text-zinc-400 transition-transform duration-200" id="bugSeverityChevron" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path>
+            </svg>
+          </button>
+          
+          <div id="bugSeverityDropdownMenu" class="bug-severity-dropdown-menu absolute top-[calc(100%+8px)] left-0 w-full bg-zinc-950 border-2 border-zinc-800 rounded-xl shadow-[0_10px_25px_-5px_rgba(0,0,0,0.5)] z-[110] flex flex-col overflow-hidden opacity-0 pointer-events-none transition-all duration-200 origin-top transform translate-y-2">
+            <button type="button" data-value="low" class="bug-severity-option-btn w-full px-4 py-3 text-left text-xs font-semibold text-zinc-100 hover:text-white bg-zinc-900 hover:bg-zinc-800 border-b-2 border-zinc-800 transition-all">Low - Minor styling or visual tweak</button>
+            <button type="button" data-value="medium" class="bug-severity-option-btn w-full px-4 py-3 text-left text-xs font-semibold text-zinc-100 hover:text-white bg-zinc-900 hover:bg-zinc-800 border-b-2 border-zinc-800 transition-all">Medium - Feature behavior issue</button>
+            <button type="button" data-value="high" class="bug-severity-option-btn w-full px-4 py-3 text-left text-xs font-semibold text-zinc-100 hover:text-white bg-zinc-900 hover:bg-zinc-800 border-b-2 border-zinc-800 transition-all">High - Feature completely broken</button>
+            <button type="button" data-value="critical" class="bug-severity-option-btn w-full px-4 py-3 text-left text-xs font-semibold text-zinc-100 hover:text-white bg-zinc-900 hover:bg-zinc-800 transition-all">Critical - Crash or security risk</button>
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <label for="bugDescription" class="text-xs font-semibold text-zinc-400">Steps to Reproduce / Description</label>
+          <textarea id="bugDescription" required rows="4" placeholder="How did it happen? What did you expect vs what actually happened?" class="bug-input resize-none"></textarea>
+        </div>
+
+        <button type="submit" id="submitBugBtn" class="pushable mt-4 w-full">
+          <span class="shadow"></span>
+          <span class="edge"></span>
+          <span class="front flex items-center justify-center gap-2 font-bold text-sm tracking-wide py-3 px-6 select-none">
+            Submit Bug Report
+          </span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 🎥 YOUTUBE TUTORIAL VIDEO MODAL -->
+  <div id="videoModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-md opacity-0 pointer-events-none transition-all duration-300">
+    <!-- Modal Backdrop Close Target -->
+    <div class="absolute inset-0" onclick="toggleVideoModal(false)"></div>
+    
+    <!-- Modal Content (Video Player Wrapper) -->
+    <div class="relative w-full max-w-4xl aspect-video bg-black border border-white/10 rounded-3xl overflow-hidden shadow-2xl transform scale-95 transition-all duration-300 mx-4">
+      
+      <!-- Close button -->
+      <button onclick="toggleVideoModal(false)" class="absolute top-4 right-4 w-9 h-9 rounded-full border border-white/10 bg-black/60 hover:bg-black/80 hover:border-white/20 text-slate-300 hover:text-white flex items-center justify-center transition-all active:scale-90 z-50">
+        <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+      </button>
+
+      <!-- YouTube IFrame Embed (dynamically populated) -->
+      <iframe id="videoIframe" class="w-full h-full" src="" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+      
+    </div>
+  </div>
+
+  <!-- 🔒 LOGIN / SIGNUP MODAL (HIDDEN BY DEFAULT) -->
+  <div id="loginModal" class="modal-overlay hidden">
+    <div class="modal-content glassmorphism">
+      <div class="modal-header">
+        <h3 id="modalTitle">Creator Login</h3>
+        <button id="closeLoginModal" class="close-modal-btn">&times;</button>
+      </div>
+      <div id="loginForm" class="login-form">
+        <div class="form-group">
+          <label for="email">Email Address</label>
+          <input id="email" type="email" placeholder="creator@example.com" required />
+        </div>
+
+        <div id="channelIdGroup" class="form-group hidden">
+          <label for="channelId">YouTube Channel ID or Handle</label>
+          <input id="channelId" type="text" placeholder="e.g. UC... or @username" />
+          <span class="form-help-text">Your YouTube Channel ID (starts with UC) or Handle (starts with @)</span>
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <div class="password-wrapper">
+            <input id="password" type="password" placeholder="••••••••" required />
+            <button type="button" id="togglePassword" class="toggle-password-btn">👁</button>
+          </div>
+          <a href="#" id="forgotPasswordBtn" class="forgot-password-link">Forgot Password?</a>
+        </div>
+
+        <div class="modal-actions">
+          <button id="loginBtn" class="btn btn-primary" disabled>Submit</button>
+          <button type="button" id="cancelLogin" class="btn btn-secondary">Cancel</button>
+        </div>
+
+        <div class="auth-toggle-wrapper">
+          <a href="#" id="toggleAuthModeBtn" class="auth-toggle-link">Don't have an account? Sign Up</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 🔒 RESET PASSWORD MODAL (HIDDEN BY DEFAULT) -->
+  <div id="resetPasswordModal" class="modal-overlay hidden">
+    <div class="modal-content glassmorphism">
+      <div class="modal-header">
+        <h3>Reset Password</h3>
+      </div>
+      <div class="login-form">
+        <div class="form-group">
+          <label for="newPassword">New Password</label>
+          <div class="password-wrapper">
+            <input id="newPassword" type="password" placeholder="••••••••" minlength="6" required />
+            <button type="button" id="toggleNewPassword" class="toggle-password-btn">👁</button>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button id="saveNewPasswordBtn" class="btn btn-primary">Save Password</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Script implementation -->
+  <script type="module" src="/3d-demo.js?v=14.6"></script>
+</body>
+</html>
