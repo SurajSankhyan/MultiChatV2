@@ -753,6 +753,11 @@ export default function ChatDashboard({
     return `${hrs}:${mins}:${secs}`;
   };
 
+  const activeChannelsRef = useRef(activeChannels);
+  useEffect(() => {
+    activeChannelsRef.current = activeChannels;
+  }, [activeChannels]);
+
   // Setup Connections
   useEffect(() => {
     let messageBuffer = [];
@@ -768,25 +773,60 @@ export default function ChatDashboard({
           return;
         }
         
-        // Always drip exactly 1 message per tick for smooth, consistent display
-        const msg = messageBuffer.splice(0, 1)[0];
-        setMessages(prev => [...prev, msg].slice(-300));
-
-        // TTS & Mention Sound notification processing
+        const msg = messageBuffer.shift();
         if (msg) {
           try {
+            setMessages(prev => {
+              if (prev.some(m => m.id === msg.id)) return prev;
+              const next = [...prev, msg];
+              return next.length > 500 ? next.slice(-500) : next;
+            });
+
+            // Update uniqueChatters state seamlessly
+            const author = msg.username || msg.displayName || 'Anonymous';
+            const cleanAuthor = author.toLowerCase().replace('@', '').trim();
+            const avatar = msg.avatarUrl || msg.avatar || '';
+            const platform = msg.platform || 'youtube';
+
+            setUniqueChatters(prev => {
+              const existingIdx = prev.findIndex(c => 
+                c.username.toLowerCase().replace('@', '').trim() === cleanAuthor && 
+                c.platform === platform
+              );
+
+              if (existingIdx !== -1) {
+                const updated = [...prev];
+                updated[existingIdx] = {
+                  ...updated[existingIdx],
+                  messageCount: (updated[existingIdx].messageCount || 1) + 1,
+                  avatar: avatar || updated[existingIdx].avatar,
+                  displayName: msg.displayName || updated[existingIdx].displayName,
+                  lastSeen: Date.now()
+                };
+                return updated;
+              } else {
+                return [
+                  ...prev,
+                  {
+                    id: `${platform}_${cleanAuthor}_${Date.now()}`,
+                    username: cleanAuthor,
+                    displayName: msg.displayName || author,
+                    avatar: avatar,
+                    platform: platform,
+                    firstSeen: Date.now(),
+                    lastSeen: Date.now(),
+                    messageCount: 1
+                  }
+                ];
+              }
+            });
+
             const cfg = settingsRef.current;
             if (msg.isSystemEvent) {
-              // Auto-read Super Chat donation
-              if (msg.platform === 'youtube' && msg.eventType === 'donation' && cfg.enableSuperchatTts) {
-                const textToSpeak = `@${msg.displayName || msg.username || ''} Gave ${msg.eventDetails?.amount || ''}${typeof msg.text === 'string' && msg.text ? ' , ' + msg.text : ''}`;
-                speakMessage(
-                  '',
-                  textToSpeak,
-                  (cfg.ttsVolume !== undefined ? cfg.ttsVolume : 50) / 100,
-                  cfg.ttsSpeed !== undefined ? cfg.ttsSpeed : 1.0,
-                  false,
-                  cfg.ttsVoiceName
+              if (cfg.enableAlertSound) {
+                playAlertSound(
+                  (cfg.alertSoundVolume !== undefined ? cfg.alertSoundVolume : 50) / 100,
+                  cfg.alertSoundType || 'bell'
                 );
               }
             } else {
@@ -832,6 +872,23 @@ export default function ChatDashboard({
 
     // Callback for incoming messages — never drops messages & deduplicates optimistic/sent messages
     const handleNewMessage = (msg) => {
+      if (!msg) return;
+
+      // Filter out messages from channels that were removed or disabled
+      if (!modeDemo && activeChannelsRef.current) {
+        const isChannelActive = activeChannelsRef.current.some(ch => {
+          if (!ch.enabled) return false;
+          if (ch.platform !== msg.platform) return false;
+          const cleanChan = (ch.name || '').toLowerCase().replace(/^@+/, '').trim();
+          const msgChan = (msg.channel || '').toLowerCase().replace(/^@+/, '').trim();
+          if (!msgChan) return true;
+          return cleanChan === msgChan || cleanChan.includes(msgChan) || msgChan.includes(cleanChan);
+        });
+        if (!isChannelActive) {
+          return; // Ignore messages from disconnected/removed channels
+        }
+      }
+
       if (msg && msg.text) {
         const normText = String(msg.text).trim();
         const existingIdx = (messagesRef.current || []).findIndex(m =>
@@ -1008,11 +1065,13 @@ export default function ChatDashboard({
         if (!twitchClientRef.current.isConnected) {
           twitchClientRef.current.connect();
         }
-        twitchClientRef.current.channels.forEach(ch => {
-          if (!twitchChannels.some(tc => tc.name.toLowerCase() === ch)) {
-            twitchClientRef.current.leave(ch);
-          }
-        });
+        if (twitchClientRef.current.channels) {
+          Array.from(twitchClientRef.current.channels).forEach(ch => {
+            if (!twitchChannels.some(tc => tc.name.toLowerCase().replace(/^@+/, '').trim() === ch.toLowerCase().replace(/^@+/, '').trim())) {
+              twitchClientRef.current.leave(ch);
+            }
+          });
+        }
         twitchChannels.forEach(ch => {
           twitchClientRef.current.join(ch.name);
         });
@@ -1037,6 +1096,13 @@ export default function ChatDashboard({
       if (kickChannels.length > 0) {
         if (!kickClientRef.current.isConnected) {
           kickClientRef.current.connect();
+        }
+        if (kickClientRef.current.channelsMap) {
+          Array.from(kickClientRef.current.channelsMap.keys()).forEach(ch => {
+            if (!kickChannels.some(kc => kc.name.toLowerCase().replace(/^@+/, '').trim() === ch)) {
+              kickClientRef.current.leave(ch);
+            }
+          });
         }
         kickChannels.forEach(ch => {
           const cleanName = ch.name.toLowerCase().replace(/^@+/, '').trim();
@@ -1103,11 +1169,13 @@ export default function ChatDashboard({
     const youtubeChannels = enabledChannels.filter(ch => ch.platform === 'youtube');
     if (youtubeClientRef.current && !modeDemo) {
       if (youtubeChannels.length > 0) {
-        youtubeClientRef.current.activePolls.forEach((_, ch) => {
-          if (!youtubeChannels.some(yc => yc.name.toLowerCase().replace('@', '').trim() === ch)) {
-            youtubeClientRef.current.leave(ch);
-          }
-        });
+        if (youtubeClientRef.current.activePolls) {
+          Array.from(youtubeClientRef.current.activePolls.keys()).forEach(ch => {
+            if (!youtubeChannels.some(yc => yc.name.toLowerCase().replace(/^@+/, '').trim() === ch)) {
+              youtubeClientRef.current.leave(ch);
+            }
+          });
+        }
         youtubeChannels.forEach(ch => {
           const cleanName = ch.name.toLowerCase().replace(/^@+/, '').trim();
           setPlatformStatuses(prev => ({
@@ -1166,6 +1234,58 @@ export default function ChatDashboard({
         simulatorRef.current.stop();
       }
     }
+
+    // 5. Clean up removed channels from cached viewers, start times, likes, and statuses
+    const currentEnabledKeys = new Set(
+      enabledChannels.map(ch => ch.name.toLowerCase().replace(/^@+/, '').trim())
+    );
+    setPlatformStatuses(prev => {
+      let changed = false;
+      const next = { ...prev };
+      Object.keys(next).forEach(k => {
+        if (k !== 'youtube' && k !== 'kick' && k !== 'twitch' && !currentEnabledKeys.has(k)) {
+          delete next[k];
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+    setStreamViewers(prev => {
+      let changed = false;
+      const next = { ...prev };
+      Object.keys(next).forEach(k => {
+        if (!currentEnabledKeys.has(k)) {
+          delete next[k];
+          changed = true;
+        }
+      });
+      if (changed) localStorage.setItem('prochat_cached_stream_viewers', JSON.stringify(next));
+      return changed ? next : prev;
+    });
+    setStreamLikes(prev => {
+      let changed = false;
+      const next = { ...prev };
+      Object.keys(next).forEach(k => {
+        if (!currentEnabledKeys.has(k)) {
+          delete next[k];
+          changed = true;
+        }
+      });
+      if (changed) localStorage.setItem('prochat_cached_stream_likes', JSON.stringify(next));
+      return changed ? next : prev;
+    });
+    setStreamStartTimes(prev => {
+      let changed = false;
+      const next = { ...prev };
+      Object.keys(next).forEach(k => {
+        if (!currentEnabledKeys.has(k) && !currentEnabledKeys.has(k.replace(/^@+/, ''))) {
+          delete next[k];
+          changed = true;
+        }
+      });
+      if (changed) localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next));
+      return changed ? next : prev;
+    });
 
   }, [activeChannels, modeDemo, settings.youtubeChatMode]);
 

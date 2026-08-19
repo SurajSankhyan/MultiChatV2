@@ -656,30 +656,50 @@ export default function ChatFeed({
     return filtered;
   };
 
-  // Filter messages based on blocked and banned users checking all candidate user keys
-  const visibleMessages = useMemo(() => messages.filter(msg => {
-    const u1 = String(msg.username || '').replace(/^@+/, '').trim().toLowerCase();
-    const u2 = String(msg.displayName || '').replace(/^@+/, '').trim().toLowerCase();
-    const u3 = String(msg.author || '').replace(/^@+/, '').trim().toLowerCase();
-    const cId = String(msg.channelId || msg.authorChannelId || msg.userId || '').toLowerCase();
-
-    const isBlocked = blockedUsers instanceof Set && (
-      (u1 && blockedUsers.has(u1)) ||
-      (u2 && blockedUsers.has(u2)) ||
-      (u3 && blockedUsers.has(u3)) ||
-      (cId && blockedUsers.has(cId))
+  // Filter messages based on active channels, blocked and banned users checking all candidate user keys
+  const visibleMessages = useMemo(() => {
+    const enabledSet = new Set(
+      (activeChannels || []).filter(ch => ch.enabled).map(ch => `${ch.platform}:${ch.name.toLowerCase().replace(/^@+/, '').trim()}`)
+    );
+    const enabledPlatforms = new Set(
+      (activeChannels || []).filter(ch => ch.enabled).map(ch => ch.platform)
     );
 
-    const isBanned = moderation?.bannedUsers instanceof Set && (
-      (u1 && moderation.bannedUsers.has(u1)) ||
-      (u2 && moderation.bannedUsers.has(u2)) ||
-      (u3 && moderation.bannedUsers.has(u3)) ||
-      (cId && moderation.bannedUsers.has(cId))
-    );
+    return messages.filter(msg => {
+      // Filter out messages from removed or disabled channels
+      if (!msg.isSystemEvent && activeChannels && activeChannels.length > 0) {
+        const cleanChan = (msg.channel || '').toLowerCase().replace(/^@+/, '').trim();
+        const msgKey = `${msg.platform}:${cleanChan}`;
+        if (cleanChan) {
+          if (!enabledSet.has(msgKey) && !enabledPlatforms.has(msg.platform)) return false;
+        } else {
+          if (!enabledPlatforms.has(msg.platform)) return false;
+        }
+      }
 
-    if (isBlocked || isBanned) return false;
-    return true;
-  }), [messages, blockedUsers, moderation?.bannedUsers]);
+      const u1 = String(msg.username || '').replace(/^@+/, '').trim().toLowerCase();
+      const u2 = String(msg.displayName || '').replace(/^@+/, '').trim().toLowerCase();
+      const u3 = String(msg.author || '').replace(/^@+/, '').trim().toLowerCase();
+      const cId = String(msg.channelId || msg.authorChannelId || msg.userId || '').toLowerCase();
+
+      const isBlocked = blockedUsers instanceof Set && (
+        (u1 && blockedUsers.has(u1)) ||
+        (u2 && blockedUsers.has(u2)) ||
+        (u3 && blockedUsers.has(u3)) ||
+        (cId && blockedUsers.has(cId))
+      );
+
+      const isBanned = moderation?.bannedUsers instanceof Set && (
+        (u1 && moderation.bannedUsers.has(u1)) ||
+        (u2 && moderation.bannedUsers.has(u2)) ||
+        (u3 && moderation.bannedUsers.has(u3)) ||
+        (cId && moderation.bannedUsers.has(cId))
+      );
+
+      if (isBlocked || isBanned) return false;
+      return true;
+    });
+  }, [messages, blockedUsers, moderation?.bannedUsers, activeChannels]);
 
   // Filter messages based on the active top tab
   // useMemo: only re-runs when visibleMessages or activeTab change
