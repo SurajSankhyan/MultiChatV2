@@ -23,7 +23,8 @@ import {
   ChevronsLeft,
   ChevronsRight,
   PanelLeft,
-  Globe
+  Globe,
+  ThumbsUp
 } from 'lucide-react';
 import ChatFeed from './ChatFeed';
 import ChatInput from './ChatInput';
@@ -352,6 +353,10 @@ export default function ChatDashboard({
   });
   const [streamViewers, setStreamViewers] = useState(() => {
     const cached = localStorage.getItem('prochat_cached_stream_viewers');
+    return cached ? JSON.parse(cached) : {};
+  });
+  const [streamLikes, setStreamLikes] = useState(() => {
+    const cached = localStorage.getItem('prochat_cached_stream_likes');
     return cached ? JSON.parse(cached) : {};
   });
   const [resolvedStreamerNames, setResolvedStreamerNames] = useState({});
@@ -890,6 +895,13 @@ export default function ChatDashboard({
             return next;
           });
         }
+        if (metadata && metadata.likes !== undefined) {
+          setStreamLikes(prev => {
+            const next = { ...prev, [ch]: metadata.likes };
+            localStorage.setItem('prochat_cached_stream_likes', JSON.stringify(next));
+            return next;
+          });
+        }
         if (metadata && metadata.isShorts !== undefined) {
           setYoutubeShortsChannels(prev => {
             const next = new Set(prev);
@@ -912,6 +924,12 @@ export default function ChatDashboard({
           const next = { ...prev };
           delete next[ch];
           localStorage.setItem('prochat_cached_stream_viewers', JSON.stringify(next));
+          return next;
+        });
+        setStreamLikes(prev => {
+          const next = { ...prev };
+          delete next[ch];
+          localStorage.setItem('prochat_cached_stream_likes', JSON.stringify(next));
           return next;
         });
         setYoutubeShortsChannels(prev => {
@@ -1912,6 +1930,7 @@ export default function ChatDashboard({
 
   const [viewerDisplayMode, setViewerDisplayMode] = useState('individual'); // 'individual' | 'combined' | 'hidden'
   const [uptimeDisplayMode, setUptimeDisplayMode] = useState('individual'); // 'individual' | 'combined' | 'hidden'
+  const [likesDisplayMode, setLikesDisplayMode] = useState('individual'); // 'individual' | 'combined' | 'hidden'
   const [participantFilter, setParticipantFilter] = useState('all');
 
 
@@ -1929,6 +1948,7 @@ export default function ChatDashboard({
 
   const viewersByPlatform = {};
   const uptimesByPlatform = {};
+  const likesByPlatform = {};
 
   activeChannels.filter(ch => ch.enabled).forEach(ch => {
     const cleanName = ch.name.toLowerCase().replace('@', '').trim();
@@ -1951,7 +1971,20 @@ export default function ChatDashboard({
     }
     viewersByPlatform[displayPlatform] += count;
 
-    // 2. Calculate elapsed stream duration for this channel
+    // 2. Calculate likes count for this channel
+    let lCount = 0;
+    if (isChannelConnected) {
+      const realLikes = streamLikes[cleanName];
+      if (realLikes !== undefined && realLikes !== null) {
+        lCount = realLikes;
+      }
+    }
+    if (!likesByPlatform[displayPlatform]) {
+      likesByPlatform[displayPlatform] = 0;
+    }
+    likesByPlatform[displayPlatform] += lCount;
+
+    // 3. Calculate elapsed stream duration for this channel
     if (isChannelConnected) {
       const startTimeStr = streamStartTimes[cleanName];
       if (startTimeStr) {
@@ -1984,11 +2017,32 @@ export default function ChatDashboard({
     });
   };
 
+  const handleLikesClick = () => {
+    setLikesDisplayMode(prev => {
+      if (prev === 'individual') return 'combined';
+      if (prev === 'combined') return 'hidden';
+      return 'individual';
+    });
+  };
+
   const totalConnectedViewers = Object.entries(streamViewers)
     .filter(([chName]) => activeChannels.some(ch => ch.enabled && ch.name.toLowerCase().replace('@', '').trim() === chName))
     .reduce((sum, [, count]) => sum + (count || 0), 0);
 
   const displayViewerCount = activeChannels.some(ch => ch.enabled) ? totalConnectedViewers : 0;
+
+  const totalConnectedLikes = Object.entries(streamLikes)
+    .filter(([chName]) => activeChannels.some(ch => ch.enabled && ch.name.toLowerCase().replace('@', '').trim() === chName))
+    .reduce((sum, [, count]) => sum + (count || 0), 0);
+
+  const displayLikesCount = activeChannels.some(ch => ch.enabled) ? totalConnectedLikes : 0;
+
+  const formatLikesNumber = (num) => {
+    if (!num || isNaN(num)) return '0';
+    if (num >= 1000000) return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+    return String(num);
+  };
 
   const getViewersTooltip = () => {
     const parts = [];
@@ -2108,6 +2162,30 @@ export default function ChatDashboard({
                     <span>--</span>
                   )}
                 </div>
+                <div className="metric-pill-divider" />
+                <div className="metric-pill-section" onClick={handleLikesClick}>
+                  <ThumbsUp size={13} style={{ color: 'var(--text-muted)' }} />
+                  {likesDisplayMode === 'individual' && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                      {Object.keys(likesByPlatform).length > 0 ? (
+                        Object.entries(likesByPlatform).map(([platform, count]) => (
+                          <span key={platform} style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                            <PlatformLogo platform={platform} size={12} />
+                            <span>{formatLikesNumber(count)}</span>
+                          </span>
+                        ))
+                      ) : (
+                        <span>0</span>
+                      )}
+                    </span>
+                  )}
+                  {likesDisplayMode === 'combined' && (
+                    <span>{formatLikesNumber(displayLikesCount)}</span>
+                  )}
+                  {likesDisplayMode === 'hidden' && (
+                    <span>--</span>
+                  )}
+                </div>
               </div>
             </TooltipTrigger>
             <TooltipContent side="bottom" align="center">
@@ -2116,6 +2194,7 @@ export default function ChatDashboard({
                   {activeEnabledChannels.map(ch => {
                     const cleanName = ch.name.toLowerCase().replace(/^@+/, '').trim();
                     const v = streamViewers[cleanName] || 0;
+                    const l = streamLikes[cleanName] || 0;
                     const startTime = streamStartTimes[cleanName] || streamStartTimes[`@${cleanName}`];
                     const isStreamLive = !!startTime;
                     let durationStr = 'offline';
@@ -2127,7 +2206,7 @@ export default function ChatDashboard({
                       <div key={ch.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <PlatformLogo platform={ch.platform} size={12} />
                         <span style={{ fontWeight: 600 }}>{getChannelDisplayName(ch)}:</span>
-                        <span>{v} viewers ({isStreamLive ? durationStr : 'offline'})</span>
+                        <span>{v} viewers • {formatLikesNumber(l)} likes ({isStreamLive ? durationStr : 'offline'})</span>
                       </div>
                     );
                   })}

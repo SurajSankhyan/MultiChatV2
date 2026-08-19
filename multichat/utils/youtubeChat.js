@@ -283,6 +283,53 @@ export class YoutubeChatClient {
     return null;
   }
 
+  parseLikesFromHtml(html) {
+    if (!html) return null;
+    
+    // 1. Try segmentedLikeDislikeButtonViewModel / toggleButtonRenderer accessibility or label
+    const labelMatch = html.match(/"label"\s*:\s*"([0-9.,KMBkmb]+)\s+likes?"/i) || 
+                       html.match(/"accessibilityData"\s*:\s*\{"label"\s*:\s*"([0-9.,KMBkmb]+)\s+likes?"\}/i) ||
+                       html.match(/"label"\s*:\s*"[Ll]ike (?:this video )?along with ([0-9.,KMBkmb]+) other people"/i);
+    if (labelMatch && labelMatch[1]) {
+      const text = labelMatch[1].toLowerCase().replace(/,/g, '');
+      if (text.includes('k')) {
+        const val = parseFloat(text.replace(/[^0-9.]/g, ''));
+        return isNaN(val) ? null : Math.round(val * 1000);
+      } else if (text.includes('m')) {
+        const val = parseFloat(text.replace(/[^0-9.]/g, ''));
+        return isNaN(val) ? null : Math.round(val * 1000000);
+      } else {
+        const val = parseInt(text.replace(/[^0-9]/g, ''), 10);
+        return isNaN(val) ? null : val;
+      }
+    }
+
+    // 2. Try raw likeCount text or likeCount numeric
+    const likeCountMatch = html.match(/"likeCount"\s*:\s*"([^"]+)"/) || html.match(/"likes"\s*:\s*([0-9]+)/);
+    if (likeCountMatch && likeCountMatch[1]) {
+      const val = parseInt(String(likeCountMatch[1]).replace(/[^0-9]/g, ''), 10);
+      if (!isNaN(val)) return val;
+    }
+
+    // 3. Try factoid or toggleButton text
+    const factoidMatch = html.match(/"factoidRenderer"\s*:\s*\{"value"\s*:\s*\{"simpleText"\s*:\s*"([^"]+)"\}\s*,\s*"label"\s*:\s*\{"simpleText"\s*:\s*"Likes"/i);
+    if (factoidMatch && factoidMatch[1]) {
+      const text = factoidMatch[1].toLowerCase().replace(/,/g, '');
+      if (text.includes('k')) {
+        const val = parseFloat(text.replace(/[^0-9.]/g, ''));
+        return isNaN(val) ? null : Math.round(val * 1000);
+      } else if (text.includes('m')) {
+        const val = parseFloat(text.replace(/[^0-9.]/g, ''));
+        return isNaN(val) ? null : Math.round(val * 1000000);
+      } else {
+        const val = parseInt(text.replace(/[^0-9]/g, ''), 10);
+        return isNaN(val) ? null : val;
+      }
+    }
+
+    return null;
+  }
+
   parseStartTimestamp(html) {
     if (!html) return null;
 
@@ -440,12 +487,12 @@ export class YoutubeChatClient {
               console.warn("Failed to resolve offline channel display name:", e.message);
             }
           }
-          this.onStatus(pollKey, 'offline', { startTime: null, viewers: 0, displayName: resolvedDisplayName });
+          this.onStatus(pollKey, 'offline', { startTime: null, viewers: 0, likes: 0, displayName: resolvedDisplayName });
           this.setupOfflinePoll(trimmedName, chatMode);
           return;
         }
 
-        // Extract live stream start timestamp and viewer count if present in HTML
+        // Extract live stream start timestamp and viewer/like count if present in HTML
         let startTimestamp = null;
         if (html) {
           startTimestamp = this.parseStartTimestamp(html);
@@ -453,6 +500,7 @@ export class YoutubeChatClient {
             console.log(`YouTube client: found startTimestamp: ${startTimestamp}`);
           }
           this.resolvedViewers = this.parseViewersFromHtml(html);
+          this.resolvedLikes = this.parseLikesFromHtml(html);
         }
         this.resolvedStartTimestamp = startTimestamp; // store temporarily
 
@@ -649,35 +697,39 @@ export class YoutubeChatClient {
       this.onStatus(pollKey, 'connected', { 
         startTime: pollInstance.startTimestamp,
         viewers: this.resolvedViewers || null,
+        likes: this.resolvedLikes || null,
         isShorts,
         displayName: resolvedDisplayName
       });
       this.resolvedViewers = null; // reset
+      this.resolvedLikes = null;
 
       // Start polling (every 1 second for ultra-fast chat delivery)
       pollInstance.intervalId = setInterval(() => {
         this.pollChat(pollKey);
       }, 1000);
 
-      // Periodic viewer count update for YouTube
+      // Periodic viewer and like count update for YouTube
       pollInstance.viewerIntervalId = setInterval(async () => {
         try {
-          console.log(`YouTube client: polling viewer count for ${pollKey}`);
+          console.log(`YouTube client: polling viewer and like count for ${pollKey}`);
           const liveUrl = this.getLiveUrl(trimmedName);
           const html = await this.fetchWithProxyFallback(liveUrl);
           if (html) {
             let startTimestamp = this.parseStartTimestamp(html);
             const resolvedViewers = this.parseViewersFromHtml(html) || 0;
+            const resolvedLikes = this.parseLikesFromHtml(html) || 0;
 
             this.onStatus(pollKey, 'connected', { 
               startTime: startTimestamp || pollInstance.startTimestamp,
               viewers: resolvedViewers,
+              likes: resolvedLikes,
               isShorts: pollInstance.isShorts,
               displayName: pollInstance.displayName || pollInstance.trimmedName.replace('@', '')
             });
           }
         } catch (e) {
-          console.warn(`YouTube client: failed to update viewers for ${pollKey}:`, e.message);
+          console.warn(`YouTube client: failed to update viewers/likes for ${pollKey}:`, e.message);
         }
       }, 10000); // poll every 10 seconds
 
