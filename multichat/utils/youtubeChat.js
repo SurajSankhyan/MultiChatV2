@@ -572,6 +572,31 @@ export class YoutubeChatClient {
        }
     }
 
+    // Fallback for startTime from relative live status (e.g. "Started streaming 99 minutes ago")
+    if (!startTime && html) {
+      const streamMatches = [
+        ...html.matchAll(/(?:Started streaming|Streamed live|Started)\s+([0-9]+(?:\.[0-9]+)?\s*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?)\s*ago)/gi)
+      ];
+      for (const m of streamMatches) {
+        const timeStr = m[1];
+        const numMatch = timeStr.match(/[0-9]+(?:\.[0-9]+)?/);
+        if (numMatch) {
+          const num = parseFloat(numMatch[0]);
+          let deltaSecs = 0;
+          if (/second|sec/i.test(timeStr)) deltaSecs = num;
+          else if (/minute|min/i.test(timeStr)) deltaSecs = num * 60;
+          else if (/hour|hr/i.test(timeStr)) deltaSecs = num * 3600;
+          else if (/day/i.test(timeStr)) deltaSecs = num * 86400;
+
+          if (deltaSecs > 0) {
+            startTime = Date.now() - Math.round(deltaSecs * 1000);
+            isLive = true;
+            break;
+          }
+        }
+      }
+    }
+
     // Check aspect ratio for Shorts
     if (playerJson && playerJson.streamingData) {
       const formats = playerJson.streamingData.adaptiveFormats || playerJson.streamingData.formats || [];
