@@ -230,19 +230,24 @@ export class YoutubeChatClient {
       let resolved = false;
       const iframe = document.createElement('iframe');
       iframe.style.position = 'fixed';
-      iframe.style.top = '-9999px';
-      iframe.style.left = '-9999px';
-      iframe.style.width = '1px';
-      iframe.style.height = '1px';
-      iframe.style.opacity = '0';
+      iframe.style.bottom = '0px';
+      iframe.style.right = '0px';
+      iframe.style.width = '120px';
+      iframe.style.height = '80px';
+      iframe.style.opacity = '0.001';
       iframe.style.pointerEvents = 'none';
+      iframe.style.zIndex = '-99999';
       iframe.setAttribute('tabindex', '-1');
       iframe.setAttribute('aria-hidden', 'true');
-      iframe.src = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&autoplay=1&mute=1&controls=0&playsinline=1`;
+      iframe.setAttribute('allow', 'autoplay; encrypted-media');
+      iframe.src = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&autoplay=1&mute=1&playsinline=1&controls=0&origin=${encodeURIComponent(window.location.origin)}`;
+
+      let pollInterval = null;
 
       const cleanup = () => {
         if (resolved) return;
         resolved = true;
+        if (pollInterval) clearInterval(pollInterval);
         window.removeEventListener('message', messageHandler);
         clearTimeout(timeout);
         try {
@@ -255,10 +260,15 @@ export class YoutubeChatClient {
       const messageHandler = (e) => {
         try {
           const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-          if (data && data.event === 'infoDelivery' && data.info) {
-            const secs = typeof data.info.currentTime === 'number' && data.info.currentTime > 0
-              ? data.info.currentTime
-              : (typeof data.info.duration === 'number' && data.info.duration > 0 ? data.info.duration : 0);
+          if (data) {
+            let secs = 0;
+            if (data.event === 'infoDelivery' && data.info) {
+              secs = typeof data.info.currentTime === 'number' && data.info.currentTime > 0
+                ? data.info.currentTime
+                : (typeof data.info.duration === 'number' && data.info.duration > 0 ? data.info.duration : 0);
+            } else if (data.info && typeof data.info.currentTime === 'number' && data.info.currentTime > 0) {
+              secs = data.info.currentTime;
+            }
 
             if (secs > 0) {
               const startMs = Date.now() - Math.floor(secs * 1000);
@@ -267,6 +277,18 @@ export class YoutubeChatClient {
             }
           }
         } catch (err) {}
+      };
+
+      iframe.onload = () => {
+        pollInterval = setInterval(() => {
+          try {
+            if (iframe.contentWindow) {
+              iframe.contentWindow.postMessage(JSON.stringify({ event: 'listening' }), '*');
+              iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'getCurrentTime', args: [] }), '*');
+              iframe.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'getDuration', args: [] }), '*');
+            }
+          } catch (e) {}
+        }, 250);
       };
 
       const timeout = setTimeout(() => {
@@ -870,48 +892,11 @@ export class YoutubeChatClient {
       // Extract Innertube API parameters directly from pageHtml if present
       let { apiKey, clientVersion, continuationToken, liveChatId } = this.extractInnertubeParams(pageHtml);
 
-      // If watch page wasn't fetched yet and we still need startTime, isShorts, or tokens, fetch the watch page
-      if (videoId && (!localStartTime || !isShorts || !apiKey || !continuationToken)) {
-        try {
-          const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
-          console.log(`YouTube client: fetching watch page for stream metadata & tokens: ${watchUrl}`);
-          const watchHtml = await this.fetchWithProxyFallback(watchUrl);
-          if (watchHtml) {
-            const meta = this.parseMetadataFromHtml(watchHtml);
-            if (meta) {
-              if (meta.startTime && !localStartTime) localStartTime = meta.startTime;
-              if (meta.viewers !== null && localViewers === null) localViewers = meta.viewers;
-              if (meta.likes !== null && localLikes === null) localLikes = meta.likes;
-              if (meta.isShorts) isShorts = true;
-            }
-            const watchParams = this.extractInnertubeParams(watchHtml);
-            if (!apiKey && watchParams.apiKey) apiKey = watchParams.apiKey;
-            if (!continuationToken && watchParams.continuationToken) continuationToken = watchParams.continuationToken;
-            if (!clientVersion && watchParams.clientVersion) clientVersion = watchParams.clientVersion;
-            if (!liveChatId && watchParams.liveChatId) liveChatId = watchParams.liveChatId;
-          }
-        } catch (e) {
-          console.warn("YouTube client: error fetching metadata from watch page:", e.message);
-        }
-      }
-
-      // If startTime or isShorts still not found, fetch structured Innertube player metadata
-      if (videoId && (!localStartTime || !isShorts)) {
-        try {
-          const pMeta = await this.fetchPlayerMetadata(videoId, apiKey);
-          if (pMeta) {
-            if (pMeta.startTime && !localStartTime) localStartTime = pMeta.startTime;
-            if (pMeta.isShorts) isShorts = true;
-            if (pMeta.viewers && localViewers === null) localViewers = pMeta.viewers;
-          }
-        } catch (e) {}
-      }
-
-      // If tokens weren't in main page HTML or chatMode is specific, try fetching live chat page
+      // If tokens weren't in main page HTML or chatMode is specific, fetch live chat page directly (1 fast request)
       if (!apiKey || !continuationToken) {
         try {
           const chatPageUrl = `https://www.youtube.com/live_chat?v=${videoId}`;
-          console.log(`YouTube client: fetching live chat page for additional tokens: ${chatPageUrl}`);
+          console.log(`YouTube client: fetching live chat page for tokens: ${chatPageUrl}`);
           const chatHtml = await this.fetchWithProxyFallback(chatPageUrl);
           if (chatHtml) {
             const chatParams = this.extractInnertubeParams(chatHtml);
@@ -921,7 +906,7 @@ export class YoutubeChatClient {
             if (!liveChatId && chatParams.liveChatId) liveChatId = chatParams.liveChatId;
           }
         } catch (e) {
-          console.warn("YouTube client: live_chat fallback fetch error:", e.message);
+          console.warn("YouTube client: live_chat fetch error:", e.message);
         }
       }
 
@@ -933,18 +918,6 @@ export class YoutubeChatClient {
       }
 
       console.log(`YouTube client: connected to stream ${videoId} with clientVersion: ${clientVersion}`);
-
-      // Final fallback for startTime using resolved apiKey
-      if (videoId && !localStartTime) {
-        try {
-          const pMeta = await this.fetchPlayerMetadata(videoId, apiKey);
-          if (pMeta) {
-            if (pMeta.startTime && !localStartTime) localStartTime = pMeta.startTime;
-            if (pMeta.isShorts) isShorts = true;
-            if (pMeta.viewers && localViewers === null) localViewers = pMeta.viewers;
-          }
-        } catch (e) {}
-      }
 
       const currentViewers = localViewers !== null ? localViewers : null;
       const currentLikes = localLikes !== null ? localLikes : null;
