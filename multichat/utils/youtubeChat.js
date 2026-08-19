@@ -127,9 +127,24 @@ export class YoutubeChatClient {
     throw lastError || new Error('All CORS proxies failed to load page');
   }
 
-  // Fetch structured player metadata directly via Innertube Player API
+  // Fetch structured player metadata directly via Innertube Player API or Mobile Watch Proxy
   async fetchPlayerMetadata(videoId, apiKey = '') {
     if (!videoId) return null;
+
+    // 0. Try fetching Mobile YouTube watch page via query proxy (returns static server-rendered startTimestamp & viewers 100% reliably)
+    try {
+      const mwebUrl = `/api/youtube/proxy?url=${encodeURIComponent(`https://m.youtube.com/watch?v=${videoId}`)}`;
+      const res0 = await fetch(mwebUrl);
+      if (res0.ok) {
+        const html0 = await res0.text();
+        const meta0 = this.parseMetadataFromHtml(html0);
+        if (meta0 && meta0.startTime) {
+          console.log(`YouTube client: resolved exact live broadcast start time via MWEB proxy: ${new Date(meta0.startTime).toISOString()}`);
+          return meta0;
+        }
+      }
+    } catch (e) {}
+
     const payload = {
       context: {
         client: {
@@ -976,26 +991,6 @@ export class YoutubeChatClient {
         displayName: resolvedDisplayName
       });
 
-      // Background client-side YouTube IFrame player bridge for guaranteed start time resolution
-      if (!pollInstance.startTimestamp && videoId) {
-        this.resolveLiveStartTimeViaIFrame(videoId).then(iframeStart => {
-          if (iframeStart && this.activePolls.has(pollKey)) {
-            const active = this.activePolls.get(pollKey);
-            if (!active.startTimestamp) {
-              active.startTimestamp = iframeStart;
-              console.log(`YouTube client: resolved live broadcast start time via IFrame bridge for ${pollKey}: ${new Date(iframeStart).toISOString()}`);
-              this.onStatus(pollKey, 'connected', {
-                startTime: iframeStart,
-                viewers: active.viewers,
-                likes: active.likes,
-                isShorts: active.isShorts,
-                displayName: active.displayName
-              });
-            }
-          }
-        }).catch(() => {});
-      }
-
       // Sequential Adaptive Polling Loop (avoids overlapping requests and invalidating tokens over internet/Netlify)
       const scheduleNextPoll = (delay = 1000) => {
         if (!this.activePolls.has(pollKey)) return;
@@ -1045,23 +1040,6 @@ export class YoutubeChatClient {
                   if (pMeta.viewers && pollInstance.viewers === null) pollInstance.viewers = pMeta.viewers;
                 }
               } catch (e) {}
-            }
-            if (!pollInstance.startTimestamp && pollInstance.videoId) {
-              this.resolveLiveStartTimeViaIFrame(pollInstance.videoId).then(iframeStart => {
-                if (iframeStart && this.activePolls.has(pollKey)) {
-                  const active = this.activePolls.get(pollKey);
-                  if (!active.startTimestamp) {
-                    active.startTimestamp = iframeStart;
-                    this.onStatus(pollKey, 'connected', {
-                      startTime: iframeStart,
-                      viewers: active.viewers,
-                      likes: active.likes,
-                      isShorts: active.isShorts,
-                      displayName: active.displayName
-                    });
-                  }
-                }
-              }).catch(() => {});
             }
 
             this.onStatus(pollKey, 'connected', { 
