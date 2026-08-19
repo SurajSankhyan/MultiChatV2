@@ -453,11 +453,24 @@ export class YoutubeChatClient {
 
     // Check aspect ratio for Shorts
     if (playerJson && playerJson.streamingData) {
-      const format = (playerJson.streamingData.adaptiveFormats && playerJson.streamingData.adaptiveFormats[0]) || 
-                     (playerJson.streamingData.formats && playerJson.streamingData.formats[0]);
-      if (format && format.width && format.height) {
-        if (format.height > format.width) {
+      const formats = playerJson.streamingData.adaptiveFormats || playerJson.streamingData.formats || [];
+      for (const format of formats) {
+        if (format && format.width && format.height) {
+          if (format.height > format.width) {
+            isShorts = true;
+            break;
+          }
+        }
+      }
+    }
+    if (!isShorts && html) {
+      const formatMatches = [...html.matchAll(/"width"\s*:\s*(\d+)\s*,\s*"height"\s*:\s*(\d+)/g)];
+      for (const m of formatMatches) {
+        const w = parseInt(m[1], 10);
+        const h = parseInt(m[2], 10);
+        if (w > 0 && h > 0 && h > w) {
           isShorts = true;
+          break;
         }
       }
     }
