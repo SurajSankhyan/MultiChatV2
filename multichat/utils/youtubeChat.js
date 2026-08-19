@@ -134,51 +134,8 @@ export class YoutubeChatClient {
     const endpoint = apiKey ? `https://www.youtube.com/youtubei/v1/player?key=${apiKey}` : 'https://www.youtube.com/youtubei/v1/player';
     const localEndpoint = `/ytproxy/youtubei/v1/player${apiKey ? `?key=${apiKey}` : ''}`;
 
-    let json = null;
-
-    // 1. Try local proxy
-    try {
-      const res = await fetch(localEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (res.ok) {
-        json = await res.json();
-      }
-    } catch (e) {}
-
-    // 2. Try query proxy
-    if (!json) {
-      try {
-        const queryUrl = `/api/youtube/proxy?url=${encodeURIComponent(endpoint)}`;
-        const res = await fetch(queryUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        if (res.ok) {
-          json = await res.json();
-        }
-      } catch (e) {}
-    }
-
-    // 3. Try client-side CORS proxy
-    if (!json) {
-      try {
-        const corsUrl = `https://corsproxy.io/?url=${encodeURIComponent(endpoint)}`;
-        const res = await fetch(corsUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        if (res.ok) {
-          json = await res.json();
-        }
-      } catch (e) {}
-    }
-
-    if (json) {
+    const parsePlayerJson = (json) => {
+      if (!json || json.error || (!json.microformat && !json.videoDetails)) return null;
       const mf = json.microformat?.playerMicroformatRenderer;
       const liveDetails = mf?.liveBroadcastDetails;
       const candidateTime = liveDetails?.actualStartTime || liveDetails?.startTimestamp || liveDetails?.scheduledStartTime || mf?.publishDate;
@@ -189,8 +146,11 @@ export class YoutubeChatClient {
       }
       let isShorts = false;
       const formats = json.streamingData?.adaptiveFormats || json.streamingData?.formats || [];
-      if (formats.length > 0 && formats[0].width && formats[0].height) {
-        if (formats[0].height > formats[0].width) isShorts = true;
+      for (const fmt of formats) {
+        if (fmt.width && fmt.height && fmt.height > fmt.width) {
+          isShorts = true;
+          break;
+        }
       }
       const viewers = parseInt(json.videoDetails?.viewCount, 10) || 0;
       return {
@@ -200,6 +160,52 @@ export class YoutubeChatClient {
         isShorts,
         title: json.videoDetails?.title
       };
+    };
+
+    // 1. Try local proxy
+    try {
+      const res = await fetch(localEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const parsed = parsePlayerJson(data);
+        if (parsed) return parsed;
+      }
+    } catch (e) {}
+
+    // 2. Try query proxy
+    try {
+      const queryUrl = `/api/youtube/proxy?url=${encodeURIComponent(endpoint)}`;
+      const res = await fetch(queryUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const parsed = parsePlayerJson(data);
+        if (parsed) return parsed;
+      }
+    } catch (e) {}
+
+    // 3. Try client-side CORS proxies
+    for (const proxyFn of this.proxies) {
+      try {
+        const corsUrl = proxyFn(endpoint);
+        const res = await fetch(corsUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const parsed = parsePlayerJson(data);
+          if (parsed) return parsed;
+        }
+      } catch (e) {}
     }
 
     return null;
