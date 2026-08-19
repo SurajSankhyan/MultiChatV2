@@ -7,8 +7,8 @@ import { Tooltip, TooltipTrigger, TooltipContent } from './ui/interfaces-tooltip
 import { getLiveTwitchBadgeUrl } from '../utils/twitchChat';
 
 const appStartTime = Date.now();
-const GLOBAL_AVATAR_CACHE = new Map();
-const GLOBAL_DISPLAY_NAME_CACHE = new Map();
+export const GLOBAL_AVATAR_CACHE = new Map();
+export const GLOBAL_DISPLAY_NAME_CACHE = new Map();
 
 const isDefaultAvatar = (url) => {
   if (!url || typeof url !== 'string') return true;
@@ -1297,15 +1297,14 @@ export default function ChatFeed({
 
                 let avatarUrl = null;
                 if (msg.platform === 'kick') {
-                  const uId = msg.userId ? String(msg.userId) : '';
                   const cached = (cleanUser ? GLOBAL_AVATAR_CACHE.get(cleanUser) : null) || (cleanDisplay ? GLOBAL_AVATAR_CACHE.get(cleanDisplay) : null) || (isCreatorUser ? creatorAvatar : null);
                   const rawMsgAvatar = msg.avatarUrl || msg.avatar;
-                  if (cached && typeof cached === 'string' && cached.length > 5) {
+                  if (cached && typeof cached === 'string' && cached.length > 5 && !cached.includes('/kick-default-avatars/')) {
                     avatarUrl = proxifyAvatarUrl(cached);
-                  } else if (rawMsgAvatar && typeof rawMsgAvatar === 'string' && rawMsgAvatar.startsWith('http') && !isDefaultAvatar(rawMsgAvatar)) {
+                  } else if (rawMsgAvatar && typeof rawMsgAvatar === 'string' && rawMsgAvatar.startsWith('http') && !isDefaultAvatar(rawMsgAvatar) && !rawMsgAvatar.includes('default-avatar')) {
                     avatarUrl = proxifyAvatarUrl(rawMsgAvatar);
                   } else {
-                    avatarUrl = `/api/kick/avatar?username=${encodeURIComponent(cleanUser)}&userId=${encodeURIComponent(uId)}`;
+                    avatarUrl = getKickDefaultAvatarUrl(msg.username, msg.userId);
                   }
                 } else {
                   const rawMsgAvatar = msg.avatarUrl || msg.avatar;

@@ -584,12 +584,23 @@ export class KickChatClient {
 
       const messageContent = msg.content || msg.message || msg.text || '';
       const parts = this.parseKickContent(messageContent);
-      // Kick avatar - try raw properties, or route to /api/kick/avatar resolver
+      // Kick avatar - use raw properties if present, or assign user-specific default Kick avatar
       const rawKickAvatar = identity?.profile_picture || identity?.profile_pic || sender?.profile_picture || sender?.profile_pic || identity?.profile_image || sender?.profile_image || identity?.avatar || sender?.avatar;
-      const sId = sender.id ? String(sender.id) : '';
+      let defaultKickIdx = 1;
+      const numId = parseInt(sender.id || '');
+      if (numId && !isNaN(numId)) {
+        defaultKickIdx = (numId % 6) + 1;
+      } else if (senderSlug) {
+        let hash = 0;
+        const cleanUser = senderSlug.toLowerCase();
+        for (let i = 0; i < cleanUser.length; i++) {
+          hash = cleanUser.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        defaultKickIdx = (Math.abs(hash) % 6) + 1;
+      }
       const avatar = rawKickAvatar 
         ? normalizeUrl(rawKickAvatar) 
-        : `/api/kick/avatar?username=${encodeURIComponent(senderSlug)}&userId=${encodeURIComponent(sId)}`;
+        : `/kick-default-avatars/default-avatar-${defaultKickIdx}.webp`;
 
       const parsedMsg = {
         id: msg.id || 'kick_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),

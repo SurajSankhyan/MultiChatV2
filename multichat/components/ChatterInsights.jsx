@@ -4,6 +4,7 @@ import PlatformLogo, { DefaultSubscriberBadge, KickGiftedSubsBadge, TwitchDefaul
 import { parseMessageContent } from '../utils/emotes';
 import { getLiveTwitchBadgeUrl } from '../utils/twitchChat';
 import { Tooltip, TooltipTrigger, TooltipContent } from './ui/interfaces-tooltip';
+import { GLOBAL_AVATAR_CACHE } from './ChatFeed';
 
 
 const MOCK_USERNAMES = [
@@ -45,6 +46,13 @@ export default function ChatterInsights({
     if (chatter.platform === 'kick') {
       const fetchKickData = async () => {
         const username = chatter.username;
+
+        const storeAvatarInGlobalCache = (avatar) => {
+          if (avatar && typeof avatar === 'string' && avatar.startsWith('http') && !avatar.includes('default-avatar')) {
+            const clean = (username || '').toLowerCase().replace(/^@+/, '').trim();
+            if (clean) GLOBAL_AVATAR_CACHE.set(clean, avatar);
+          }
+        };
 
         // HTML scrape helpers — extracts avatar + follower count from kickstats page HTML
         const parseKickstatsHtml = (html) => {
@@ -109,6 +117,7 @@ export default function ChatterInsights({
               const followers = data.followers_count ?? data.followersCount ?? userObj.followers_count ?? userObj.followersCount;
               const avatar = userObj.profile_pic || userObj.avatar || null;
               if (followers !== undefined || avatar) {
+                storeAvatarInGlobalCache(avatar);
                 setChannelData({
                   followers_count: followers,
                   avatar: avatar,
@@ -154,6 +163,7 @@ export default function ChatterInsights({
                 const followers = data.followers_count ?? data.followersCount ?? userObj.followers_count ?? userObj.followersCount;
                 const avatar = userObj.profile_pic || userObj.avatar || null;
                 if (followers !== undefined || avatar) {
+                  storeAvatarInGlobalCache(avatar);
                   setChannelData({
                     followers_count: followers,
                     avatar: avatar,
@@ -183,6 +193,7 @@ export default function ChatterInsights({
             const html = await res.text();
             const { avatarUrl, followers } = parseKickstatsHtml(html);
             if (avatarUrl || followers !== undefined) {
+              storeAvatarInGlobalCache(avatarUrl);
               setChannelData({ followers_count: followers, avatar: avatarUrl || null, profile_pic: avatarUrl || null });
               return;
             }
@@ -212,6 +223,7 @@ export default function ChatterInsights({
               }
               const { avatarUrl, followers } = parseKickstatsHtml(html);
               if (avatarUrl || followers !== undefined) {
+                storeAvatarInGlobalCache(avatarUrl);
                 setChannelData({ followers_count: followers, avatar: avatarUrl || null, profile_pic: avatarUrl || null });
                 return;
               }
