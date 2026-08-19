@@ -55,7 +55,7 @@ export class YoutubeChatClient {
   }
 
   // Helper to fetch from url trying local proxy first, and falling back to CORS proxies
-  async fetchWithProxyFallback(url, timeoutMs = 3500) {
+  async fetchWithProxyFallback(url, timeoutMs = 8000) {
     const isValidYoutubeHtml = (text) => {
       if (!text || typeof text !== 'string' || text.length < 500) return false;
       if (text.includes('google.com/sorry') || text.includes('<title>Sorry...</title>') || text.includes('consent.youtube.com/m?')) {

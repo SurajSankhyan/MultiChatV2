@@ -944,13 +944,25 @@ export default function ChatDashboard({
           const rawClean = ch.replace(/^@+/, '').trim();
           const atClean = `@${rawClean}`;
           const justClean = ch.replace('@', '').trim();
+          const lowerCh = ch.toLowerCase();
+          const lowerRaw = rawClean.toLowerCase();
+          const lowerAt = atClean.toLowerCase();
           const startTimeVal = metadata?.startTime;
 
           setStreamStartTimes(prev => {
-            const existing = prev[ch] || prev[rawClean] || prev[atClean] || prev[justClean];
+            const existing = prev[ch] || prev[rawClean] || prev[atClean] || prev[justClean] || prev[lowerCh] || prev[lowerRaw] || prev[lowerAt];
             const timeToUse = startTimeVal || existing;
-            if (!timeToUse) return prev; // Avoid setting false Date.now() start time
-            const next = { ...prev, [ch]: timeToUse, [rawClean]: timeToUse, [atClean]: timeToUse, [justClean]: timeToUse };
+            if (!timeToUse) return prev;
+            const next = { 
+              ...prev, 
+              [ch]: timeToUse, 
+              [rawClean]: timeToUse, 
+              [atClean]: timeToUse, 
+              [justClean]: timeToUse,
+              [lowerCh]: timeToUse,
+              [lowerRaw]: timeToUse,
+              [lowerAt]: timeToUse
+            };
             try { localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next)); } catch (e) {}
             return next;
           });
@@ -2155,7 +2167,13 @@ export default function ChatDashboard({
       : (status === 'connected' && (realCount > 0 || !!(streamStartTimes[cleanName] || streamStartTimes[rawClean])));
 
     if (isStreamActive) {
-      const startTimeVal = streamStartTimes[cleanName] || streamStartTimes[rawClean] || streamStartTimes[`@${cleanName}`] || streamStartTimes[ch.name.toLowerCase()];
+      const lowerName = ch.name.toLowerCase();
+      const startTimeVal = streamStartTimes[cleanName] || 
+                           streamStartTimes[rawClean] || 
+                           streamStartTimes[`@${cleanName}`] || 
+                           streamStartTimes[`@${rawClean}`] || 
+                           streamStartTimes[ch.name] || 
+                           streamStartTimes[lowerName];
       if (startTimeVal) {
         const startMs = parseStartTimeMs(startTimeVal);
         if (startMs && !isNaN(startMs)) {
@@ -2240,7 +2258,13 @@ export default function ChatDashboard({
       const clean = ch.name.toLowerCase().replace(/^@+/, '').trim();
       const rawClean = ch.name.toLowerCase().replace('@', '').trim();
       const status = platformStatuses[clean] || platformStatuses[rawClean] || platformStatuses[ch.platform];
-      const startTime = streamStartTimes[clean] ?? streamStartTimes[rawClean] ?? streamStartTimes[`@${clean}`] ?? streamStartTimes[ch.name.toLowerCase()];
+      const lowerName = ch.name.toLowerCase();
+      const startTime = streamStartTimes[clean] ?? 
+                        streamStartTimes[rawClean] ?? 
+                        streamStartTimes[`@${clean}`] ?? 
+                        streamStartTimes[`@${rawClean}`] ?? 
+                        streamStartTimes[ch.name] ?? 
+                        streamStartTimes[lowerName];
       if (startTime) {
         const startMs = parseStartTimeMs(startTime);
         if (startMs) {
@@ -2463,7 +2487,13 @@ export default function ChatDashboard({
                     const rawClean = ch.name.toLowerCase().replace('@', '').trim();
                     const v = streamViewers[cleanName] ?? streamViewers[rawClean] ?? 0;
                     const l = streamLikes[cleanName] ?? streamLikes[rawClean] ?? 0;
-                    const startTime = streamStartTimes[cleanName] ?? streamStartTimes[rawClean] ?? streamStartTimes[`@${cleanName}`] ?? streamStartTimes[ch.name.toLowerCase()];
+                    const lowerName = ch.name.toLowerCase();
+                    const startTime = streamStartTimes[cleanName] ?? 
+                                      streamStartTimes[rawClean] ?? 
+                                      streamStartTimes[`@${cleanName}`] ?? 
+                                      streamStartTimes[`@${rawClean}`] ?? 
+                                      streamStartTimes[ch.name] ?? 
+                                      streamStartTimes[lowerName];
                     
                     const isConnected = platformStatuses[cleanName] === 'connected' || platformStatuses[rawClean] === 'connected';
                     const isStreamLive = ch.platform === 'youtube'
@@ -2724,7 +2754,13 @@ export default function ChatDashboard({
                   const isActive = activeTab === ch.name.toLowerCase();
                   const cleanShortsName = ch.name.toLowerCase().replace('@', '').trim();
                   const isConnected = platformStatuses[cleanName] === 'connected' || platformStatuses[rawClean] === 'connected';
-                  const startTime = streamStartTimes[cleanName] ?? streamStartTimes[rawClean] ?? streamStartTimes[`@${cleanName}`] ?? streamStartTimes[ch.name.toLowerCase()];
+                  const lowerName = ch.name.toLowerCase();
+                  const startTime = streamStartTimes[cleanName] ?? 
+                                    streamStartTimes[rawClean] ?? 
+                                    streamStartTimes[`@${cleanName}`] ?? 
+                                    streamStartTimes[`@${rawClean}`] ?? 
+                                    streamStartTimes[ch.name] ?? 
+                                    streamStartTimes[lowerName];
                   const viewers = streamViewers[cleanName] ?? streamViewers[rawClean] ?? streamViewers[`@${cleanName}`] ?? 0;
                   const likes = streamLikes[cleanName] ?? streamLikes[rawClean] ?? streamLikes[`@${cleanName}`] ?? 0;
                   
