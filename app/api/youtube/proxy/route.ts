@@ -30,12 +30,18 @@ export async function GET(request: Request) {
   }
 }
 
+const DEFAULT_INNERTUBE_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
+
 export async function POST(request: Request) {
   const { searchParams } = new URL(request.url);
-  const targetUrl = searchParams.get('url');
+  let targetUrl = searchParams.get('url');
 
   if (!targetUrl || !targetUrl.startsWith('https://www.youtube.com')) {
     return new NextResponse('Invalid target URL', { status: 400 });
+  }
+
+  if (targetUrl.includes('youtubei/v1') && !targetUrl.includes('key=')) {
+    targetUrl += (targetUrl.includes('?') ? '&' : '?') + `key=${DEFAULT_INNERTUBE_KEY}`;
   }
 
   const headers = new Headers();
@@ -47,13 +53,26 @@ export async function POST(request: Request) {
   headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
 
   try {
-    const body = await request.text();
-    const res = await fetch(targetUrl, { method: 'POST', headers, body });
-    const text = await res.text();
-    return new NextResponse(text, {
+    const incomingBody = await request.json().catch(() => ({}));
+    const body = {
+      ...incomingBody,
+      context: {
+        ...(incomingBody.context || {}),
+        client: {
+          clientName: 'WEB',
+          clientVersion: '2.20240404.01.00',
+          hl: 'en',
+          gl: 'US',
+          ...(incomingBody.context?.client || {})
+        }
+      }
+    };
+
+    const res = await fetch(targetUrl, { method: 'POST', headers, body: JSON.stringify(body) });
+    const data = await res.json();
+    return NextResponse.json(data, {
       status: res.status,
-      headers: { 
-        'Content-Type': res.headers.get('Content-Type') || 'application/json',
+      headers: {
         'Cache-Control': 'no-store, max-age=0'
       }
     });
