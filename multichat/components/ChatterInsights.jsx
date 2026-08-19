@@ -865,16 +865,16 @@ export default function ChatterInsights({
     let index = 1;
     const numId = parseInt(id);
     if (numId && !isNaN(numId)) {
-      index = (numId % 8) + 1;
+      index = (numId % 6) + 1;
     } else if (username) {
       let hash = 0;
       const cleanUser = username.toLowerCase();
       for (let i = 0; i < cleanUser.length; i++) {
         hash = cleanUser.charCodeAt(i) + ((hash << 5) - hash);
       }
-      index = (Math.abs(hash) % 8) + 1;
+      index = (Math.abs(hash) % 6) + 1;
     }
-    return `https://kick.com/img/default-profile-pictures/default-avatar-${index}.webp`;
+    return `/kick-default-avatars/default-avatar-${index}.webp`;
   };
 
   const getDefaultAvatar = (platform, username, id) => {
@@ -895,25 +895,40 @@ export default function ChatterInsights({
   const proxifyAvatarUrl = (url) => {
     if (!url || typeof url !== 'string') return url;
     let cleanUrl = url.trim();
+    if (cleanUrl.startsWith('data:')) return cleanUrl;
+    if (cleanUrl.startsWith('/kick-default-avatars/')) return cleanUrl;
+    if (cleanUrl.startsWith('/api/kick/avatar')) return cleanUrl;
     if (cleanUrl.includes('files.kick.com')) return cleanUrl;
+    if (cleanUrl.includes('yt3.ggpht.com')) return cleanUrl;
+    if (cleanUrl.includes('static-cdn.jtvnw.net')) return cleanUrl;
+    if (cleanUrl.includes('7tv.app')) return cleanUrl;
+    if (cleanUrl.includes('weserv.nl')) return cleanUrl;
+    if (cleanUrl.includes('googleusercontent.com')) return cleanUrl;
+    if (cleanUrl.includes('kick.com/img/default-profile-pictures/')) {
+      const match = cleanUrl.match(/default-avatar-(\d+)/);
+      const idx = match ? ((parseInt(match[1]) % 6) || 1) : 1;
+      return `/kick-default-avatars/default-avatar-${idx}.webp`;
+    }
     if (cleanUrl.startsWith('/')) {
       cleanUrl = 'https://kick.com' + cleanUrl;
     }
     if (cleanUrl.startsWith('https://kick.com/')) {
-      return `https://images.weserv.nl/?url=${encodeURIComponent(cleanUrl)}`;
+      return `/api/kick/avatar?url=${encodeURIComponent(cleanUrl)}`;
     }
     return cleanUrl;
   };
 
+  const cleanUsername = (chatter.username || '').toLowerCase().replace(/^@+/, '').trim();
+  const cachedKickAvatar = chatter.platform === 'kick' && cleanUsername ? GLOBAL_AVATAR_CACHE.get(cleanUsername) : null;
   const rawAvatar = (chatter.platform === 'twitch')
     ? (chatter.avatar || twitchAvatar)
     : (chatter.platform === 'kick')
-      ? (chatter.avatar || channelData?.user?.profile_pic || channelData?.user?.avatar || channelData?.profile_pic || channelData?.avatar || null)
+      ? (channelData?.avatar || channelData?.profile_pic || channelData?.user?.profile_pic || channelData?.user?.avatar || cachedKickAvatar || chatter.avatar || null)
       : chatter.avatar;
 
   // Use default silhouette SVG if it is a default avatar, otherwise use rawAvatar
   const displayAvatar = isDefaultAvatar(rawAvatar) 
-    ? getDefaultAvatar(chatter.platform, chatter.username, chatter.id || channelData?.id || channelData?.user_id || channelData?.user?.id) 
+    ? getDefaultAvatar(chatter.platform, chatter.username, chatter.id || chatter.userId || channelData?.id || channelData?.user_id || channelData?.user?.id) 
     : proxifyAvatarUrl(rawAvatar);
 
   const spokeChannel = chatter.channel || (userLogs.length > 0 ? userLogs[0].channel : 'YamazakiYT');
@@ -1057,9 +1072,13 @@ export default function ChatterInsights({
                   alt={chatter.displayName} 
                   style={{ borderColor: platformColor, cursor: 'pointer' }}
                   onError={(e) => {
-                    e.target.style.display = 'none';
-                    if (e.target.nextSibling) {
-                      e.target.nextSibling.style.display = 'flex';
+                    if (chatter.platform === 'kick' && !e.target.src.includes('/kick-default-avatars/')) {
+                      e.target.src = getKickDefaultAvatarUrl(chatter.username, chatter.id || chatter.userId);
+                    } else {
+                      e.target.style.display = 'none';
+                      if (e.target.nextSibling) {
+                        e.target.nextSibling.style.display = 'flex';
+                      }
                     }
                   }}
                 />
