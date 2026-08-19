@@ -912,7 +912,8 @@ export default function ChatDashboard({
 
           setStreamStartTimes(prev => {
             const existing = prev[ch] || prev[rawClean] || prev[atClean] || prev[justClean] || prev[lowerCh] || prev[lowerRaw] || prev[lowerAt];
-            const timeToUse = startTimeVal || existing;
+            const isExact = metadata?.isExact;
+            const timeToUse = (existing && !isExact) ? existing : (startTimeVal || existing);
             if (!timeToUse) return prev;
             const next = { 
               ...prev, 

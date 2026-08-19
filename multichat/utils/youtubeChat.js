@@ -496,6 +496,7 @@ export class YoutubeChatClient {
     let viewers = 0;
     let likes = 0;
     let startTime = null;
+    let isExact = false;
 
     // 0. Extract exact ISO startDate / datePublished directly from HTML itemprop tags (exact to the second)
     const startDateMatch = html.match(/itemprop="startDate"\s+content="([^"]+)"/i) || 
@@ -506,6 +507,7 @@ export class YoutubeChatClient {
       if (!isNaN(parsedStart) && parsedStart > 0 && parsedStart <= Date.now() + 60000) {
         startTime = parsedStart;
         isLive = true;
+        isExact = true;
       }
     }
 
@@ -528,6 +530,7 @@ export class YoutubeChatClient {
           const parsedTime = new Date(candidateTime).getTime();
           if (!isNaN(parsedTime) && parsedTime > 0) {
             startTime = parsedTime;
+            isExact = true;
           }
         }
       }
@@ -535,6 +538,7 @@ export class YoutubeChatClient {
         const parsedPublish = new Date(mf.publishDate).getTime();
         if (!isNaN(parsedPublish) && parsedPublish > 0 && parsedPublish <= Date.now() + 60000) {
           startTime = parsedPublish;
+          isExact = true;
         }
       }
     }
@@ -578,11 +582,13 @@ export class YoutubeChatClient {
            if (/^[0-9]{10,13}$/.test(str)) {
              const rawNum = parseInt(str, 10);
              startTime = rawNum < 10000000000 ? rawNum * 1000 : rawNum;
+             isExact = true;
              break;
            }
            const parsed = Date.parse(str);
            if (!isNaN(parsed) && parsed > 0 && parsed <= Date.now() + 60000) {
              startTime = parsed;
+             isExact = true;
              break;
            }
          }
@@ -608,6 +614,7 @@ export class YoutubeChatClient {
           if (deltaSecs > 0) {
             startTime = Date.now() - Math.round(deltaSecs * 1000);
             isLive = true;
+            isExact = false;
             break;
           }
         }
@@ -684,7 +691,7 @@ export class YoutubeChatClient {
       }
     }
 
-    return { isLive, isShorts, viewers, likes, startTime };
+    return { isLive, isShorts, viewers, likes, startTime, isExact };
   }
 
   parseViewersFromHtml(html) {
@@ -1014,6 +1021,7 @@ export class YoutubeChatClient {
         viewerIntervalId: null,
         seenIds: existingSeenIds,
         startTimestamp: localStartTime || null,
+        isExactStartTime: !!(pageMeta?.isExact),
         isShorts,
         displayName: resolvedDisplayName,
         trimmedName: trimmedName,
@@ -1068,7 +1076,13 @@ export class YoutubeChatClient {
 
             const meta = this.parseMetadataFromHtml(html);
             if (meta) {
-              if (meta.startTime) pollInstance.startTimestamp = meta.startTime;
+              if (meta.startTime) {
+                // Never overwrite an already established timer with a rough estimate
+                if (!pollInstance.startTimestamp || (meta.isExact && !pollInstance.isExactStartTime)) {
+                  pollInstance.startTimestamp = meta.startTime;
+                  if (meta.isExact) pollInstance.isExactStartTime = true;
+                }
+              }
               if (meta.viewers !== null && meta.viewers !== undefined) pollInstance.viewers = meta.viewers;
               if (meta.likes !== null && meta.likes !== undefined) pollInstance.likes = meta.likes;
               if (meta.isShorts) pollInstance.isShorts = true;
