@@ -948,7 +948,8 @@ export default function ChatDashboard({
 
           setStreamStartTimes(prev => {
             const existing = prev[ch] || prev[rawClean] || prev[atClean] || prev[justClean];
-            const timeToUse = startTimeVal || existing || Date.now();
+            const timeToUse = startTimeVal || existing;
+            if (!timeToUse) return prev; // Avoid setting false Date.now() start time
             const next = { ...prev, [ch]: timeToUse, [rawClean]: timeToUse, [atClean]: timeToUse, [justClean]: timeToUse };
             try { localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next)); } catch (e) {}
             return next;
@@ -2154,7 +2155,7 @@ export default function ChatDashboard({
       : (status === 'connected' && (realCount > 0 || !!(streamStartTimes[cleanName] || streamStartTimes[rawClean])));
 
     if (isStreamActive) {
-      const startTimeVal = streamStartTimes[cleanName] || streamStartTimes[rawClean] || streamStartTimes[`@${cleanName}`] || streamStartTimes[ch.name.toLowerCase()] || Date.now();
+      const startTimeVal = streamStartTimes[cleanName] || streamStartTimes[rawClean] || streamStartTimes[`@${cleanName}`] || streamStartTimes[ch.name.toLowerCase()];
       if (startTimeVal) {
         const startMs = parseStartTimeMs(startTimeVal);
         if (startMs && !isNaN(startMs)) {

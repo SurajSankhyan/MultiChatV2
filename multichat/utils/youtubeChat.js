@@ -263,11 +263,10 @@ export class YoutubeChatClient {
           if (data) {
             let secs = 0;
             if (data.event === 'infoDelivery' && data.info) {
-              secs = typeof data.info.currentTime === 'number' && data.info.currentTime > 0
-                ? data.info.currentTime
-                : (typeof data.info.duration === 'number' && data.info.duration > 0 ? data.info.duration : 0);
-            } else if (data.info && typeof data.info.currentTime === 'number' && data.info.currentTime > 0) {
-              secs = data.info.currentTime;
+              // Only use duration for live streams, as currentTime just tracks playhead position since the iframe loaded (causing 00:00:00 uptime)
+              if (typeof data.info.duration === 'number' && data.info.duration > 0) {
+                secs = data.info.duration;
+              }
             }
 
             if (secs > 0) {
