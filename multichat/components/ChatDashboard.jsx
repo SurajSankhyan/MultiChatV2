@@ -987,20 +987,20 @@ export default function ChatDashboard({
         setPlatformStatuses(prev => ({ ...prev, [ch]: status }));
       }
 
-      // Update stream start times and viewers count
-      if (status === 'connected') {
-        const rawClean = ch.replace(/^@+/, '').trim();
-        const atClean = `@${rawClean}`;
-        const justClean = ch.replace('@', '').trim();
-        const startTimeVal = metadata?.startTime;
+        // Update stream start times and viewers count
+        if (status === 'connected') {
+          const rawClean = ch.replace(/^@+/, '').trim();
+          const atClean = `@${rawClean}`;
+          const justClean = ch.replace('@', '').trim();
+          const startTimeVal = metadata?.startTime;
 
-        if (startTimeVal) {
           setStreamStartTimes(prev => {
-            const next = { ...prev, [ch]: startTimeVal, [rawClean]: startTimeVal, [atClean]: startTimeVal, [justClean]: startTimeVal };
+            const existing = prev[ch] || prev[rawClean] || prev[atClean] || prev[justClean];
+            const timeToUse = startTimeVal || existing || Date.now();
+            const next = { ...prev, [ch]: timeToUse, [rawClean]: timeToUse, [atClean]: timeToUse, [justClean]: timeToUse };
             try { localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next)); } catch (e) {}
             return next;
           });
-        }
         if (metadata && metadata.viewers !== undefined && metadata.viewers !== null) {
           setStreamViewers(prev => {
             const next = { ...prev, [ch]: metadata.viewers, [rawClean]: metadata.viewers, [atClean]: metadata.viewers, [justClean]: metadata.viewers };
@@ -2202,7 +2202,7 @@ export default function ChatDashboard({
       : (status === 'connected' && (realCount > 0 || !!(streamStartTimes[cleanName] || streamStartTimes[rawClean])));
 
     if (isStreamActive) {
-      const startTimeVal = streamStartTimes[cleanName] || streamStartTimes[rawClean] || streamStartTimes[`@${cleanName}`] || streamStartTimes[ch.name.toLowerCase()];
+      const startTimeVal = streamStartTimes[cleanName] || streamStartTimes[rawClean] || streamStartTimes[`@${cleanName}`] || streamStartTimes[ch.name.toLowerCase()] || Date.now();
       if (startTimeVal) {
         const startMs = parseStartTimeMs(startTimeVal);
         if (startMs && !isNaN(startMs)) {
@@ -2241,6 +2241,70 @@ export default function ChatDashboard({
     });
   };
 
+  const handleSuperchatClick = () => {
+    setSuperchatDisplayMode(prev => {
+      if (prev === 'amount') return 'hidden';
+      return 'amount';
+    });
+  };
+
+  const getWatchersTooltip = () => {
+    const parts = [];
+    activeChannels.filter(ch => ch.enabled).forEach(ch => {
+      const clean = ch.name.toLowerCase().replace(/^@+/, '').trim();
+      const rawClean = ch.name.toLowerCase().replace('@', '').trim();
+      const status = platformStatuses[clean] || platformStatuses[rawClean] || platformStatuses[ch.platform];
+      const isChannelConnected = status === 'connected' || (streamViewers[clean] ?? streamViewers[rawClean] ?? 0) > 0;
+      const count = isChannelConnected ? (streamViewers[clean] ?? streamViewers[rawClean] ?? streamViewers[`@${clean}`] ?? 0) : 0;
+      const likesCount = isChannelConnected ? (streamLikes[clean] ?? streamLikes[rawClean] ?? streamLikes[`@${clean}`] ?? 0) : 0;
+      const statusLabel = isChannelConnected ? 'Live' : 'Offline';
+      if (ch.platform === 'youtube') {
+        parts.push(`${ch.platform.toUpperCase()} (${getChannelDisplayName(ch)}): ${count.toLocaleString()} viewers • ${likesCount.toLocaleString()} likes (${statusLabel})`);
+      } else {
+        parts.push(`${ch.platform.toUpperCase()} (${getChannelDisplayName(ch)}): ${count.toLocaleString()} viewers (${statusLabel})`);
+      }
+    });
+    return parts.length > 0 ? parts.join('\n') : 'No active streams';
+  };
+
+  const getLikesTooltip = () => {
+    const parts = [];
+    activeChannels.filter(ch => ch.enabled && ch.platform === 'youtube').forEach(ch => {
+      const clean = ch.name.toLowerCase().replace(/^@+/, '').trim();
+      const rawClean = ch.name.toLowerCase().replace('@', '').trim();
+      const status = platformStatuses[clean] || platformStatuses[rawClean] || platformStatuses[ch.platform];
+      const isChannelConnected = status === 'connected' || (streamViewers[clean] ?? streamViewers[rawClean] ?? 0) > 0;
+      const likesCount = isChannelConnected ? (streamLikes[clean] ?? streamLikes[rawClean] ?? streamLikes[`@${clean}`] ?? 0) : 0;
+      const statusLabel = isChannelConnected ? 'Live' : 'Offline';
+      parts.push(`${ch.platform.toUpperCase()} (${getChannelDisplayName(ch)}): ${likesCount.toLocaleString()} likes (${statusLabel})`);
+    });
+    return parts.length > 0 ? parts.join('\n') : 'No active streams';
+  };
+
+  const getUptimeTooltip = () => {
+    const parts = [];
+    activeChannels.filter(ch => ch.enabled).forEach(ch => {
+      const clean = ch.name.toLowerCase().replace(/^@+/, '').trim();
+      const rawClean = ch.name.toLowerCase().replace('@', '').trim();
+      const status = platformStatuses[clean] || platformStatuses[rawClean] || platformStatuses[ch.platform];
+      const startTime = streamStartTimes[clean] ?? streamStartTimes[rawClean] ?? streamStartTimes[`@${clean}`] ?? streamStartTimes[ch.name.toLowerCase()];
+      if (startTime) {
+        const startMs = parseStartTimeMs(startTime);
+        if (startMs) {
+          const diffSecs = Math.floor((Date.now() - startMs) / 1000);
+          const durationStr = diffSecs >= 0 ? formatUptime(diffSecs) : '00:00:00';
+          parts.push(`${ch.platform.toUpperCase()} (${getChannelDisplayName(ch)}): ${durationStr}`);
+          return;
+        }
+      } else if (status === 'connected') {
+        parts.push(`${ch.platform.toUpperCase()} (${getChannelDisplayName(ch)}): 00:00:00`);
+        return;
+      }
+      parts.push(`${ch.platform.toUpperCase()} (${getChannelDisplayName(ch)}): N/A`);
+    });
+    return parts.length > 0 ? parts.join('\n') : 'No active streams';
+  };
+
   const parseAmountValue = (amountStr) => {
     if (!amountStr || typeof amountStr !== 'string') return 0;
     const clean = amountStr.replace(/[^\d.]/g, '');
@@ -2272,9 +2336,6 @@ export default function ChatDashboard({
     return `${currencySymbol}${formatted}`;
   };
 
-  const handleSuperchatClick = () => {
-    setSuperchatDisplayMode(prev => prev === 'amount' ? 'hidden' : 'amount');
-  };
 
   const totalConnectedViewers = Object.entries(streamViewers)
     .filter(([chName]) => activeChannels.some(ch => ch.enabled && (
@@ -2301,34 +2362,7 @@ export default function ChatDashboard({
     return String(num);
   };
 
-  const getViewersTooltip = () => {
-    const parts = [];
-    activeChannels.filter(ch => ch.enabled).forEach(ch => {
-      const v = streamViewers[ch.name.toLowerCase().replace('@', '').trim()] || 0;
-      parts.push(`${ch.platform.toUpperCase()} (${getChannelDisplayName(ch)}): ${v} viewers`);
-    });
-    return parts.length > 0 ? parts.join('\n') : 'No active streams';
-  };
 
-  const getUptimeTooltip = () => {
-    const parts = [];
-    activeChannels.filter(ch => ch.enabled).forEach(ch => {
-      const clean = ch.name.toLowerCase().replace(/^@+/, '').trim();
-      const rawClean = ch.name.toLowerCase().replace('@', '').trim();
-      const startTime = streamStartTimes[clean] ?? streamStartTimes[rawClean] ?? streamStartTimes[`@${clean}`] ?? streamStartTimes[ch.name.toLowerCase()];
-      if (startTime) {
-        const startMs = parseStartTimeMs(startTime);
-        if (startMs) {
-          const diffSecs = Math.floor((Date.now() - startMs) / 1000);
-          const durationStr = diffSecs >= 0 ? formatUptime(diffSecs) : '00:00:00';
-          parts.push(`${ch.platform.toUpperCase()} (${getChannelDisplayName(ch)}): ${durationStr}`);
-          return;
-        }
-      }
-      parts.push(`${ch.platform.toUpperCase()} (${getChannelDisplayName(ch)}): N/A`);
-    });
-    return parts.length > 0 ? parts.join('\n') : 'No active streams';
-  };
 
   const activeEnabledChannels = activeChannels.filter(ch => ch.enabled);
   const hasYoutubeChannel = activeEnabledChannels.some(ch => ch.platform === 'youtube');
