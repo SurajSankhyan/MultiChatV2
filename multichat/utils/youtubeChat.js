@@ -951,22 +951,28 @@ export class YoutubeChatClient {
         displayName: resolvedDisplayName
       });
 
-      // If startTimestamp is not yet resolved, use IFrame bridge to extract the exact live broadcast start time
+      // 4. If startTimestamp is not yet resolved, use the reliable YouTube Data API via Next.js proxy
       if (videoId && !pollInstance.startTimestamp) {
-        this.resolveLiveStartTimeViaIFrame(videoId).then(exactStartTime => {
-          if (exactStartTime && this.activePolls.has(pollKey)) {
-            const active = this.activePolls.get(pollKey);
-            active.startTimestamp = exactStartTime;
-            console.log(`YouTube client: resolved exact live broadcast start time for ${pollKey}: ${new Date(exactStartTime).toISOString()}`);
-            this.onStatus(pollKey, 'connected', {
-              startTime: exactStartTime,
-              viewers: active.viewers,
-              likes: active.likes,
-              isShorts: active.isShorts,
-              displayName: active.displayName
-            });
-          }
-        }).catch(() => {});
+        fetch(`/api/youtube/uptime?videoId=${videoId}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.actualStartTime && this.activePolls.has(pollKey)) {
+              const exactStartTime = new Date(data.actualStartTime).getTime();
+              const active = this.activePolls.get(pollKey);
+              active.startTimestamp = exactStartTime;
+              console.log(`YouTube client: resolved exact live broadcast start time for ${pollKey}: ${new Date(exactStartTime).toISOString()}`);
+              this.onStatus(pollKey, 'connected', {
+                startTime: exactStartTime,
+                viewers: active.viewers,
+                likes: active.likes,
+                isShorts: active.isShorts,
+                displayName: active.displayName
+              });
+            } else if (data.error && data.error.includes('YOUTUBE_API_KEY')) {
+              console.warn(`YouTube client: Cannot resolve uptime. YOUTUBE_API_KEY is missing from Netlify environment variables.`);
+            }
+          })
+          .catch(() => {});
       }
 
       // Sequential Adaptive Polling Loop (avoids overlapping requests and invalidating tokens over internet/Netlify)
@@ -1020,19 +1026,23 @@ export class YoutubeChatClient {
               } catch (e) {}
             }
             if (!pollInstance.startTimestamp && pollInstance.videoId) {
-              this.resolveLiveStartTimeViaIFrame(pollInstance.videoId).then(exactStartTime => {
-                if (exactStartTime && this.activePolls.has(pollKey)) {
-                  const active = this.activePolls.get(pollKey);
-                  active.startTimestamp = exactStartTime;
-                  this.onStatus(pollKey, 'connected', {
-                    startTime: exactStartTime,
-                    viewers: active.viewers,
-                    likes: active.likes,
-                    isShorts: active.isShorts,
-                    displayName: active.displayName
-                  });
-                }
-              }).catch(() => {});
+              fetch(`/api/youtube/uptime?videoId=${pollInstance.videoId}`)
+                .then(res => res.json())
+                .then(data => {
+                  if (data.actualStartTime && this.activePolls.has(pollKey)) {
+                    const exactStartTime = new Date(data.actualStartTime).getTime();
+                    const active = this.activePolls.get(pollKey);
+                    active.startTimestamp = exactStartTime;
+                    this.onStatus(pollKey, 'connected', {
+                      startTime: exactStartTime,
+                      viewers: active.viewers,
+                      likes: active.likes,
+                      isShorts: active.isShorts,
+                      displayName: active.displayName
+                    });
+                  }
+                })
+                .catch(() => {});
             }
 
             this.onStatus(pollKey, 'connected', { 
