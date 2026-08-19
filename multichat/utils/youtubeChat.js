@@ -1081,11 +1081,13 @@ export class YoutubeChatClient {
         if (eventType === 'donation') badges.push('donation');
         if (eventType === 'subscription') badges.push('member');
       }
+      let youtubeRank = null;
       if (renderer.authorBadges) {
         renderer.authorBadges.forEach(b => {
           const badgeRenderer = b.liveChatAuthorBadgeRenderer;
           if (!badgeRenderer) return;
-          const tooltip = (badgeRenderer.tooltip || '').toLowerCase();
+          const tooltip = (badgeRenderer.tooltip || badgeRenderer.accessibility?.accessibilityData?.label || '').toLowerCase();
+          const iconType = (badgeRenderer.icon?.iconType || '').toUpperCase();
           const thumbs = badgeRenderer.customThumbnail?.thumbnails || [];
           let iconUrl = null;
           if (thumbs.length > 0) {
@@ -1104,6 +1106,27 @@ export class YoutubeChatClient {
           } else if (badgeRenderer.customThumbnail || tooltip.includes('member') || tooltip.includes('sponsor') || tooltip.includes('subscriber')) {
             badges.push('member');
             if (iconUrl) badgeImages['member'] = iconUrl;
+          }
+
+          // Parse Top Contributor / Leaderboard Rank (#1, #2, #3)
+          if (
+            tooltip.includes('top') || 
+            tooltip.includes('contributor') || 
+            tooltip.includes('leaderboard') || 
+            tooltip.includes('rank') || 
+            tooltip.includes('#') ||
+            iconType.includes('TOP_') || 
+            iconType.includes('RANK') ||
+            iconType.includes('CROWN')
+          ) {
+            const rankMatch = tooltip.match(/(?:#|rank\s*|top\s*(?:fan|contributor|giver)?\s*#?)(\d+)/i) || tooltip.match(/#([1-3])/);
+            if (rankMatch && rankMatch[1]) {
+              const r = parseInt(rankMatch[1], 10);
+              if (r >= 1 && r <= 3) {
+                youtubeRank = r;
+                badges.push(`rank_${r}`);
+              }
+            }
           }
         });
       }
@@ -1176,6 +1199,7 @@ export class YoutubeChatClient {
         avatar: avatar,
         badges: Array.from(new Set(badges)),
         badgeImages: badgeImages,
+        youtubeRank: youtubeRank,
         isSystemEvent,
         eventType,
         eventDetails,

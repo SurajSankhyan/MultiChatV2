@@ -701,6 +701,56 @@ export default function ChatFeed({
     });
   }, [messages, blockedUsers, moderation?.bannedUsers, activeChannels]);
 
+  // Dynamic YouTube Top Contributor / Leaderboard Rank (#1, #2, #3) mapping
+  const youtubeTop3Ranks = useMemo(() => {
+    const userDonationMap = new Map();
+    const explicitRankMap = new Map();
+
+    messages.forEach(msg => {
+      if (msg.platform !== 'youtube') return;
+      const userKey = (msg.channelId || msg.authorChannelId || msg.userId || msg.username || '').toLowerCase().trim();
+      if (!userKey) return;
+
+      // Extract donation amounts
+      if (msg.isSystemEvent && msg.eventType === 'donation') {
+        const amtStr = msg.eventDetails?.amount || '';
+        const amt = parseFloat(String(amtStr).replace(/[^\d.]/g, ''));
+        if (!isNaN(amt) && amt > 0) {
+          userDonationMap.set(userKey, (userDonationMap.get(userKey) || 0) + amt);
+        }
+      }
+
+      // Check if message carried a rank or badges with rank
+      let rank = msg.youtubeRank;
+      if (!rank && Array.isArray(msg.badges)) {
+        if (msg.badges.includes('rank_1')) rank = 1;
+        else if (msg.badges.includes('rank_2')) rank = 2;
+        else if (msg.badges.includes('rank_3')) rank = 3;
+      }
+      if (rank && rank >= 1 && rank <= 3) {
+        explicitRankMap.set(userKey, rank);
+      }
+    });
+
+    const sortedContributors = Array.from(userDonationMap.entries())
+      .sort((a, b) => b[1] - a[1]);
+
+    const top3Map = new Map();
+
+    sortedContributors.slice(0, 3).forEach(([userKey], idx) => {
+      top3Map.set(userKey, idx + 1);
+    });
+
+    // If explicit rank arrived from YouTube authorBadges and user isn't already assigned
+    explicitRankMap.forEach((rank, userKey) => {
+      if (!top3Map.has(userKey) && top3Map.size < 3) {
+        top3Map.set(userKey, rank);
+      }
+    });
+
+    return top3Map;
+  }, [messages]);
+
   // Filter messages based on the active top tab
   // useMemo: only re-runs when visibleMessages or activeTab change
   const tabFilteredMessages = useMemo(() => visibleMessages.filter(msg => {
@@ -1816,10 +1866,10 @@ export default function ChatFeed({
                         )}
 
                         {/* For YouTube: badges after username with a clean 5px gap */}
-                        {settings.showBadges && msg.badges && msg.badges.length > 0 && (
-                          <span className="youtube-chatter-badges-list" style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', marginLeft: '5px', verticalAlign: 'middle' }}>
-                            {msg.badges.map((badge, idx) => {
-                              if (badge === 'broadcaster') {
+                        {settings.showBadges && (
+                          <span className="youtube-chatter-badges-list" style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', marginLeft: '5px', verticalAlign: 'middle' }}>
+                            {msg.badges && msg.badges.map((badge, idx) => {
+                              if (badge === 'broadcaster' || (typeof badge === 'string' && badge.startsWith('rank_'))) {
                                 return null;
                               }
                               let badgeEl = null;
@@ -1873,6 +1923,58 @@ export default function ChatFeed({
                               }
                               return renderBadgeWithTooltip(badgeEl, badge, `${msg.id}-${badge}-${idx}`);
                             })}
+
+                            {/* YouTube Top 1, #2, #3 Contributor Crown Pill Badge */}
+                            {(() => {
+                              const userKey = (msg.channelId || msg.authorChannelId || msg.userId || msg.username || '').toLowerCase().trim();
+                              const rank = youtubeTop3Ranks.get(userKey) || (msg.youtubeRank && msg.youtubeRank >= 1 && msg.youtubeRank <= 3 ? msg.youtubeRank : null);
+                              if (!rank || rank < 1 || rank > 3) return null;
+
+                              const rankBg = rank === 1 
+                                ? '#4c1d95' 
+                                : rank === 2 
+                                ? '#4338ca' 
+                                : '#3b0764';
+
+                              return renderBadgeWithTooltip(
+                                <span 
+                                  key={`${msg.id}-yt-rank-${rank}`}
+                                  className={`youtube-rank-badge youtube-rank-${rank}`}
+                                  title={`Top Contributor #${rank}`}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3.5px',
+                                    backgroundColor: rankBg,
+                                    color: '#ffffff',
+                                    padding: '1.5px 7.5px 1.5px 6.5px',
+                                    borderRadius: '9999px',
+                                    fontSize: '11px',
+                                    fontWeight: '700',
+                                    lineHeight: '1',
+                                    verticalAlign: 'middle',
+                                    letterSpacing: '-0.2px',
+                                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.4)',
+                                    userSelect: 'none'
+                                  }}
+                                >
+                                  <svg 
+                                    viewBox="0 0 24 24" 
+                                    fill="none" 
+                                    stroke="currentColor" 
+                                    strokeWidth="2.5" 
+                                    strokeLinecap="round" 
+                                    strokeLinejoin="round" 
+                                    style={{ width: '11px', height: '11px', display: 'block' }}
+                                  >
+                                    <path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14" />
+                                  </svg>
+                                  <span>#{rank}</span>
+                                </span>,
+                                `yt-rank-${rank}`,
+                                `${msg.id}-yt-rank-${rank}`
+                              );
+                            })()}
                           </span>
                         )}
                       </span>
