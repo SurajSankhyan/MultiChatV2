@@ -925,7 +925,21 @@ export class YoutubeChatClient {
         return;
       }
 
-      console.log(`YouTube client: connected to stream ${videoId} with clientVersion: ${clientVersion}`);
+      // Resolve live stream start time via Innertube if not already extracted from HTML
+      if (!localStartTime && videoId) {
+        try {
+          const pMeta = await this.fetchPlayerMetadata(videoId, apiKey);
+          if (pMeta) {
+            if (pMeta.startTime) localStartTime = pMeta.startTime;
+            if (pMeta.isShorts) isShorts = true;
+            if (pMeta.viewers !== null && pMeta.viewers !== undefined && localViewers === null) localViewers = pMeta.viewers;
+          }
+        } catch (e) {
+          console.warn("YouTube client: fetchPlayerMetadata error:", e.message);
+        }
+      }
+
+      console.log(`YouTube client: connected to stream ${videoId} with clientVersion: ${clientVersion}, startTime: ${localStartTime ? new Date(localStartTime).toISOString() : 'null'}`);
 
       const currentViewers = localViewers !== null ? localViewers : null;
       const currentLikes = localLikes !== null ? localLikes : null;
@@ -959,29 +973,6 @@ export class YoutubeChatClient {
         isShorts,
         displayName: resolvedDisplayName
       });
-
-      // 4. If startTimestamp is not yet resolved, use Innertube Player API to get actualStartTime
-      if (videoId && !pollInstance.startTimestamp) {
-        this.fetchPlayerMetadata(videoId, pollInstance.apiKey)
-          .then(pMeta => {
-            if (pMeta && pMeta.startTime && this.activePolls.has(pollKey)) {
-              const exactStartTime = pMeta.startTime;
-              const active = this.activePolls.get(pollKey);
-              active.startTimestamp = exactStartTime;
-              console.log(`YouTube client: resolved exact live broadcast start time via Innertube for ${pollKey}: ${new Date(exactStartTime).toISOString()}`);
-              this.onStatus(pollKey, 'connected', {
-                startTime: exactStartTime,
-                viewers: active.viewers,
-                likes: active.likes,
-                isShorts: active.isShorts,
-                displayName: active.displayName
-              });
-            } else if (!pMeta || !pMeta.startTime) {
-              console.warn(`YouTube client: Innertube failed to resolve start time for ${pollKey}.`);
-            }
-          })
-          .catch(() => {});
-      }
 
       // Sequential Adaptive Polling Loop (avoids overlapping requests and invalidating tokens over internet/Netlify)
       const scheduleNextPoll = (delay = 1000) => {
@@ -1032,24 +1023,6 @@ export class YoutubeChatClient {
                   if (pMeta.viewers && pollInstance.viewers === null) pollInstance.viewers = pMeta.viewers;
                 }
               } catch (e) {}
-            }
-            if (!pollInstance.startTimestamp && pollInstance.videoId) {
-              this.fetchPlayerMetadata(pollInstance.videoId, pollInstance.apiKey)
-                .then(pMeta => {
-                  if (pMeta && pMeta.startTime && this.activePolls.has(pollKey)) {
-                    const exactStartTime = pMeta.startTime;
-                    const active = this.activePolls.get(pollKey);
-                    active.startTimestamp = exactStartTime;
-                    this.onStatus(pollKey, 'connected', {
-                      startTime: exactStartTime,
-                      viewers: active.viewers,
-                      likes: active.likes,
-                      isShorts: active.isShorts,
-                      displayName: active.displayName
-                    });
-                  }
-                })
-                .catch(() => {});
             }
 
             this.onStatus(pollKey, 'connected', { 
