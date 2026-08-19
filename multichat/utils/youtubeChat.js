@@ -14,9 +14,9 @@ export class YoutubeChatClient {
     
     // Rotating public CORS proxies as fallback
     this.proxies = [
-      (url) => `https://proxy.cors.sh/${url}`,
+      (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
       (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-      (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`
+      (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
     ];
   }
 
@@ -114,6 +114,95 @@ export class YoutubeChatClient {
       }
     }
     throw lastError || new Error('All CORS proxies failed to load page');
+  }
+
+  // Fetch structured player metadata directly via Innertube Player API
+  async fetchPlayerMetadata(videoId, apiKey = '') {
+    if (!videoId) return null;
+    const payload = {
+      context: {
+        client: {
+          clientName: 'WEB',
+          clientVersion: '2.20240404.01.00',
+          hl: 'en',
+          gl: 'US'
+        }
+      },
+      videoId
+    };
+
+    const endpoint = apiKey ? `https://www.youtube.com/youtubei/v1/player?key=${apiKey}` : 'https://www.youtube.com/youtubei/v1/player';
+    const localEndpoint = `/ytproxy/youtubei/v1/player${apiKey ? `?key=${apiKey}` : ''}`;
+
+    let json = null;
+
+    // 1. Try local proxy
+    try {
+      const res = await fetch(localEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        json = await res.json();
+      }
+    } catch (e) {}
+
+    // 2. Try query proxy
+    if (!json) {
+      try {
+        const queryUrl = `/api/youtube/proxy?url=${encodeURIComponent(endpoint)}`;
+        const res = await fetch(queryUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          json = await res.json();
+        }
+      } catch (e) {}
+    }
+
+    // 3. Try client-side CORS proxy
+    if (!json) {
+      try {
+        const corsUrl = `https://corsproxy.io/?url=${encodeURIComponent(endpoint)}`;
+        const res = await fetch(corsUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          json = await res.json();
+        }
+      } catch (e) {}
+    }
+
+    if (json) {
+      const mf = json.microformat?.playerMicroformatRenderer;
+      const liveDetails = mf?.liveBroadcastDetails;
+      const candidateTime = liveDetails?.actualStartTime || liveDetails?.startTimestamp || liveDetails?.scheduledStartTime || mf?.publishDate;
+      let startTime = null;
+      if (candidateTime) {
+        const parsed = new Date(candidateTime).getTime();
+        if (!isNaN(parsed) && parsed > 0 && parsed <= Date.now() + 60000) startTime = parsed;
+      }
+      let isShorts = false;
+      const formats = json.streamingData?.adaptiveFormats || json.streamingData?.formats || [];
+      if (formats.length > 0 && formats[0].width && formats[0].height) {
+        if (formats[0].height > formats[0].width) isShorts = true;
+      }
+      const viewers = parseInt(json.videoDetails?.viewCount, 10) || 0;
+      return {
+        isLive: !!json.videoDetails?.isLive || !!json.videoDetails?.isLiveContent || liveDetails?.isLiveNow !== false,
+        startTime,
+        viewers,
+        isShorts,
+        title: json.videoDetails?.title
+      };
+    }
+
+    return null;
   }
 
   // Resolves the YouTube channel display name from InnerTube browse endpoint with HTML scraper fallback
@@ -719,6 +808,18 @@ export class YoutubeChatClient {
         }
       }
 
+      // If startTime or isShorts still not found, fetch structured Innertube player metadata
+      if (videoId && (!localStartTime || !isShorts)) {
+        try {
+          const pMeta = await this.fetchPlayerMetadata(videoId);
+          if (pMeta) {
+            if (pMeta.startTime && !localStartTime) localStartTime = pMeta.startTime;
+            if (pMeta.isShorts) isShorts = true;
+            if (pMeta.viewers && localViewers === null) localViewers = pMeta.viewers;
+          }
+        } catch (e) {}
+      }
+
       // Extract Innertube API parameters directly from the live broadcast page
       let { apiKey, clientVersion, continuationToken, liveChatId } = this.extractInnertubeParams(pageHtml);
 
@@ -748,6 +849,18 @@ export class YoutubeChatClient {
       }
 
       console.log(`YouTube client: connected to stream ${videoId} with clientVersion: ${clientVersion}`);
+
+      // If startTime was still not resolved, try once more with apiKey
+      if (videoId && !localStartTime) {
+        try {
+          const pMeta = await this.fetchPlayerMetadata(videoId, apiKey);
+          if (pMeta) {
+            if (pMeta.startTime && !localStartTime) localStartTime = pMeta.startTime;
+            if (pMeta.isShorts) isShorts = true;
+            if (pMeta.viewers && localViewers === null) localViewers = pMeta.viewers;
+          }
+        } catch (e) {}
+      }
 
       const currentViewers = localViewers !== null ? localViewers : null;
       const currentLikes = localLikes !== null ? localLikes : null;
@@ -820,7 +933,17 @@ export class YoutubeChatClient {
               if (meta.startTime) pollInstance.startTimestamp = meta.startTime;
               if (meta.viewers !== null && meta.viewers !== undefined) pollInstance.viewers = meta.viewers;
               if (meta.likes !== null && meta.likes !== undefined) pollInstance.likes = meta.likes;
-              pollInstance.isShorts = meta.isShorts;
+              if (meta.isShorts) pollInstance.isShorts = true;
+            }
+            if (!pollInstance.startTimestamp || !pollInstance.isShorts) {
+              try {
+                const pMeta = await this.fetchPlayerMetadata(pollInstance.videoId, pollInstance.apiKey);
+                if (pMeta) {
+                  if (pMeta.startTime && !pollInstance.startTimestamp) pollInstance.startTimestamp = pMeta.startTime;
+                  if (pMeta.isShorts) pollInstance.isShorts = true;
+                  if (pMeta.viewers && pollInstance.viewers === null) pollInstance.viewers = pMeta.viewers;
+                }
+              } catch (e) {}
             }
 
             this.onStatus(pollKey, 'connected', { 
@@ -911,7 +1034,7 @@ export class YoutubeChatClient {
         } catch (err2) {
           // 2. Fall back to public CORS proxy
           try {
-            const publicProxyUrl = `https://proxy.cors.sh/${endpoint}`;
+            const publicProxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(endpoint)}`;
             response = await fetch(publicProxyUrl, {
               method: 'POST',
               headers: {
