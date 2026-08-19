@@ -894,10 +894,25 @@ export default function ChatDashboard({
       } else if (ch === 'kick_all') {
         setPlatformStatuses(prev => ({ ...prev, kick: status }));
       } else if (ch === 'youtube_all') {
-        setPlatformStatuses(prev => ({ ...prev, youtube: status }));
-      } else {
-        // Individual channel status
-        setPlatformStatuses(prev => ({ ...prev, [ch]: status }));
+        setPlatformStatuses(prev => ({ ...prev, youtube: status }));      } else {
+        // Individual channel status - map across all handle / casing variants
+        const rawClean = ch.replace(/^@+/, '').trim();
+        const atClean = `@${rawClean}`;
+        const justClean = ch.replace('@', '').trim();
+        const lowerCh = ch.toLowerCase();
+        const lowerRaw = rawClean.toLowerCase();
+        const lowerAt = atClean.toLowerCase();
+
+        setPlatformStatuses(prev => ({ 
+          ...prev, 
+          [ch]: status,
+          [rawClean]: status,
+          [atClean]: status,
+          [justClean]: status,
+          [lowerCh]: status,
+          [lowerRaw]: status,
+          [lowerAt]: status
+        }));
       }
 
         // Update stream start times and viewers count
@@ -930,14 +945,32 @@ export default function ChatDashboard({
           });
         if (metadata && metadata.viewers !== undefined && metadata.viewers !== null) {
           setStreamViewers(prev => {
-            const next = { ...prev, [ch]: metadata.viewers, [rawClean]: metadata.viewers, [atClean]: metadata.viewers, [justClean]: metadata.viewers };
+            const next = { 
+              ...prev, 
+              [ch]: metadata.viewers, 
+              [rawClean]: metadata.viewers, 
+              [atClean]: metadata.viewers, 
+              [justClean]: metadata.viewers,
+              [lowerCh]: metadata.viewers,
+              [lowerRaw]: metadata.viewers,
+              [lowerAt]: metadata.viewers
+            };
             try { localStorage.setItem('prochat_cached_stream_viewers', JSON.stringify(next)); } catch (e) {}
             return next;
           });
         }
         if (metadata && metadata.likes !== undefined && metadata.likes !== null) {
           setStreamLikes(prev => {
-            const next = { ...prev, [ch]: metadata.likes, [rawClean]: metadata.likes, [atClean]: metadata.likes, [justClean]: metadata.likes };
+            const next = { 
+              ...prev, 
+              [ch]: metadata.likes, 
+              [rawClean]: metadata.likes, 
+              [atClean]: metadata.likes, 
+              [justClean]: metadata.likes,
+              [lowerCh]: metadata.likes,
+              [lowerRaw]: metadata.likes,
+              [lowerAt]: metadata.likes
+            };
             try { localStorage.setItem('prochat_cached_stream_likes', JSON.stringify(next)); } catch (e) {}
             return next;
           });
@@ -950,11 +983,17 @@ export default function ChatDashboard({
               next.add(rawClean);
               next.add(atClean);
               next.add(justClean);
+              next.add(lowerCh);
+              next.add(lowerRaw);
+              next.add(lowerAt);
             } else {
               next.delete(ch);
               next.delete(rawClean);
               next.delete(atClean);
               next.delete(justClean);
+              next.delete(lowerCh);
+              next.delete(lowerRaw);
+              next.delete(lowerAt);
             }
             try { localStorage.setItem('prochat_cached_youtube_shorts_channels', JSON.stringify(Array.from(next))); } catch (e) {}
             return next;
@@ -964,6 +1003,21 @@ export default function ChatDashboard({
         const rawClean = ch.replace(/^@+/, '').trim();
         const atClean = `@${rawClean}`;
         const justClean = ch.replace('@', '').trim();
+        const lowerCh = ch.toLowerCase();
+        const lowerRaw = rawClean.toLowerCase();
+        const lowerAt = atClean.toLowerCase();
+
+        setPlatformStatuses(prev => {
+          const next = { ...prev };
+          next[ch] = status;
+          next[rawClean] = status;
+          next[atClean] = status;
+          next[justClean] = status;
+          next[lowerCh] = status;
+          next[lowerRaw] = status;
+          next[lowerAt] = status;
+          return next;
+        });
 
         setStreamStartTimes(prev => {
           const next = { ...prev };
@@ -971,6 +1025,9 @@ export default function ChatDashboard({
           delete next[rawClean];
           delete next[atClean];
           delete next[justClean];
+          delete next[lowerCh];
+          delete next[lowerRaw];
+          delete next[lowerAt];
           localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next));
           return next;
         });
@@ -980,6 +1037,9 @@ export default function ChatDashboard({
           delete next[rawClean];
           delete next[atClean];
           delete next[justClean];
+          delete next[lowerCh];
+          delete next[lowerRaw];
+          delete next[lowerAt];
           localStorage.setItem('prochat_cached_stream_viewers', JSON.stringify(next));
           return next;
         });
@@ -989,10 +1049,13 @@ export default function ChatDashboard({
           delete next[rawClean];
           delete next[atClean];
           delete next[justClean];
+          delete next[lowerCh];
+          delete next[lowerRaw];
+          delete next[lowerAt];
           localStorage.setItem('prochat_cached_stream_likes', JSON.stringify(next));
           return next;
         });
-        setYoutubeShortsChannels(prev => {
+      }    setYoutubeShortsChannels(prev => {
           const next = new Set(prev);
           next.delete(ch);
           next.delete(rawClean);
@@ -2714,8 +2777,10 @@ export default function ChatDashboard({
                   const cleanName = ch.name.toLowerCase().replace('@', '').trim();
                   const rawClean = ch.name.toLowerCase().replace(/^@+/, '').trim();
                   const isActive = activeTab === ch.name.toLowerCase();
-                  const cleanShortsName = ch.name.toLowerCase().replace('@', '').trim();
-                  const isConnected = platformStatuses[cleanName] === 'connected' || platformStatuses[rawClean] === 'connected';
+                  const isConnected = platformStatuses[cleanName] === 'connected' || 
+                                      platformStatuses[rawClean] === 'connected' ||
+                                      platformStatuses[ch.name] === 'connected' ||
+                                      platformStatuses[ch.name.toLowerCase()] === 'connected';
                   const lowerName = ch.name.toLowerCase();
                   const startTime = streamStartTimes[cleanName] ?? 
                                     streamStartTimes[rawClean] ?? 
