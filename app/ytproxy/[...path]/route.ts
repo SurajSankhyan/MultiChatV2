@@ -5,22 +5,19 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
   const { path } = await params;
   const decodedPath = (path || []).map(p => decodeURIComponent(p)).join('/');
   const queryStr = searchParams.toString();
-  const targetUrl = `https://www.youtube.com/${decodedPath}${queryStr ? `?${queryStr}` : ''}`;
+  
+  // Use Mobile YouTube endpoint for /live and /watch to get static server-rendered start timestamps
+  const isMobileTarget = decodedPath.includes('live') || decodedPath.startsWith('watch') || decodedPath.startsWith('shorts');
+  const targetHost = isMobileTarget ? 'https://m.youtube.com' : 'https://www.youtube.com';
+  const targetUrl = `${targetHost}/${decodedPath}${queryStr ? `?${queryStr}` : ''}`;
   
   const headers = new Headers();
-  headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36');
+  headers.set('User-Agent', isMobileTarget 
+    ? 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
+    : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36');
   headers.set('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8');
   headers.set('Accept-Language', 'en-US,en;q=0.9');
-  headers.set('Referer', 'https://www.youtube.com/');
-  headers.set('Origin', 'https://www.youtube.com');
-  headers.set('Sec-Ch-Ua', '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"');
-  headers.set('Sec-Ch-Ua-Mobile', '?0');
-  headers.set('Sec-Ch-Ua-Platform', '"Windows"');
-  headers.set('Sec-Fetch-Dest', 'document');
-  headers.set('Sec-Fetch-Mode', 'navigate');
-  headers.set('Sec-Fetch-Site', 'none');
-  headers.set('Sec-Fetch-User', '?1');
-  headers.set('Upgrade-Insecure-Requests', '1');
+  headers.set('Referer', isMobileTarget ? 'https://m.youtube.com/' : 'https://www.youtube.com/');
   headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
 
   try {

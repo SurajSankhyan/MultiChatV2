@@ -78,7 +78,7 @@ export class YoutubeChatClient {
     };
 
     // 1. Try local proxy first
-    if (url.startsWith('https://www.youtube.com')) {
+    if (url.startsWith('https://www.youtube.com') || url.startsWith('https://m.youtube.com')) {
       const localProxyUrl = this.mapToLocalProxy(url);
       try {
         console.log(`YouTube client: trying local proxy: ${localProxyUrl}`);
