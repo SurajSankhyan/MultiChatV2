@@ -10,7 +10,6 @@ export async function POST(request: Request) {
   try {
     const incomingBody = await request.json().catch(() => ({}));
     
-    // Ensure standard WEB client context is used with consent cookies
     const body = {
       ...incomingBody,
       context: {
@@ -31,8 +30,6 @@ export async function POST(request: Request) {
     headers.set('Accept-Language', 'en-US,en;q=0.9');
     headers.set('Referer', 'https://www.youtube.com/');
     headers.set('Origin', 'https://www.youtube.com');
-    headers.set('X-YouTube-Client-Name', '1');
-    headers.set('X-YouTube-Client-Version', '2.20240404.01.00');
     headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
 
     const res = await fetch(targetUrl, {
@@ -46,4 +43,5 @@ export async function POST(request: Request) {
     return new NextResponse(err.message, { status: 500 });
   }
 }
+
 
