@@ -951,16 +951,15 @@ export class YoutubeChatClient {
         displayName: resolvedDisplayName
       });
 
-      // 4. If startTimestamp is not yet resolved, use the reliable YouTube Data API via Next.js proxy
+      // 4. If startTimestamp is not yet resolved, use Innertube Player API to get actualStartTime
       if (videoId && !pollInstance.startTimestamp) {
-        fetch(`/api/youtube/uptime?videoId=${videoId}`)
-          .then(res => res.json())
-          .then(data => {
-            if (data.actualStartTime && this.activePolls.has(pollKey)) {
-              const exactStartTime = new Date(data.actualStartTime).getTime();
+        this.fetchPlayerMetadata(videoId, pollInstance.apiKey)
+          .then(pMeta => {
+            if (pMeta && pMeta.startTime && this.activePolls.has(pollKey)) {
+              const exactStartTime = pMeta.startTime;
               const active = this.activePolls.get(pollKey);
               active.startTimestamp = exactStartTime;
-              console.log(`YouTube client: resolved exact live broadcast start time for ${pollKey}: ${new Date(exactStartTime).toISOString()}`);
+              console.log(`YouTube client: resolved exact live broadcast start time via Innertube for ${pollKey}: ${new Date(exactStartTime).toISOString()}`);
               this.onStatus(pollKey, 'connected', {
                 startTime: exactStartTime,
                 viewers: active.viewers,
@@ -968,8 +967,8 @@ export class YoutubeChatClient {
                 isShorts: active.isShorts,
                 displayName: active.displayName
               });
-            } else if (data.error && data.error.includes('YOUTUBE_API_KEY')) {
-              console.warn(`YouTube client: Cannot resolve uptime. YOUTUBE_API_KEY is missing from Netlify environment variables.`);
+            } else if (!pMeta || !pMeta.startTime) {
+              console.warn(`YouTube client: Innertube failed to resolve start time for ${pollKey}.`);
             }
           })
           .catch(() => {});
@@ -1026,11 +1025,10 @@ export class YoutubeChatClient {
               } catch (e) {}
             }
             if (!pollInstance.startTimestamp && pollInstance.videoId) {
-              fetch(`/api/youtube/uptime?videoId=${pollInstance.videoId}`)
-                .then(res => res.json())
-                .then(data => {
-                  if (data.actualStartTime && this.activePolls.has(pollKey)) {
-                    const exactStartTime = new Date(data.actualStartTime).getTime();
+              this.fetchPlayerMetadata(pollInstance.videoId, pollInstance.apiKey)
+                .then(pMeta => {
+                  if (pMeta && pMeta.startTime && this.activePolls.has(pollKey)) {
+                    const exactStartTime = pMeta.startTime;
                     const active = this.activePolls.get(pollKey);
                     active.startTimestamp = exactStartTime;
                     this.onStatus(pollKey, 'connected', {
