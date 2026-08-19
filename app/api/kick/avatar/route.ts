@@ -209,6 +209,14 @@ export async function GET(request: Request) {
       }
     }
 
+    const wantsJson = searchParams.get('json') === 'true';
+    if (wantsJson) {
+      if (targetUrl && (targetUrl.includes('files.kick.com') || (targetUrl.startsWith('http') && !targetUrl.includes('default-avatar')))) {
+        return NextResponse.json({ avatar: decodeURIComponent(targetUrl).trim() });
+      }
+      return NextResponse.json({ avatar: null });
+    }
+
     // If valid remote image found, redirect browser directly to Kick CDN image for instant load
     if (targetUrl && (targetUrl.includes('files.kick.com') || (targetUrl.startsWith('http') && !targetUrl.includes('default-avatar')))) {
       targetUrl = decodeURIComponent(targetUrl).trim();

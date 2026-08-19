@@ -5,6 +5,7 @@ import { ArrowDown, MessageSquare, MoreVertical, Volume2, User, ShieldAlert, Tra
 import PlatformLogo, { DefaultSubscriberBadge, KickGiftedSubsBadge, TwitchDefaultSubscriberBadge } from './PlatformLogo';
 import { Tooltip, TooltipTrigger, TooltipContent } from './ui/interfaces-tooltip';
 import { getLiveTwitchBadgeUrl } from '../utils/twitchChat';
+import { requestKickAvatar } from '../utils/kickAvatarResolver';
 
 const appStartTime = Date.now();
 export const GLOBAL_AVATAR_CACHE = new Map();
@@ -187,6 +188,20 @@ export default function ChatFeed({
       }
     });
   }, [user, activeChannels, messages]);
+
+  const [, setAvatarUpdateTick] = useState(0);
+  useEffect(() => {
+    const handleAvatarResolved = (e) => {
+      if (e.detail?.username && e.detail?.avatar) {
+        GLOBAL_AVATAR_CACHE.set(e.detail.username, e.detail.avatar);
+        setAvatarUpdateTick(t => t + 1);
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('kick-avatar-resolved', handleAvatarResolved);
+      return () => window.removeEventListener('kick-avatar-resolved', handleAvatarResolved);
+    }
+  }, []);
 
   const showAvatarForPlatform = (platform) => {
     const norm = platform ? platform.toLowerCase() : '';
@@ -1297,7 +1312,10 @@ export default function ChatFeed({
 
                 let avatarUrl = null;
                 if (msg.platform === 'kick') {
-                  const cached = (cleanUser ? GLOBAL_AVATAR_CACHE.get(cleanUser) : null) || (cleanDisplay ? GLOBAL_AVATAR_CACHE.get(cleanDisplay) : null) || (isCreatorUser ? creatorAvatar : null);
+                  const cached = (cleanUser ? GLOBAL_AVATAR_CACHE.get(cleanUser) : null) || 
+                                 (cleanDisplay ? GLOBAL_AVATAR_CACHE.get(cleanDisplay) : null) || 
+                                 (isCreatorUser ? creatorAvatar : null) ||
+                                 (cleanUser ? requestKickAvatar(cleanUser, msg.userId) : null);
                   const rawMsgAvatar = msg.avatarUrl || msg.avatar;
                   if (cached && typeof cached === 'string' && cached.length > 5 && !cached.includes('/kick-default-avatars/')) {
                     avatarUrl = proxifyAvatarUrl(cached);
