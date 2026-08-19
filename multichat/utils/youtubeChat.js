@@ -437,6 +437,61 @@ export class YoutubeChatClient {
     pollInstance.viewerIntervalId = setInterval(checkLive, 10000);
   }
 
+  extractInnertubeParams(html) {
+    if (!html) return {};
+    let apiKey = null;
+    const keyMatchers = [
+      /"INNERTUBE_API_KEY":"([^"]+)"/,
+      /"innertubeApiKey":"([^"]+)"/,
+      /ytcfg\.set\s*\(\s*\{\s*"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/
+    ];
+    for (const regex of keyMatchers) {
+      const match = html.match(regex);
+      if (match && match[1]) {
+        apiKey = match[1];
+        break;
+      }
+    }
+
+    let clientVersion = '2.20240404.01.00';
+    const versionMatchers = [
+      /"INNERTUBE_CONTEXT_CLIENT_VERSION"\s*:\s*"([^"]+)"/,
+      /"clientVersion"\s*:\s*"([^"]+)"/,
+      /"CLIENT_VERSION"\s*:\s*"([^"]+)"/
+    ];
+    for (const regex of versionMatchers) {
+      const match = html.match(regex);
+      if (match && match[1]) {
+        clientVersion = match[1];
+        break;
+      }
+    }
+
+    let continuationToken = null;
+    const contMatchers = [
+      /"reloadContinuationData"\s*:\s*\{\s*"continuation"\s*:\s*"([^"]+)"/,
+      /"timedContinuationData"\s*:\s*\{\s*"continuation"\s*:\s*"([^"]+)"/,
+      /"continuationData":\s*\{\s*"continuation"\s*:\s*"([^"]+)"/,
+      /"liveChatRenderer"[^}]*"continuation":"([^"]+)"/,
+      /"continuation":"([^"]+)"/
+    ];
+    for (const regex of contMatchers) {
+      const match = html.match(regex);
+      if (match && match[1]) {
+        continuationToken = match[1];
+        break;
+      }
+    }
+
+    let liveChatId = null;
+    const lcMatch = html.match(/"activeLiveChatId"\s*:\s*"([^"]+)"/) || html.match(/"liveChatId"\s*:\s*"([^"]+)"/);
+    if (lcMatch && lcMatch[1]) {
+      liveChatId = lcMatch[1];
+    }
+
+    return { apiKey, clientVersion, continuationToken, liveChatId };
+  }
+
   async join(channelName, chatMode = 'live') {
     const trimmedName = channelName.trim();
     if (!trimmedName) return;
@@ -465,19 +520,20 @@ export class YoutubeChatClient {
     try {
       let videoId = this.extractVideoId(trimmedName);
       let resolvedDisplayName = trimmedName.replace('@', '');
+      let pageHtml = null;
 
       if (!videoId) {
         const liveUrl = this.getLiveUrl(trimmedName);
 
         console.log(`YouTube client: resolving video ID: ${liveUrl}`);
-        const html = await this.fetchWithProxyFallback(liveUrl);
+        pageHtml = await this.fetchWithProxyFallback(liveUrl);
 
         // Extract channel ID from HTML
-        const canonicalMatch = html.match(/<link\s+rel="canonical"\s+href="https:\/\/www\.youtube\.com\/channel\/([^"]+)"/) ||
-                               html.match(/youtube\.com\/channel\/(UC[a-zA-Z0-9_-]+)/);
+        const canonicalMatch = pageHtml.match(/<link\s+rel="canonical"\s+href="https:\/\/www\.youtube\.com\/channel\/([^"]+)"/) ||
+                               pageHtml.match(/youtube\.com\/channel\/(UC[a-zA-Z0-9_-]+)/);
         const channelId = canonicalMatch ? canonicalMatch[1] : null;
 
-        videoId = this.extractLiveVideoId(html);
+        videoId = this.extractLiveVideoId(pageHtml);
 
         if (!videoId) {
           console.log(`YouTube client: channel ${pollKey} is offline.`);
@@ -498,13 +554,13 @@ export class YoutubeChatClient {
 
         // Extract live stream start timestamp and viewer/like count if present in HTML
         let startTimestamp = null;
-        if (html) {
-          startTimestamp = this.parseStartTimestamp(html);
+        if (pageHtml) {
+          startTimestamp = this.parseStartTimestamp(pageHtml);
           if (startTimestamp) {
             console.log(`YouTube client: found startTimestamp: ${startTimestamp}`);
           }
-          this.resolvedViewers = this.parseViewersFromHtml(html);
-          this.resolvedLikes = this.parseLikesFromHtml(html);
+          this.resolvedViewers = this.parseViewersFromHtml(pageHtml);
+          this.resolvedLikes = this.parseLikesFromHtml(pageHtml);
         }
         this.resolvedStartTimestamp = startTimestamp; // store temporarily
 
@@ -527,158 +583,44 @@ export class YoutubeChatClient {
 
       console.log(`YouTube client: resolved video ID: ${videoId}`);
 
-      // Check if it is a Shorts live stream
+      // Check if it is a Shorts live stream directly from page HTML
       let isShorts = false;
-      try {
-        const checkUrl = `https://www.youtube.com/shorts/${videoId}`;
-        console.log(`YouTube client: checking if Shorts stream: ${checkUrl}`);
-        const checkHtml = await this.fetchWithProxyFallback(checkUrl);
-        if (checkHtml) {
-          const canonicalMatch = checkHtml.match(/<link rel="canonical" href="([^"]+)"/);
-          if (canonicalMatch && canonicalMatch[1]) {
-            isShorts = canonicalMatch[1].includes('/shorts/');
-          } else {
-            isShorts = !checkHtml.includes('watch?v=');
+      if (pageHtml) {
+        isShorts = pageHtml.includes('/shorts/') || 
+                   pageHtml.includes('#shorts') || 
+                   pageHtml.toLowerCase().includes('vertical stream') || 
+                   pageHtml.includes('reelPlayerHeaderRenderer');
+      }
+
+      // Extract Innertube API parameters directly from the live broadcast page
+      let { apiKey, clientVersion, continuationToken, liveChatId } = this.extractInnertubeParams(pageHtml);
+
+      // If tokens weren't in main page HTML or chatMode is specific, try fetching live chat page
+      if (!apiKey || !continuationToken) {
+        try {
+          const chatPageUrl = `https://www.youtube.com/live_chat?v=${videoId}`;
+          console.log(`YouTube client: fetching live chat page for additional tokens: ${chatPageUrl}`);
+          const chatHtml = await this.fetchWithProxyFallback(chatPageUrl);
+          if (chatHtml) {
+            const chatParams = this.extractInnertubeParams(chatHtml);
+            if (!apiKey && chatParams.apiKey) apiKey = chatParams.apiKey;
+            if (!continuationToken && chatParams.continuationToken) continuationToken = chatParams.continuationToken;
+            if (!clientVersion && chatParams.clientVersion) clientVersion = chatParams.clientVersion;
+            if (!liveChatId && chatParams.liveChatId) liveChatId = chatParams.liveChatId;
           }
-        }
-      } catch (e) {
-        console.warn('YouTube client: failed to verify Shorts status, defaulting to normal live stream:', e.message);
-      }
-      console.log(`YouTube client: determined isShorts = ${isShorts} for videoId = ${videoId}`);
-
-      // Fetch live chat page to extract Innertube key, activeLiveChatId and continuation
-      const chatPageUrl = `https://www.youtube.com/live_chat?v=${videoId}`;
-      const chatHtml = await this.fetchWithProxyFallback(chatPageUrl);
-
-      // Extract activeLiveChatId
-      let liveChatId = null;
-      if (chatHtml) {
-        const lcMatch = chatHtml.match(/"activeLiveChatId"\s*:\s*"([^"]+)"/) || chatHtml.match(/"liveChatId"\s*:\s*"([^"]+)"/);
-        if (lcMatch && lcMatch[1]) {
-          liveChatId = lcMatch[1];
-          console.log(`YouTube client: resolved activeLiveChatId -> ${liveChatId}`);
-        }
-      }
-
-      // Extract API Key
-      let apiKey = null;
-      const keyMatchers = [
-        /"INNERTUBE_API_KEY":"([^"]+)"/,
-        /"innertubeApiKey":"([^"]+)"/,
-        /ytcfg\.set\s*\(\s*\{\s*"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/
-      ];
-      for (const regex of keyMatchers) {
-        const match = chatHtml.match(regex);
-        if (match && match[1]) {
-          apiKey = match[1];
-          break;
-        }
-      }
-
-      // Extract ytInitialData to find mode-specific continuation tokens
-      let selectedContinuation = null;
-      try {
-        let startIdx = chatHtml.indexOf('ytInitialData =');
-        let offset = 'ytInitialData ='.length;
-        if (startIdx === -1) {
-          startIdx = chatHtml.indexOf('ytInitialData=');
-          offset = 'ytInitialData='.length;
-        }
-        if (startIdx === -1) {
-          startIdx = chatHtml.indexOf('window["ytInitialData"] =');
-          offset = 'window["ytInitialData"] ='.length;
-        }
-        if (startIdx === -1) {
-          startIdx = chatHtml.indexOf('window[\'ytInitialData\'] =');
-          offset = 'window[\'ytInitialData\'] ='.length;
-        }
-        if (startIdx === -1) {
-          startIdx = chatHtml.indexOf('window["ytInitialData"]=');
-          offset = 'window["ytInitialData"]='.length;
-        }
-        if (startIdx === -1) {
-          startIdx = chatHtml.indexOf('window[\'ytInitialData\']=');
-          offset = 'window[\'ytInitialData\']='.length;
-        }
-
-        if (startIdx !== -1) {
-          const sub = chatHtml.substring(startIdx + offset).trim();
-          const endScriptIdx = sub.indexOf('</script>');
-          if (endScriptIdx !== -1) {
-            let statement = sub.substring(0, endScriptIdx).trim();
-            if (statement.endsWith(';')) {
-              statement = statement.slice(0, -1).trim();
-            }
-            const initialData = JSON.parse(statement);
-            const menuItems = initialData.contents?.liveChatRenderer?.header?.liveChatHeaderRenderer?.viewSelector?.sortFilterSubMenuRenderer?.subMenuItems;
-            if (Array.isArray(menuItems)) {
-              // Find target item based on chatMode
-              const targetTitle = chatMode === 'live' ? 'Live' : 'Top';
-              const matchedItem = menuItems.find(item => {
-                const titleText = item.title?.simpleText || 
-                                  (item.title?.runs ? item.title.runs.map(r => r.text || '').join('') : '') ||
-                                  (typeof item.title === 'string' ? item.title : '');
-                return titleText.toLowerCase().includes(targetTitle.toLowerCase());
-              });
-              if (matchedItem) {
-                const contObj = matchedItem.continuation;
-                const cont = contObj?.reloadContinuationData?.continuation ||
-                             contObj?.timedContinuationData?.continuation ||
-                             contObj?.invalidationContinuationData?.continuation ||
-                             contObj?.liveChatReplayContinuationData?.continuation;
-                if (cont) {
-                  selectedContinuation = cont;
-                  console.log(`YouTube client: successfully extracted continuation for ${chatMode} chat -> ${selectedContinuation.substring(0, 10)}...`);
-                }
-              }
-            }
-          }
-        }
-      } catch (err) {
-        console.warn("YouTube client: failed to extract token from ytInitialData:", err.message);
-      }
-
-      // Extract Continuation Token (prioritize mode-specific one)
-      let continuationToken = selectedContinuation;
-      if (!continuationToken) {
-        const contMatchers = [
-          /"reloadContinuationData"\s*:\s*\{\s*"continuation"\s*:\s*"([^"]+)"/,
-          /"timedContinuationData"\s*:\s*\{\s*"continuation"\s*:\s*"([^"]+)"/,
-          /"continuationData":\s*\{\s*"continuation"\s*:\s*"([^"]+)"/,
-          /"continuation":"([^"]+)"/
-        ];
-        for (const regex of contMatchers) {
-          const match = chatHtml.match(regex);
-          if (match && match[1]) {
-            continuationToken = match[1];
-            break;
-          }
-        }
-      }
-
-      // Extract Client Version
-      let clientVersion = '2.20240404.01.00'; // Modern fallback
-      const versionMatchers = [
-        /"INNERTUBE_CONTEXT_CLIENT_VERSION"\s*:\s*"([^"]+)"/,
-        /"clientVersion"\s*:\s*"([^"]+)"/,
-        /"CLIENT_VERSION"\s*:\s*"([^"]+)"/
-      ];
-      for (const regex of versionMatchers) {
-        const match = chatHtml.match(regex);
-        if (match && match[1]) {
-          clientVersion = match[1];
-          break;
+        } catch (e) {
+          console.warn("YouTube client: live_chat fallback fetch error:", e.message);
         }
       }
 
       if (!apiKey || !continuationToken) {
-        console.log(`YouTube client: channel ${pollKey} has no active live chat. Transitioning to offline polling.`);
+        console.log(`YouTube client: channel ${pollKey} has no active live chat tokens. Transitioning to offline polling.`);
         this.onStatus(pollKey, 'offline');
         this.setupOfflinePoll(trimmedName, chatMode);
         return;
       }
 
-      console.log(`YouTube client: using clientVersion: ${clientVersion}`);
+      console.log(`YouTube client: connected to stream ${videoId} with clientVersion: ${clientVersion}`);
 
       // Store poll instance with seen-ID dedup set
       const pollInstance = {
@@ -686,14 +628,15 @@ export class YoutubeChatClient {
         liveChatId,
         apiKey,
         continuationToken,
-        clientVersion,
+        clientVersion: clientVersion || '2.20240404.01.00',
         intervalId: null,
         seenIds: existingSeenIds,
         startTimestamp: this.resolvedStartTimestamp || null,
         isShorts,
         displayName: resolvedDisplayName,
         trimmedName: trimmedName,
-        chatMode
+        chatMode,
+        retryCount: 0
       };
       this.resolvedStartTimestamp = null; // reset
 
@@ -716,7 +659,6 @@ export class YoutubeChatClient {
       // Periodic viewer and like count update for YouTube
       pollInstance.viewerIntervalId = setInterval(async () => {
         try {
-          console.log(`YouTube client: polling viewer and like count for ${pollKey}`);
           const liveUrl = this.getLiveUrl(trimmedName);
           const html = await this.fetchWithProxyFallback(liveUrl);
           if (html) {
@@ -737,6 +679,7 @@ export class YoutubeChatClient {
         }
       }, 10000); // poll every 10 seconds
 
+      // Immediate first poll
       this.pollChat(pollKey);
 
     } catch (err) {
@@ -781,7 +724,7 @@ export class YoutubeChatClient {
         continuation: poll.continuationToken
       };
 
-      // 1. Try local proxy first for the POST request (avoids Cloudflare proxy blocks completely)
+      // 1. Try local proxy first for the POST request
       let response;
       try {
         const localEndpoint = `/ytproxy/get_chat?key=${poll.apiKey}`;
@@ -796,23 +739,30 @@ export class YoutubeChatClient {
           throw new Error(`Local proxy responded with status ${response.status}`);
         }
       } catch (err) {
-        console.warn('Local proxy POST failed, falling back to public proxy:', err.message);
-        
         // 2. Fall back to public CORS proxy
-        const publicProxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(endpoint)}`;
-        response = await fetch(publicProxyUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(payload)
-        });
-        if (!response.ok) {
-          throw new Error(`Public proxy responded with status ${response.status}`);
+        try {
+          const publicProxyUrl = `https://proxy.cors.sh/${endpoint}`;
+          response = await fetch(publicProxyUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+          });
+          if (!response.ok) {
+            throw new Error(`Public proxy responded with status ${response.status}`);
+          }
+        } catch (e2) {
+          poll.retryCount = (poll.retryCount || 0) + 1;
+          if (poll.retryCount > 6) {
+            console.warn(`YouTube client: multiple poll failures for ${channelName}, will retry cleanly.`);
+          }
+          return;
         }
       }
 
       const data = await response.json();
+      poll.retryCount = 0; // reset on success
       
       let nextToken = null;
       const contents = data.continuationContents;
@@ -852,11 +802,6 @@ export class YoutubeChatClient {
             }
             this.parseChatAction(channelName, action);
 
-            // Log non-chat actions for real-time debugging of moderator actions
-            if (!action.addChatItemAction) {
-              console.log("YouTube client: non-chat action received:", action);
-            }
-
             // Handle YouTube message deletion actions
             const markDeleted = action.markChatItemAsDeletedAction;
             const removeDeleted = action.removeChatItemAction;
@@ -865,25 +810,21 @@ export class YoutubeChatClient {
 
             if (markDeleted && markDeleted.targetItemId) {
               const targetId = markDeleted.targetItemId;
-              console.log(`YouTube client: message deleted (markChatItemAsDeletedAction): ${targetId}`);
               if (this.onMessageDeleted) {
                 this.onMessageDeleted(targetId, null);
               }
             } else if (removeDeleted && removeDeleted.targetItemId) {
               const targetId = removeDeleted.targetItemId;
-              console.log(`YouTube client: message deleted (removeChatItemAction): ${targetId}`);
               if (this.onMessageDeleted) {
                 this.onMessageDeleted(targetId, null);
               }
             } else if (authorMarkDeleted && authorMarkDeleted.externalChannelId) {
               const authorId = authorMarkDeleted.externalChannelId;
-              console.log(`YouTube client: all messages by user deleted (markChatItemsByAuthorAsDeletedAction): ${authorId}`);
               if (this.onMessageDeleted) {
                 this.onMessageDeleted(null, authorId);
               }
             } else if (authorRemoveDeleted && authorRemoveDeleted.externalChannelId) {
               const authorId = authorRemoveDeleted.externalChannelId;
-              console.log(`YouTube client: all messages by user deleted (removeChatItemsByAuthorAction): ${authorId}`);
               if (this.onMessageDeleted) {
                 this.onMessageDeleted(null, authorId);
               }
@@ -894,9 +835,6 @@ export class YoutubeChatClient {
 
       if (nextToken) {
         poll.continuationToken = nextToken;
-      } else {
-        console.warn(`No continuation token returned for YouTube: ${channelName}. Stopping poll.`);
-        this.leave(channelName);
       }
 
     } catch (e) {
