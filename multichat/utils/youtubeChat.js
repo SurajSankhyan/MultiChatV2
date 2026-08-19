@@ -273,9 +273,10 @@ export class YoutubeChatClient {
           if (data) {
             let secs = 0;
             if (data.event === 'infoDelivery' && data.info) {
-              // Only use duration for live streams, as currentTime just tracks playhead position since the iframe loaded (causing 00:00:00 uptime)
               if (typeof data.info.duration === 'number' && data.info.duration > 0) {
                 secs = data.info.duration;
+              } else if (typeof data.info.currentTime === 'number' && data.info.currentTime > 0) {
+                secs = data.info.currentTime;
               }
             }
 
@@ -975,6 +976,26 @@ export class YoutubeChatClient {
         displayName: resolvedDisplayName
       });
 
+      // Background client-side YouTube IFrame player bridge for guaranteed start time resolution
+      if (!pollInstance.startTimestamp && videoId) {
+        this.resolveLiveStartTimeViaIFrame(videoId).then(iframeStart => {
+          if (iframeStart && this.activePolls.has(pollKey)) {
+            const active = this.activePolls.get(pollKey);
+            if (!active.startTimestamp) {
+              active.startTimestamp = iframeStart;
+              console.log(`YouTube client: resolved live broadcast start time via IFrame bridge for ${pollKey}: ${new Date(iframeStart).toISOString()}`);
+              this.onStatus(pollKey, 'connected', {
+                startTime: iframeStart,
+                viewers: active.viewers,
+                likes: active.likes,
+                isShorts: active.isShorts,
+                displayName: active.displayName
+              });
+            }
+          }
+        }).catch(() => {});
+      }
+
       // Sequential Adaptive Polling Loop (avoids overlapping requests and invalidating tokens over internet/Netlify)
       const scheduleNextPoll = (delay = 1000) => {
         if (!this.activePolls.has(pollKey)) return;
@@ -1024,6 +1045,23 @@ export class YoutubeChatClient {
                   if (pMeta.viewers && pollInstance.viewers === null) pollInstance.viewers = pMeta.viewers;
                 }
               } catch (e) {}
+            }
+            if (!pollInstance.startTimestamp && pollInstance.videoId) {
+              this.resolveLiveStartTimeViaIFrame(pollInstance.videoId).then(iframeStart => {
+                if (iframeStart && this.activePolls.has(pollKey)) {
+                  const active = this.activePolls.get(pollKey);
+                  if (!active.startTimestamp) {
+                    active.startTimestamp = iframeStart;
+                    this.onStatus(pollKey, 'connected', {
+                      startTime: iframeStart,
+                      viewers: active.viewers,
+                      likes: active.likes,
+                      isShorts: active.isShorts,
+                      displayName: active.displayName
+                    });
+                  }
+                }
+              }).catch(() => {});
             }
 
             this.onStatus(pollKey, 'connected', { 
