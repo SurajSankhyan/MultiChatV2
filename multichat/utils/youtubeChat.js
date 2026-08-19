@@ -14,9 +14,9 @@ export class YoutubeChatClient {
     
     // Rotating public CORS proxies as fallback
     this.proxies = [
+      (url) => `https://proxy.cors.sh/${url}`,
       (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-      (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
-      (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
+      (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`
     ];
   }
 
@@ -31,10 +31,6 @@ export class YoutubeChatClient {
     // Obfuscate /live_chat to avoid adblockers blocking the request
     if (path.startsWith('/live_chat')) {
       return path.replace('/live_chat', '/ytproxy/chat');
-    }
-    // Obfuscate /shorts to avoid adblockers blocking the request
-    if (path.startsWith('/shorts')) {
-      return path.replace('/shorts', '/ytproxy/sh');
     }
     return '/ytproxy' + path;
   }
@@ -52,7 +48,15 @@ export class YoutubeChatClient {
 
   // Helper to fetch from url trying local proxy first, and falling back to CORS proxies
   async fetchWithProxyFallback(url) {
-    // 1. Try local proxy first (runs in local development environment via Vite server proxy)
+    const isValidYoutubeHtml = (text) => {
+      if (!text || typeof text !== 'string' || text.length < 500) return false;
+      if (text.includes('google.com/sorry') || text.includes('<title>Sorry...</title>') || text.includes('consent.youtube.com/m?')) {
+        return false;
+      }
+      return text.includes('ytInitialData') || text.includes('ytcfg') || text.includes('youtube.com') || text.includes('isLive') || text.includes('watch?v=');
+    };
+
+    // 1. Try local proxy first
     if (url.startsWith('https://www.youtube.com')) {
       const localProxyUrl = this.mapToLocalProxy(url);
       try {
@@ -60,7 +64,7 @@ export class YoutubeChatClient {
         const res = await fetch(localProxyUrl);
         if (res.ok) {
           const text = await res.text();
-          if (text && text.length > 500) {
+          if (isValidYoutubeHtml(text)) {
             return text;
           }
         }
@@ -78,7 +82,7 @@ export class YoutubeChatClient {
         const res = await fetch(proxiedUrl);
         if (res.ok) {
           const text = await res.text();
-          if (text && text.length > 500) {
+          if (isValidYoutubeHtml(text)) {
             return text;
           }
         }
