@@ -24,7 +24,8 @@ import {
   ChevronsRight,
   PanelLeft,
   Globe,
-  ThumbsUp
+  ThumbsUp,
+  CircleDollarSign
 } from 'lucide-react';
 import ChatFeed from './ChatFeed';
 import ChatInput from './ChatInput';
@@ -2051,8 +2052,8 @@ export default function ChatDashboard({
   const [viewerDisplayMode, setViewerDisplayMode] = useState('individual'); // 'individual' | 'combined' | 'hidden'
   const [uptimeDisplayMode, setUptimeDisplayMode] = useState('individual'); // 'individual' | 'combined' | 'hidden'
   const [likesDisplayMode, setLikesDisplayMode] = useState('individual'); // 'individual' | 'combined' | 'hidden'
+  const [superchatDisplayMode, setSuperchatDisplayMode] = useState('amount'); // 'amount' | 'hidden'
   const [participantFilter, setParticipantFilter] = useState('all');
-
 
   // Memoized counts — only recalculate when uniqueChatters changes
   const { youtubeCount, kickCount, twitchCount, totalCount } = useMemo(() => ({
@@ -2145,6 +2146,41 @@ export default function ChatDashboard({
       if (prev === 'combined') return 'hidden';
       return 'individual';
     });
+  };
+
+  const parseAmountValue = (amountStr) => {
+    if (!amountStr || typeof amountStr !== 'string') return 0;
+    const clean = amountStr.replace(/[^\d.]/g, '');
+    const val = parseFloat(clean);
+    return isNaN(val) ? 0 : val;
+  };
+
+  const { liveSuperchatTotal, liveSuperchatCount } = useMemo(() => {
+    let sum = 0;
+    let count = 0;
+    messages.forEach(msg => {
+      if (msg.platform === 'youtube' && msg.isSystemEvent && msg.eventType === 'donation') {
+        const amt = parseAmountValue(msg.eventDetails?.amount);
+        sum += amt;
+        count += 1;
+      }
+    });
+    return { liveSuperchatTotal: sum, liveSuperchatCount: count };
+  }, [messages]);
+
+  const currencySymbol = settings.superchatCurrency || '₹';
+
+  const formatSuperchatAmount = (val) => {
+    const num = Math.round((val || 0) * 100) / 100;
+    const formatted = num.toLocaleString('en-US', {
+      minimumFractionDigits: num % 1 !== 0 ? 2 : 0,
+      maximumFractionDigits: 2
+    });
+    return `${currencySymbol}${formatted}`;
+  };
+
+  const handleSuperchatClick = () => {
+    setSuperchatDisplayMode(prev => prev === 'amount' ? 'hidden' : 'amount');
   };
 
   const totalConnectedViewers = Object.entries(streamViewers)
@@ -2288,7 +2324,7 @@ export default function ChatDashboard({
                 {hasYoutubeChannel && (
                   <>
                     <div className="metric-pill-divider" />
-                    <div className="metric-pill-section" onClick={handleLikesClick}>
+                    <div className="metric-pill-section" onClick={handleLikesClick} title="Total YouTube Likes">
                       <ThumbsUp size={13} style={{ color: 'var(--text-muted)' }} />
                       {likesDisplayMode === 'individual' && (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
@@ -2311,6 +2347,16 @@ export default function ChatDashboard({
                         <span>{formatLikesNumber(displayLikesCount)}</span>
                       )}
                       {likesDisplayMode === 'hidden' && (
+                        <span>--</span>
+                      )}
+                    </div>
+                    <div className="metric-pill-divider" />
+                    <div className="metric-pill-section" onClick={handleSuperchatClick} title="Total Super Chat Amount">
+                      <CircleDollarSign size={13} style={{ color: 'var(--text-muted)' }} />
+                      {superchatDisplayMode === 'amount' && (
+                        <span>{formatSuperchatAmount(liveSuperchatTotal)}</span>
+                      )}
+                      {superchatDisplayMode === 'hidden' && (
                         <span>--</span>
                       )}
                     </div>
@@ -2345,6 +2391,13 @@ export default function ChatDashboard({
                       </div>
                     );
                   })}
+                  {hasYoutubeChannel && (
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                      <CircleDollarSign size={12} style={{ color: '#eab308' }} />
+                      <span style={{ fontWeight: 600 }}>Super Chats:</span>
+                      <span>{formatSuperchatAmount(liveSuperchatTotal)} ({liveSuperchatCount} {liveSuperchatCount === 1 ? 'donation' : 'donations'})</span>
+                    </div>
+                  )}
                 </div>
               ) : (
                 'No active streams'

@@ -33,7 +33,8 @@ const DEFAULT_SETTINGS = {
   overlayTextOutline: true,
   overlayTextShadow: 'medium',
   blocklist: [],
-  youtubeChatMode: 'live'
+  youtubeChatMode: 'live',
+  superchatCurrency: '₹'
 };
 
 const DEFAULT_CHANNELS = [];

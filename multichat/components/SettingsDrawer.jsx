@@ -1170,6 +1170,47 @@ export default function SettingsDrawer({
               </div>
 
               <div className="settings-section-card" style={{ marginTop: '12px' }}>
+                <div className="settings-header-secondary">Super Chat & Donations</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: 14, color: '#d4d4d4', fontWeight: 500 }}>Super Chat Currency</div>
+                      <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>Currency symbol for top bar donation total</div>
+                    </div>
+                    <select
+                      className="settings-select"
+                      value={settings.superchatCurrency || '₹'}
+                      onChange={(e) => updateSettings({ superchatCurrency: e.target.value })}
+                      style={{
+                        padding: '6px 12px',
+                        background: '#1a1a1e',
+                        color: '#fff',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        borderRadius: '6px',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        outline: 'none'
+                      }}
+                    >
+                      <option value="₹">₹ INR (Indian Rupee)</option>
+                      <option value="$">$ USD (US Dollar)</option>
+                      <option value="€">€ EUR (Euro)</option>
+                      <option value="£">£ GBP (British Pound)</option>
+                      <option value="C$">C$ CAD (Canadian Dollar)</option>
+                      <option value="A$">A$ AUD (Australian Dollar)</option>
+                      <option value="¥">¥ JPY (Japanese Yen)</option>
+                      <option value="R$">R$ BRL (Brazilian Real)</option>
+                      <option value="₱">₱ PHP (Philippine Peso)</option>
+                      <option value="₩">₩ KRW (Korean Won)</option>
+                      <option value="S$">S$ SGD (Singapore Dollar)</option>
+                      <option value="NZ$">NZ$ NZD (New Zealand Dollar)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="settings-section-card" style={{ marginTop: '12px' }}>
                 <div className="settings-header-secondary">Text-to-Speech (TTS)</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
