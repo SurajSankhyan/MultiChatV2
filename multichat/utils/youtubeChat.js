@@ -253,157 +253,162 @@ export class YoutubeChatClient {
     return null;
   }
 
-  parseViewersFromHtml(html) {
+  parseMetadataFromHtml(html) {
     if (!html) return null;
-    
-    // 1. Try originalViewCount first (most accurate raw count of concurrent viewers)
-    const origMatch = html.match(/"originalViewCount"\s*:\s*"([^"]+)"/);
-    if (origMatch && origMatch[1]) {
-      const val = parseInt(origMatch[1].replace(/[^0-9]/g, ''), 10);
-      if (!isNaN(val)) {
-        console.log(`YouTube client: parsed originalViewCount: ${val}`);
-        return val;
+    let playerJson = null;
+    try {
+      const playerMatch = html.match(/ytInitialPlayerResponse\s*=\s*(\{.*?\});\s*(?:var\s+meta|<\/script>)/s) || 
+                          html.match(/ytInitialPlayerResponse\s*=\s*(\{.*?\});/);
+      if (playerMatch && playerMatch[1]) {
+        playerJson = JSON.parse(playerMatch[1]);
+      }
+    } catch (e) {}
+
+    let dataJson = null;
+    try {
+      const dataMatch = html.match(/ytInitialData\s*=\s*(\{.*?\});\s*(?:var\s+meta|<\/script>)/s) || 
+                        html.match(/ytInitialData\s*=\s*(\{.*?\});/);
+      if (dataMatch && dataMatch[1]) {
+        dataJson = JSON.parse(dataMatch[1]);
+      }
+    } catch (e) {}
+
+    let isLive = false;
+    let isShorts = false;
+    let viewers = 0;
+    let likes = 0;
+    let startTime = null;
+
+    if (playerJson && playerJson.videoDetails) {
+      isLive = !!playerJson.videoDetails.isLiveContent;
+      const viewCount = playerJson.videoDetails.viewCount;
+      if (isLive && viewCount) {
+        viewers = parseInt(viewCount, 10) || 0;
       }
     }
-    
-    // 2. Try shortViewCountText (e.g. 4.1k watching)
-    const shortIdx = html.indexOf('"shortViewCountText"');
-    if (shortIdx !== -1) {
-      const sub = html.substring(shortIdx, shortIdx + 300);
-      const runTextMatch = sub.match(/"text"\s*:\s*"([^"]+)"/);
-      if (runTextMatch && runTextMatch[1]) {
-        const text = runTextMatch[1].toLowerCase();
-        if (text.includes('k')) {
-          const val = parseFloat(text.replace(/[^0-9.]/g, ''));
-          return isNaN(val) ? null : Math.round(val * 1000);
-        } else if (text.includes('m')) {
-          const val = parseFloat(text.replace(/[^0-9.]/g, ''));
-          return isNaN(val) ? null : Math.round(val * 1000000);
-        } else {
-          const val = parseInt(text.replace(/[^0-9]/g, ''), 10);
-          return isNaN(val) ? null : val;
+
+    if (playerJson && playerJson.microformat && playerJson.microformat.playerMicroformatRenderer) {
+      const mf = playerJson.microformat.playerMicroformatRenderer;
+      if (mf.liveBroadcastDetails && mf.liveBroadcastDetails.isLiveNow) {
+        isLive = true;
+        if (mf.liveBroadcastDetails.startTimestamp) {
+          const parsedTime = new Date(mf.liveBroadcastDetails.startTimestamp).getTime();
+          if (!isNaN(parsedTime)) {
+            startTime = parsedTime;
+          }
         }
       }
     }
-    
-    // 3. Try fallback from standard viewCount text
-    const viewCountIdx = html.indexOf('"viewCountText"');
-    if (viewCountIdx !== -1) {
-      const sub = html.substring(viewCountIdx, viewCountIdx + 300);
-      const match = sub.match(/"(text|simpleText)"\s*:\s*"([^"]+)"/);
-      if (match && match[2]) {
-        const text = match[2].toLowerCase();
-        const val = parseInt(text.replace(/[^0-9]/g, ''), 10);
-        return isNaN(val) ? null : val;
+
+    // Check aspect ratio for Shorts
+    if (playerJson && playerJson.streamingData) {
+      const format = (playerJson.streamingData.adaptiveFormats && playerJson.streamingData.adaptiveFormats[0]) || 
+                     (playerJson.streamingData.formats && playerJson.streamingData.formats[0]);
+      if (format && format.width && format.height) {
+        if (format.height > format.width) {
+          isShorts = true;
+        }
       }
     }
-    
-    return null;
+
+    // Parse likes from ytInitialData
+    if (dataJson && dataJson.contents) {
+      try {
+        const results = dataJson.contents.twoColumnWatchNextResults?.results?.results?.contents;
+        if (results) {
+          const videoPrimaryInfo = results.find(c => c.videoPrimaryInfoRenderer)?.videoPrimaryInfoRenderer;
+          if (videoPrimaryInfo && videoPrimaryInfo.videoActions) {
+            const actions = videoPrimaryInfo.videoActions.menuRenderer?.topLevelButtons;
+            if (actions) {
+              const likeBtn = actions.find(a => a.segmentedLikeDislikeButtonViewModel)?.segmentedLikeDislikeButtonViewModel?.likeButtonViewModel?.likeButtonViewModel?.toggleButtonViewModel?.toggleButtonViewModel?.defaultButtonViewModel?.buttonViewModel;
+              if (likeBtn && likeBtn.title) {
+                const titleStr = likeBtn.title.toLowerCase().replace(/,/g, '');
+                if (titleStr.includes('k')) {
+                  likes = Math.round(parseFloat(titleStr.replace(/[^0-9.]/g, '')) * 1000);
+                } else if (titleStr.includes('m')) {
+                  likes = Math.round(parseFloat(titleStr.replace(/[^0-9.]/g, '')) * 1000000);
+                } else {
+                  likes = parseInt(titleStr.replace(/[^0-9]/g, ''), 10) || 0;
+                }
+              }
+            }
+          }
+        }
+      } catch(e) {}
+    }
+
+    return { isLive, isShorts, viewers, likes, startTime };
+  }
+
+  parseViewersFromHtml(html) {
+    const meta = this.parseMetadataFromHtml(html);
+    return meta ? meta.viewers : null;
   }
 
   parseLikesFromHtml(html) {
-    if (!html) return null;
-    
-    // 1. Direct likeCount (standard in YouTube live streams)
-    const countMatch = html.match(/"likeCount"\s*:\s*"([0-9.,KMBkmb]+)"/i) || html.match(/"likeCount"\s*:\s*([0-9]+)/i);
-    if (countMatch && countMatch[1]) {
-      const text = String(countMatch[1]).toLowerCase().replace(/,/g, '');
-      if (text.includes('k')) {
-        const val = parseFloat(text.replace(/[^0-9.]/g, ''));
-        return isNaN(val) ? null : Math.round(val * 1000);
-      } else if (text.includes('m')) {
-        const val = parseFloat(text.replace(/[^0-9.]/g, ''));
-        return isNaN(val) ? null : Math.round(val * 1000000);
-      } else {
-        const val = parseInt(text.replace(/[^0-9]/g, ''), 10);
-        if (!isNaN(val)) return val;
-      }
-    }
-
-    // 2. Accessibility label
-    const labelMatch = html.match(/"label"\s*:\s*"([0-9.,KMBkmb]+)\s+likes?"/i) || 
-                       html.match(/"accessibilityData"\s*:\s*\{"label"\s*:\s*"([0-9.,KMBkmb]+)\s+likes?"\}/i) ||
-                       html.match(/"label"\s*:\s*"[Ll]ike (?:this video )?along with ([0-9.,KMBkmb]+) other people"/i) ||
-                       html.match(/"accessibilityData"\s*:\s*\{"label"\s*:\s*"[Ll]ike (?:this video )?along with ([0-9.,KMBkmb]+) other people"/i) ||
-                       html.match(/"defaultText"\s*:\s*\{"accessibility"\s*:\s*\{"accessibilityData"\s*:\s*\{"label"\s*:\s*"([0-9.,KMBkmb]+)\s+likes?"\}\}/i);
-    if (labelMatch && labelMatch[1]) {
-      const text = labelMatch[1].toLowerCase().replace(/,/g, '');
-      if (text.includes('k')) {
-        const val = parseFloat(text.replace(/[^0-9.]/g, ''));
-        return isNaN(val) ? null : Math.round(val * 1000);
-      } else if (text.includes('m')) {
-        const val = parseFloat(text.replace(/[^0-9.]/g, ''));
-        return isNaN(val) ? null : Math.round(val * 1000000);
-      } else {
-        const val = parseInt(text.replace(/[^0-9]/g, ''), 10);
-        return isNaN(val) ? null : val;
-      }
-    }
-
-    // 3. Fallback to likes numeric
-    const rawLikes = html.match(/"likes"\s*:\s*([0-9]+)/);
-    if (rawLikes && rawLikes[1]) {
-      const val = parseInt(rawLikes[1], 10);
-      if (!isNaN(val)) return val;
-    }
-
-    return null;
+    const meta = this.parseMetadataFromHtml(html);
+    return meta ? meta.likes : null;
   }
 
   parseStartTimestamp(html) {
-    if (!html) return null;
-
-    const matches = [
-      ...html.matchAll(/"(startTimestamp|actualStartTime|scheduledStartTime|publishDate|uploadDate|startDate)"\s*:\s*"([^"]+)"/gi)
-    ];
-    for (const m of matches) {
-      const str = m[2];
-      if (/^[0-9]{10,13}$/.test(str)) {
-        const rawNum = parseInt(str, 10);
-        return rawNum < 10000000000 ? rawNum * 1000 : rawNum;
-      }
-      const parsed = Date.parse(str);
-      if (!isNaN(parsed) && parsed > 0 && parsed <= Date.now() + 60000) {
-        return parsed;
-      }
-    }
-
-    return null;
+    const meta = this.parseMetadataFromHtml(html);
+    return meta ? meta.startTime : null;
   }
 
   extractLiveVideoId(html) {
     if (!html) return null;
     
-    // Check if the stream is live via common YouTube indicators
-    const isLive = html.includes('"isLive":true') || 
-                   html.includes('"isLiveContent":true') ||
-                   html.includes('"isLiveNow":true') ||
-                   html.includes('"liveStreamability"') ||
-                   html.includes('"activeLiveChatId"') ||
-                   html.includes('liveChatRenderer') ||
-                   html.includes('watch?v=');
-    if (!isLive) return null;
+    // Explicit offline / ended markers
+    if (
+      html.includes('"status":"LIVE_STREAM_OFFLINE"') ||
+      html.includes('"reason":"This live stream has ended."') ||
+      html.includes('This live stream has ended') ||
+      html.includes('liveChatReplayRenderer') ||
+      html.includes('"liveChatReplayContinuationData"') ||
+      html.includes('"isLiveNow":false')
+    ) {
+      return null;
+    }
+
+    const meta = this.parseMetadataFromHtml(html);
+    if (!meta || !meta.isLive) {
+      // Check if confirmed live via multiple regexes
+      const isLiveMatch = /"isLive"\s*:\s*true/i.test(html) ||
+                     /"isLiveNow"\s*:\s*true/i.test(html) ||
+                     /"isLiveContent"\s*:\s*true/i.test(html) ||
+                     /"isLiveBroadcast"\s*:\s*true/i.test(html) ||
+                     /"status"\s*:\s*"LIVE"/i.test(html) ||
+                     /\bwatching now\b/i.test(html) ||
+                     /liveChatRenderer/i.test(html);
+      if (!isLiveMatch) return null;
+    }
     
-    // 1. Try canonical URL watch?v=
-    const canonicalMatch = html.match(/<link\s+rel="canonical"\s+href="[^"]*watch\?v=([a-zA-Z0-9_-]{11})"/);
+    // 1. Try canonical URL watch?v= or /shorts/
+    const canonicalMatch = html.match(/<link\s+rel="canonical"\s+href="[^"]*(?:watch\?v=|\/shorts\/)([a-zA-Z0-9_-]{11})"/i);
     if (canonicalMatch && canonicalMatch[1]) {
       return canonicalMatch[1];
     }
     
     // 2. Try liveStreamabilityRenderer videoId
-    const liveStreamMatch = html.match(/"liveStreamabilityRenderer"\s*:\s*\{\s*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/);
+    const liveStreamMatch = html.match(/"liveStreamabilityRenderer"\s*:\s*\{\s*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
     if (liveStreamMatch && liveStreamMatch[1]) {
       return liveStreamMatch[1];
     }
 
     // 3. Try watchEndpoint / currentVideoEndpoint videoId
-    const endpointMatch = html.match(/"watchEndpoint"\s*:\s*\{\s*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/);
+    const endpointMatch = html.match(/"watchEndpoint"\s*:\s*\{\s*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
     if (endpointMatch && endpointMatch[1]) {
       return endpointMatch[1];
     }
     
-    // 4. Fallback to general videoId in the page if we are sure it's live
-    const videoIdMatch = html.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/);
+    // 4. Try videoDetails videoId
+    const vidDetailsMatch = html.match(/"videoDetails"\s*:\s*\{[^}]*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
+    if (vidDetailsMatch && vidDetailsMatch[1]) {
+      return vidDetailsMatch[1];
+    }
+
+    // 5. Fallback to general videoId
+    const videoIdMatch = html.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
     if (videoIdMatch && videoIdMatch[1]) {
       return videoIdMatch[1];
     }
@@ -539,6 +544,7 @@ export class YoutubeChatClient {
       let videoId = this.extractVideoId(trimmedName);
       let resolvedDisplayName = trimmedName.replace('@', '');
       let pageHtml = null;
+      let isShorts = false;
 
       if (!videoId) {
         const liveUrl = this.getLiveUrl(trimmedName);
@@ -570,17 +576,16 @@ export class YoutubeChatClient {
           return;
         }
 
-        // Extract live stream start timestamp and viewer/like count if present in HTML
-        let startTimestamp = null;
+        // Extract live stream metadata if present in HTML
         if (pageHtml) {
-          startTimestamp = this.parseStartTimestamp(pageHtml);
-          if (startTimestamp) {
-            console.log(`YouTube client: found startTimestamp: ${startTimestamp}`);
+          const meta = this.parseMetadataFromHtml(pageHtml);
+          if (meta) {
+            this.resolvedStartTimestamp = meta.startTime;
+            this.resolvedViewers = meta.viewers;
+            this.resolvedLikes = meta.likes;
+            if (meta.isShorts) isShorts = true;
           }
-          this.resolvedViewers = this.parseViewersFromHtml(pageHtml);
-          this.resolvedLikes = this.parseLikesFromHtml(pageHtml);
         }
-        this.resolvedStartTimestamp = startTimestamp; // store temporarily
 
         // Resolve channel display name for online channel
         if (channelId) {
@@ -601,13 +606,12 @@ export class YoutubeChatClient {
 
       console.log(`YouTube client: resolved video ID: ${videoId}`);
 
-      // Check if it is a Shorts live stream directly from page HTML
-      let isShorts = false;
-      if (pageHtml) {
-        isShorts = pageHtml.includes('/shorts/') || 
-                   pageHtml.includes('#shorts') || 
-                   pageHtml.toLowerCase().includes('vertical stream') || 
-                   pageHtml.includes('reelPlayerHeaderRenderer');
+      // If pageHtml wasn't parsed above, check it now
+      if (pageHtml && !isShorts) {
+        const meta = this.parseMetadataFromHtml(pageHtml);
+        if (meta && meta.isShorts) {
+          isShorts = true;
+        }
       }
 
       // Extract Innertube API parameters directly from the live broadcast page
@@ -700,19 +704,16 @@ export class YoutubeChatClient {
           const liveUrl = this.getLiveUrl(trimmedName);
           const html = await this.fetchWithProxyFallback(liveUrl);
           if (html) {
-            let startTimestamp = this.parseStartTimestamp(html);
-            const resolvedViewers = this.parseViewersFromHtml(html);
-            const resolvedLikes = this.parseLikesFromHtml(html);
-
-            if (resolvedViewers !== null) {
-              pollInstance.viewers = resolvedViewers;
-            }
-            if (resolvedLikes !== null) {
-              pollInstance.likes = resolvedLikes;
+            const meta = this.parseMetadataFromHtml(html);
+            if (meta) {
+              if (meta.startTime) pollInstance.startTimestamp = meta.startTime;
+              if (meta.viewers !== null) pollInstance.viewers = meta.viewers;
+              if (meta.likes !== null) pollInstance.likes = meta.likes;
+              pollInstance.isShorts = meta.isShorts;
             }
 
             this.onStatus(pollKey, 'connected', { 
-              startTime: startTimestamp || pollInstance.startTimestamp,
+              startTime: pollInstance.startTimestamp,
               viewers: pollInstance.viewers,
               likes: pollInstance.likes,
               isShorts: pollInstance.isShorts,
@@ -827,9 +828,15 @@ export class YoutubeChatClient {
         
         if (liveChatCont.continuations && liveChatCont.continuations[0]) {
           const contData = liveChatCont.continuations[0];
+          if (contData.liveChatReplayContinuationData) {
+            console.log(`YouTube client: stream ${channelName} has ended (switched to replay). Transitioning to offline.`);
+            this.onStatus(channelName, 'offline');
+            this.leave(channelName);
+            this.setupOfflinePoll(channelName, poll.chatMode);
+            return;
+          }
           nextToken = contData.timedContinuationData?.continuation ||
-                      contData.invalidationContinuationData?.continuation ||
-                      contData.liveChatReplayContinuationData?.continuation;
+                      contData.invalidationContinuationData?.continuation;
         }
 
         if (liveChatCont.actions) {

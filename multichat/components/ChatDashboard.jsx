@@ -972,27 +972,43 @@ export default function ChatDashboard({
           });
         }
       } else if (status === 'offline' || status === 'disconnected') {
+        const rawClean = ch.replace(/^@+/, '').trim();
+        const atClean = `@${rawClean}`;
+        const justClean = ch.replace('@', '').trim();
+
         setStreamStartTimes(prev => {
           const next = { ...prev };
           delete next[ch];
+          delete next[rawClean];
+          delete next[atClean];
+          delete next[justClean];
           localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next));
           return next;
         });
         setStreamViewers(prev => {
           const next = { ...prev };
           delete next[ch];
+          delete next[rawClean];
+          delete next[atClean];
+          delete next[justClean];
           localStorage.setItem('prochat_cached_stream_viewers', JSON.stringify(next));
           return next;
         });
         setStreamLikes(prev => {
           const next = { ...prev };
           delete next[ch];
+          delete next[rawClean];
+          delete next[atClean];
+          delete next[justClean];
           localStorage.setItem('prochat_cached_stream_likes', JSON.stringify(next));
           return next;
         });
         setYoutubeShortsChannels(prev => {
           const next = new Set(prev);
           next.delete(ch);
+          next.delete(rawClean);
+          next.delete(atClean);
+          next.delete(justClean);
           return next;
         });
       }
@@ -2667,7 +2683,7 @@ export default function ChatDashboard({
                         </button>
                       </TooltipTrigger>
                       <TooltipContent side="right">
-                        {getChannelDisplayName(ch)} {isOnline ? `(LIVE - ${viewers} viewers)` : '(Offline)'}
+                        {getChannelDisplayName(ch)} {isOnline ? `(LIVE - ${viewers} viewers${ch.platform === 'youtube' ? ` • ${streamLikes[cleanName] || 0} likes` : ''})` : '(Offline)'}
                       </TooltipContent>
                     </Tooltip>
                   );
