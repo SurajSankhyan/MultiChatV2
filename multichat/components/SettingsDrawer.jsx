@@ -1491,8 +1491,9 @@ export default function SettingsDrawer({
                 {/* Channels List */}
                 <div className="channel-list" style={{ maxHeight: 220, overflowY: 'auto' }}>
                   {activeChannels.map(ch => {
-                    const cleanName = ch.name.toLowerCase().replace('@', '').trim();
-                    const channelSpecificStatus = platformStatuses?.[cleanName];
+                    const cleanName = ch.name.toLowerCase().replace(/^@+/, '').trim();
+                    const rawClean = ch.name.toLowerCase().replace('@', '').trim();
+                    const channelSpecificStatus = platformStatuses?.[cleanName] || platformStatuses?.[rawClean];
                     const status = channelSpecificStatus
                       ? channelSpecificStatus
                       : (ch.enabled

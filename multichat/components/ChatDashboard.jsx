@@ -2072,21 +2072,17 @@ export default function ChatDashboard({
   const likesByPlatform = {};
 
   activeChannels.filter(ch => ch.enabled).forEach(ch => {
-    const cleanName = ch.name.toLowerCase().replace('@', '').trim();
-    const status = platformStatuses[cleanName] || platformStatuses[ch.platform];
-    const isChannelConnected = status === 'connected';
-    const isShorts = ch.platform === 'youtube' && youtubeShortsChannels.has(cleanName);
+    const cleanName = ch.name.toLowerCase().replace(/^@+/, '').trim();
+    const rawClean = ch.name.toLowerCase().replace('@', '').trim();
+    const status = platformStatuses[cleanName] || platformStatuses[rawClean] || platformStatuses[ch.platform];
+    const isShorts = ch.platform === 'youtube' && (youtubeShortsChannels.has(cleanName) || youtubeShortsChannels.has(rawClean));
     const displayPlatform = isShorts ? 'youtube_shorts' : ch.platform;
 
     // 1. Calculate watchers count for this channel
-    let count = 0;
-    if (isChannelConnected) {
-      const realCount = streamViewers[cleanName];
-      if (realCount !== undefined && realCount !== null) {
-        count = realCount; // Use exact real viewer count
-      }
-    }
+    const realCount = streamViewers[cleanName] ?? streamViewers[rawClean] ?? streamViewers[`@${cleanName}`] ?? 0;
+    const isChannelConnected = status === 'connected' || realCount > 0;
     
+    let count = isChannelConnected ? realCount : 0;
     if (!viewersByPlatform[displayPlatform]) {
       viewersByPlatform[displayPlatform] = 0;
     }
@@ -2094,13 +2090,8 @@ export default function ChatDashboard({
 
     // 2. Calculate likes count for this channel (YouTube only)
     if (ch.platform === 'youtube') {
-      let lCount = 0;
-      if (isChannelConnected) {
-        const realLikes = streamLikes[cleanName];
-        if (realLikes !== undefined && realLikes !== null) {
-          lCount = realLikes;
-        }
-      }
+      const realLikes = streamLikes[cleanName] ?? streamLikes[rawClean] ?? streamLikes[`@${cleanName}`] ?? 0;
+      let lCount = isChannelConnected ? realLikes : 0;
       if (!likesByPlatform[displayPlatform]) {
         likesByPlatform[displayPlatform] = 0;
       }
@@ -2109,7 +2100,7 @@ export default function ChatDashboard({
 
     // 3. Calculate elapsed stream duration for this channel
     if (isChannelConnected) {
-      const startTimeVal = streamStartTimes[cleanName] || streamStartTimes[`@${cleanName}`];
+      const startTimeVal = streamStartTimes[cleanName] || streamStartTimes[rawClean] || streamStartTimes[`@${cleanName}`];
       if (startTimeVal) {
         const startMs = typeof startTimeVal === 'number' 
           ? startTimeVal 
@@ -2188,13 +2179,19 @@ export default function ChatDashboard({
   };
 
   const totalConnectedViewers = Object.entries(streamViewers)
-    .filter(([chName]) => activeChannels.some(ch => ch.enabled && ch.name.toLowerCase().replace('@', '').trim() === chName))
+    .filter(([chName]) => activeChannels.some(ch => ch.enabled && (
+      ch.name.toLowerCase().replace(/^@+/, '').trim() === chName ||
+      ch.name.toLowerCase().replace('@', '').trim() === chName
+    )))
     .reduce((sum, [, count]) => sum + (count || 0), 0);
 
   const displayViewerCount = activeChannels.some(ch => ch.enabled) ? totalConnectedViewers : 0;
 
   const totalConnectedLikes = Object.entries(streamLikes)
-    .filter(([chName]) => activeChannels.some(ch => ch.enabled && ch.platform === 'youtube' && ch.name.toLowerCase().replace('@', '').trim() === chName))
+    .filter(([chName]) => activeChannels.some(ch => ch.enabled && ch.platform === 'youtube' && (
+      ch.name.toLowerCase().replace(/^@+/, '').trim() === chName ||
+      ch.name.toLowerCase().replace('@', '').trim() === chName
+    )))
     .reduce((sum, [, count]) => sum + (count || 0), 0);
 
   const displayLikesCount = activeChannels.some(ch => ch.enabled && ch.platform === 'youtube') ? totalConnectedLikes : 0;
