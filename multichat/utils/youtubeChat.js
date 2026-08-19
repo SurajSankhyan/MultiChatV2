@@ -785,23 +785,6 @@ export class YoutubeChatClient {
             console.warn("Failed to resolve online channel display name:", e.message);
           }
         }
-      } else {
-        // Direct video ID or watch URL was provided -> fetch watch page to extract metadata
-        try {
-          const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
-          pageHtml = await this.fetchWithProxyFallback(watchUrl);
-          if (pageHtml) {
-            const meta = this.parseMetadataFromHtml(pageHtml);
-            if (meta) {
-              localStartTime = meta.startTime;
-              localViewers = meta.viewers;
-              localLikes = meta.likes;
-              if (meta.isShorts) isShorts = true;
-            }
-          }
-        } catch (e) {
-          console.warn("YouTube client: error fetching metadata from watch page:", e.message);
-        }
       }
 
       if (!videoId) {
@@ -810,21 +793,38 @@ export class YoutubeChatClient {
 
       console.log(`YouTube client: resolved video ID: ${videoId}`);
 
-      // If pageHtml wasn't parsed above, check it now
-      if (pageHtml && !isShorts) {
-        const meta = this.parseMetadataFromHtml(pageHtml);
-        if (meta) {
-          if (meta.startTime && !localStartTime) localStartTime = meta.startTime;
-          if (meta.viewers !== null && localViewers === null) localViewers = meta.viewers;
-          if (meta.likes !== null && localLikes === null) localLikes = meta.likes;
-          if (meta.isShorts) isShorts = true;
+      // Extract Innertube API parameters directly from pageHtml if present
+      let { apiKey, clientVersion, continuationToken, liveChatId } = this.extractInnertubeParams(pageHtml);
+
+      // If watch page wasn't fetched yet and we still need startTime, isShorts, or tokens, fetch the watch page
+      if (videoId && (!localStartTime || !isShorts || !apiKey || !continuationToken)) {
+        try {
+          const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+          console.log(`YouTube client: fetching watch page for stream metadata & tokens: ${watchUrl}`);
+          const watchHtml = await this.fetchWithProxyFallback(watchUrl);
+          if (watchHtml) {
+            const meta = this.parseMetadataFromHtml(watchHtml);
+            if (meta) {
+              if (meta.startTime && !localStartTime) localStartTime = meta.startTime;
+              if (meta.viewers !== null && localViewers === null) localViewers = meta.viewers;
+              if (meta.likes !== null && localLikes === null) localLikes = meta.likes;
+              if (meta.isShorts) isShorts = true;
+            }
+            const watchParams = this.extractInnertubeParams(watchHtml);
+            if (!apiKey && watchParams.apiKey) apiKey = watchParams.apiKey;
+            if (!continuationToken && watchParams.continuationToken) continuationToken = watchParams.continuationToken;
+            if (!clientVersion && watchParams.clientVersion) clientVersion = watchParams.clientVersion;
+            if (!liveChatId && watchParams.liveChatId) liveChatId = watchParams.liveChatId;
+          }
+        } catch (e) {
+          console.warn("YouTube client: error fetching metadata from watch page:", e.message);
         }
       }
 
       // If startTime or isShorts still not found, fetch structured Innertube player metadata
       if (videoId && (!localStartTime || !isShorts)) {
         try {
-          const pMeta = await this.fetchPlayerMetadata(videoId);
+          const pMeta = await this.fetchPlayerMetadata(videoId, apiKey);
           if (pMeta) {
             if (pMeta.startTime && !localStartTime) localStartTime = pMeta.startTime;
             if (pMeta.isShorts) isShorts = true;
@@ -832,9 +832,6 @@ export class YoutubeChatClient {
           }
         } catch (e) {}
       }
-
-      // Extract Innertube API parameters directly from the live broadcast page
-      let { apiKey, clientVersion, continuationToken, liveChatId } = this.extractInnertubeParams(pageHtml);
 
       // If tokens weren't in main page HTML or chatMode is specific, try fetching live chat page
       if (!apiKey || !continuationToken) {
@@ -863,7 +860,7 @@ export class YoutubeChatClient {
 
       console.log(`YouTube client: connected to stream ${videoId} with clientVersion: ${clientVersion}`);
 
-      // If startTime was still not resolved, try once more with apiKey
+      // Final fallback for startTime using resolved apiKey
       if (videoId && !localStartTime) {
         try {
           const pMeta = await this.fetchPlayerMetadata(videoId, apiKey);

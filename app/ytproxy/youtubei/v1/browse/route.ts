@@ -14,6 +14,7 @@ export async function POST(request: Request) {
     headers.set('Origin', 'https://www.youtube.com');
     headers.set('X-YouTube-Client-Name', '1');
     headers.set('X-YouTube-Client-Version', '2.20240404.01.00');
+    headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
 
     const res = await fetch(targetUrl, {
       method: 'POST',
