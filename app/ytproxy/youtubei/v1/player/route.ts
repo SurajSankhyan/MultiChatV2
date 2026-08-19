@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 
+const DEFAULT_INNERTUBE_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
+
 export async function POST(request: Request) {
   const { searchParams } = new URL(request.url);
-  const queryStr = searchParams.toString();
-  const targetUrl = `https://www.youtube.com/youtubei/v1/player${queryStr ? `?${queryStr}` : ''}`;
+  const key = searchParams.get('key') || DEFAULT_INNERTUBE_KEY;
+  const targetUrl = `https://www.youtube.com/youtubei/v1/player?key=${key}`;
   
   try {
     const incomingBody = await request.json().catch(() => ({}));

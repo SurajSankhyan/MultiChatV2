@@ -142,8 +142,9 @@ export class YoutubeChatClient {
       videoId
     };
 
-    const endpoint = apiKey ? `https://www.youtube.com/youtubei/v1/player?key=${apiKey}` : 'https://www.youtube.com/youtubei/v1/player';
-    const localEndpoint = `/ytproxy/youtubei/v1/player${apiKey ? `?key=${apiKey}` : ''}`;
+    const keyToUse = apiKey || 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
+    const endpoint = `https://www.youtube.com/youtubei/v1/player?key=${keyToUse}`;
+    const localEndpoint = `/ytproxy/youtubei/v1/player?key=${keyToUse}`;
 
     const parsePlayerJson = (json) => {
       if (!json || json.error || (!json.microformat && !json.videoDetails)) return null;
