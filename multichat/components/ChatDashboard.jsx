@@ -1055,12 +1055,16 @@ export default function ChatDashboard({
           localStorage.setItem('prochat_cached_stream_likes', JSON.stringify(next));
           return next;
         });
-      }    setYoutubeShortsChannels(prev => {
+
+        setYoutubeShortsChannels(prev => {
           const next = new Set(prev);
           next.delete(ch);
           next.delete(rawClean);
           next.delete(atClean);
           next.delete(justClean);
+          next.delete(lowerCh);
+          next.delete(lowerRaw);
+          next.delete(lowerAt);
           try { localStorage.setItem('prochat_cached_youtube_shorts_channels', JSON.stringify(Array.from(next))); } catch (e) {}
           return next;
         });
