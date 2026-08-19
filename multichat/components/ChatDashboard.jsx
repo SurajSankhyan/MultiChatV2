@@ -2389,7 +2389,9 @@ export default function ChatDashboard({
                     const v = streamViewers[cleanName] || 0;
                     const l = streamLikes[cleanName] || 0;
                     const startTime = streamStartTimes[cleanName] || streamStartTimes[`@${cleanName}`];
-                    const isConnected = platformStatuses[cleanName] === 'connected' || platformStatuses[ch.platform] === 'connected';
+                    
+                    // Don't use global platform status for individual stream liveliness, it causes offline channels to appear live
+                    const isConnected = platformStatuses[cleanName] === 'connected';
                     const isStreamLive = isConnected || v > 0 || !!startTime;
                     const isYoutube = ch.platform === 'youtube';
                     let durationStr = isStreamLive ? 'Live' : 'offline';

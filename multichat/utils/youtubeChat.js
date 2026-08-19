@@ -37,6 +37,14 @@ export class YoutubeChatClient {
 
   getLiveUrl(channelName) {
     const trimmed = channelName.trim();
+    // Check if it's already a full video url
+    if (trimmed.includes('watch?v=') || trimmed.includes('youtu.be/') || trimmed.includes('/live/')) {
+      return trimmed.startsWith('http') ? trimmed : `https://www.youtube.com/${trimmed}`;
+    }
+    // Check if it's an 11-char video ID
+    if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) {
+      return `https://www.youtube.com/watch?v=${trimmed}`;
+    }
     // Check if it matches YouTube channel ID format: starts with UC/uc and is 24 chars
     if (/^uc[a-zA-Z0-9_-]{22}$/i.test(trimmed)) {
       return `https://www.youtube.com/channel/${trimmed}/live`;
@@ -281,10 +289,6 @@ export class YoutubeChatClient {
 
     if (playerJson && playerJson.videoDetails) {
       isLive = !!playerJson.videoDetails.isLiveContent;
-      const viewCount = playerJson.videoDetails.viewCount;
-      if (isLive && viewCount) {
-        viewers = parseInt(viewCount, 10) || 0;
-      }
     }
 
     if (playerJson && playerJson.microformat && playerJson.microformat.playerMicroformatRenderer) {
@@ -298,6 +302,48 @@ export class YoutubeChatClient {
           }
         }
       }
+    }
+
+    // Extract concurrent viewers from html first
+    const origMatch = html.match(/"originalViewCount"\s*:\s*"([^"]+)"/);
+    if (origMatch && origMatch[1]) {
+      const val = parseInt(origMatch[1].replace(/[^0-9]/g, ''), 10);
+      if (!isNaN(val)) viewers = val;
+    } else {
+      const shortIdx = html.indexOf('"shortViewCountText"');
+      if (shortIdx !== -1) {
+        const sub = html.substring(shortIdx, shortIdx + 300);
+        const runTextMatch = sub.match(/"text"\s*:\s*"([^"]+)"/);
+        if (runTextMatch && runTextMatch[1]) {
+          const text = runTextMatch[1].toLowerCase();
+          if (text.includes('k')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
+          else if (text.includes('m')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
+          else viewers = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
+        }
+      }
+    }
+
+    // Fallback for viewers if still not found
+    if (!viewers && isLive && playerJson && playerJson.videoDetails && playerJson.videoDetails.viewCount) {
+       viewers = parseInt(playerJson.videoDetails.viewCount, 10) || 0;
+    }
+
+    // Fallback for startTime if not found
+    if (!startTime) {
+       const matches = [...html.matchAll(/"(startTimestamp|actualStartTime|scheduledStartTime|publishDate|uploadDate|startDate)"\s*:\s*"([^"]+)"/gi)];
+       for (const m of matches) {
+          const str = m[2];
+          if (/^[0-9]{10,13}$/.test(str)) {
+            const rawNum = parseInt(str, 10);
+            startTime = rawNum < 10000000000 ? rawNum * 1000 : rawNum;
+            break;
+          }
+          const parsed = Date.parse(str);
+          if (!isNaN(parsed) && parsed > 0 && parsed <= Date.now() + 60000) {
+            startTime = parsed;
+            break;
+          }
+       }
     }
 
     // Check aspect ratio for Shorts
@@ -335,6 +381,26 @@ export class YoutubeChatClient {
           }
         }
       } catch(e) {}
+    }
+
+    // Fallback for likes if not found
+    if (!likes) {
+      const countMatch = html.match(/"likeCount"\s*:\s*"([0-9.,KMBkmb]+)"/i) || html.match(/"likeCount"\s*:\s*([0-9]+)/i);
+      if (countMatch && countMatch[1]) {
+        const text = String(countMatch[1]).toLowerCase().replace(/,/g, '');
+        if (text.includes('k')) likes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
+        else if (text.includes('m')) likes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
+        else likes = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
+      } else {
+        const labelMatch = html.match(/"label"\s*:\s*"([0-9.,KMBkmb]+)\s+likes?"/i) || 
+                           html.match(/"accessibilityData"\s*:\s*\{"label"\s*:\s*"([0-9.,KMBkmb]+)\s+likes?"\}/i);
+        if (labelMatch && labelMatch[1]) {
+          const text = labelMatch[1].toLowerCase().replace(/,/g, '');
+          if (text.includes('k')) likes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
+          else if (text.includes('m')) likes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
+          else likes = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
+        }
+      }
     }
 
     return { isLive, isShorts, viewers, likes, startTime };
@@ -545,6 +611,9 @@ export class YoutubeChatClient {
       let resolvedDisplayName = trimmedName.replace('@', '');
       let pageHtml = null;
       let isShorts = false;
+      let localStartTime = null;
+      let localViewers = null;
+      let localLikes = null;
 
       if (!videoId) {
         const liveUrl = this.getLiveUrl(trimmedName);
@@ -580,9 +649,9 @@ export class YoutubeChatClient {
         if (pageHtml) {
           const meta = this.parseMetadataFromHtml(pageHtml);
           if (meta) {
-            this.resolvedStartTimestamp = meta.startTime;
-            this.resolvedViewers = meta.viewers;
-            this.resolvedLikes = meta.likes;
+            localStartTime = meta.startTime;
+            localViewers = meta.viewers;
+            localLikes = meta.likes;
             if (meta.isShorts) isShorts = true;
           }
         }
@@ -644,10 +713,8 @@ export class YoutubeChatClient {
 
       console.log(`YouTube client: connected to stream ${videoId} with clientVersion: ${clientVersion}`);
 
-      const currentViewers = this.resolvedViewers !== null ? this.resolvedViewers : null;
-      const currentLikes = this.resolvedLikes !== null ? this.resolvedLikes : null;
-      this.resolvedViewers = null; // reset
-      this.resolvedLikes = null;
+      const currentViewers = localViewers !== null ? localViewers : null;
+      const currentLikes = localLikes !== null ? localLikes : null;
 
       // Store poll instance with seen-ID dedup set and adaptive polling
       const pollInstance = {
@@ -659,7 +726,7 @@ export class YoutubeChatClient {
         timeoutId: null,
         viewerIntervalId: null,
         seenIds: existingSeenIds,
-        startTimestamp: this.resolvedStartTimestamp || null,
+        startTimestamp: localStartTime || null,
         isShorts,
         displayName: resolvedDisplayName,
         trimmedName: trimmedName,
@@ -669,7 +736,6 @@ export class YoutubeChatClient {
         isPolling: false,
         retryCount: 0
       };
-      this.resolvedStartTimestamp = null; // reset
 
       this.activePolls.set(pollKey, pollInstance);
       this.onStatus(pollKey, 'connected', { 
@@ -704,11 +770,20 @@ export class YoutubeChatClient {
           const liveUrl = this.getLiveUrl(trimmedName);
           const html = await this.fetchWithProxyFallback(liveUrl);
           if (html) {
+            const currentVideoId = this.extractLiveVideoId(html);
+            if (!currentVideoId) {
+              console.log(`YouTube client: channel ${pollKey} went offline during 15s poll.`);
+              this.onStatus(pollKey, 'offline');
+              this.leave(trimmedName);
+              this.setupOfflinePoll(trimmedName, pollInstance.chatMode);
+              return;
+            }
+
             const meta = this.parseMetadataFromHtml(html);
             if (meta) {
               if (meta.startTime) pollInstance.startTimestamp = meta.startTime;
-              if (meta.viewers !== null) pollInstance.viewers = meta.viewers;
-              if (meta.likes !== null) pollInstance.likes = meta.likes;
+              if (meta.viewers !== null && meta.viewers !== undefined) pollInstance.viewers = meta.viewers;
+              if (meta.likes !== null && meta.likes !== undefined) pollInstance.likes = meta.likes;
               pollInstance.isShorts = meta.isShorts;
             }
 
