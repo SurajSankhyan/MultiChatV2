@@ -622,20 +622,29 @@ export class YoutubeChatClient {
 
       console.log(`YouTube client: connected to stream ${videoId} with clientVersion: ${clientVersion}`);
 
-      // Store poll instance with seen-ID dedup set
+      const currentViewers = this.resolvedViewers !== null ? this.resolvedViewers : null;
+      const currentLikes = this.resolvedLikes !== null ? this.resolvedLikes : null;
+      this.resolvedViewers = null; // reset
+      this.resolvedLikes = null;
+
+      // Store poll instance with seen-ID dedup set and adaptive polling
       const pollInstance = {
         videoId,
         liveChatId,
         apiKey,
         continuationToken,
         clientVersion: clientVersion || '2.20240404.01.00',
-        intervalId: null,
+        timeoutId: null,
+        viewerIntervalId: null,
         seenIds: existingSeenIds,
         startTimestamp: this.resolvedStartTimestamp || null,
         isShorts,
         displayName: resolvedDisplayName,
         trimmedName: trimmedName,
         chatMode,
+        viewers: currentViewers,
+        likes: currentLikes,
+        isPolling: false,
         retryCount: 0
       };
       this.resolvedStartTimestamp = null; // reset
@@ -643,18 +652,29 @@ export class YoutubeChatClient {
       this.activePolls.set(pollKey, pollInstance);
       this.onStatus(pollKey, 'connected', { 
         startTime: pollInstance.startTimestamp,
-        viewers: this.resolvedViewers || null,
-        likes: this.resolvedLikes || null,
+        viewers: pollInstance.viewers,
+        likes: pollInstance.likes,
         isShorts,
         displayName: resolvedDisplayName
       });
-      this.resolvedViewers = null; // reset
-      this.resolvedLikes = null;
 
-      // Start polling (every 1 second for ultra-fast chat delivery)
-      pollInstance.intervalId = setInterval(() => {
-        this.pollChat(pollKey);
-      }, 1000);
+      // Sequential Adaptive Polling Loop (avoids overlapping requests and invalidating tokens over internet/Netlify)
+      const scheduleNextPoll = (delay = 1000) => {
+        if (!this.activePolls.has(pollKey)) return;
+        pollInstance.timeoutId = setTimeout(async () => {
+          if (!this.activePolls.has(pollKey)) return;
+          try {
+            await this.pollChat(pollKey);
+          } catch (e) {
+            console.warn(`YouTube polling error for ${pollKey}:`, e.message);
+          }
+          // Schedule next poll only after previous completes
+          scheduleNextPoll(1000);
+        }, delay);
+      };
+
+      // Immediate first poll
+      scheduleNextPoll(0);
 
       // Periodic viewer and like count update for YouTube
       pollInstance.viewerIntervalId = setInterval(async () => {
@@ -663,13 +683,20 @@ export class YoutubeChatClient {
           const html = await this.fetchWithProxyFallback(liveUrl);
           if (html) {
             let startTimestamp = this.parseStartTimestamp(html);
-            const resolvedViewers = this.parseViewersFromHtml(html) || 0;
-            const resolvedLikes = this.parseLikesFromHtml(html) || 0;
+            const resolvedViewers = this.parseViewersFromHtml(html);
+            const resolvedLikes = this.parseLikesFromHtml(html);
+
+            if (resolvedViewers !== null) {
+              pollInstance.viewers = resolvedViewers;
+            }
+            if (resolvedLikes !== null) {
+              pollInstance.likes = resolvedLikes;
+            }
 
             this.onStatus(pollKey, 'connected', { 
               startTime: startTimestamp || pollInstance.startTimestamp,
-              viewers: resolvedViewers,
-              likes: resolvedLikes,
+              viewers: pollInstance.viewers,
+              likes: pollInstance.likes,
               isShorts: pollInstance.isShorts,
               displayName: pollInstance.displayName || pollInstance.trimmedName.replace('@', '')
             });
@@ -677,10 +704,7 @@ export class YoutubeChatClient {
         } catch (e) {
           console.warn(`YouTube client: failed to update viewers/likes for ${pollKey}:`, e.message);
         }
-      }, 10000); // poll every 10 seconds
-
-      // Immediate first poll
-      this.pollChat(pollKey);
+      }, 15000); // refresh metrics every 15 seconds
 
     } catch (err) {
       console.error(`Failed to join YouTube stream "${trimmedName}":`, err);
@@ -692,7 +716,7 @@ export class YoutubeChatClient {
     const pollKey = channelName.toLowerCase().replace('@', '').trim();
     const poll = this.activePolls.get(pollKey);
     if (poll) {
-      if (poll.intervalId) clearInterval(poll.intervalId);
+      if (poll.timeoutId) clearTimeout(poll.timeoutId);
       if (poll.viewerIntervalId) clearInterval(poll.viewerIntervalId);
       this.activePolls.delete(pollKey);
       this.onStatus(pollKey, 'disconnected');
@@ -702,7 +726,7 @@ export class YoutubeChatClient {
 
   disconnect() {
     this.activePolls.forEach(poll => {
-      if (poll.intervalId) clearInterval(poll.intervalId);
+      if (poll.timeoutId) clearTimeout(poll.timeoutId);
       if (poll.viewerIntervalId) clearInterval(poll.viewerIntervalId);
     });
     this.activePolls.clear();
@@ -711,6 +735,8 @@ export class YoutubeChatClient {
   async pollChat(channelName) {
     const poll = this.activePolls.get(channelName);
     if (!poll || !poll.apiKey || !poll.continuationToken) return;
+    if (poll.isPolling) return; // Prevent concurrent requests for same token
+    poll.isPolling = true;
 
     try {
       const endpoint = `https://www.youtube.com/youtubei/v1/live_chat/get_live_chat?key=${poll.apiKey}`;
@@ -754,9 +780,6 @@ export class YoutubeChatClient {
           }
         } catch (e2) {
           poll.retryCount = (poll.retryCount || 0) + 1;
-          if (poll.retryCount > 6) {
-            console.warn(`YouTube client: multiple poll failures for ${channelName}, will retry cleanly.`);
-          }
           return;
         }
       }
@@ -839,6 +862,8 @@ export class YoutubeChatClient {
 
     } catch (e) {
       console.error(`Error polling YouTube chat for ${channelName}:`, e);
+    } finally {
+      poll.isPolling = false;
     }
   }
 
