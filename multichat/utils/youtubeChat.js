@@ -56,6 +56,7 @@ export class YoutubeChatClient {
 
   // Helper to fetch from url trying local proxy first, and falling back to CORS proxies
   async fetchWithProxyFallback(url, timeoutMs = 8000) {
+    let lastError = null;
     const isValidYoutubeHtml = (text) => {
       if (!text || typeof text !== 'string' || text.length < 500) return false;
       if (text.includes('google.com/sorry') || text.includes('<title>Sorry...</title>') || text.includes('consent.youtube.com/m?')) {
@@ -90,6 +91,7 @@ export class YoutubeChatClient {
           }
         }
       } catch (err) {
+        lastError = err;
         console.warn('Local proxy fetch failed, trying query proxy:', err.message);
       }
 
@@ -104,6 +106,7 @@ export class YoutubeChatClient {
           }
         }
       } catch (err2) {
+        lastError = err2;
         console.warn('Query proxy fetch failed, falling back to public proxies:', err2.message);
       }
     }
@@ -121,6 +124,7 @@ export class YoutubeChatClient {
           }
         }
       } catch (err) {
+        lastError = err;
         console.warn(`Public proxy ${i} failed:`, err.message);
       }
     }
@@ -900,6 +904,7 @@ export class YoutubeChatClient {
       let pageHtml = null;
       let isShorts = false;
       let localStartTime = null;
+      let isExactStartTime = false;
       let localViewers = null;
       let localLikes = null;
 
@@ -938,6 +943,7 @@ export class YoutubeChatClient {
           const meta = this.parseMetadataFromHtml(pageHtml);
           if (meta) {
             localStartTime = meta.startTime;
+            isExactStartTime = !!meta.isExact;
             localViewers = meta.viewers;
             localLikes = meta.likes;
             if (meta.isShorts) isShorts = true;
@@ -984,11 +990,8 @@ export class YoutubeChatClient {
         }
       }
 
-      if (!apiKey || !continuationToken) {
-        console.log(`YouTube client: channel ${pollKey} has no active live chat tokens. Transitioning to offline polling.`);
-        this.onStatus(pollKey, 'offline');
-        this.setupOfflinePoll(trimmedName, chatMode);
-        return;
+      if (!apiKey) {
+        apiKey = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
       }
 
       // Resolve live stream start time via Innertube if not already extracted from HTML
@@ -996,7 +999,10 @@ export class YoutubeChatClient {
         try {
           const pMeta = await this.fetchPlayerMetadata(videoId, apiKey);
           if (pMeta) {
-            if (pMeta.startTime) localStartTime = pMeta.startTime;
+            if (pMeta.startTime) {
+              localStartTime = pMeta.startTime;
+              isExactStartTime = !!pMeta.isExact;
+            }
             if (pMeta.isShorts) isShorts = true;
             if (pMeta.viewers !== null && pMeta.viewers !== undefined && localViewers === null) localViewers = pMeta.viewers;
           }
@@ -1021,7 +1027,7 @@ export class YoutubeChatClient {
         viewerIntervalId: null,
         seenIds: existingSeenIds,
         startTimestamp: localStartTime || null,
-        isExactStartTime: !!(pageMeta?.isExact),
+        isExactStartTime,
         isShorts,
         displayName: resolvedDisplayName,
         trimmedName: trimmedName,
@@ -1056,8 +1062,10 @@ export class YoutubeChatClient {
         }, delay);
       };
 
-      // Immediate first poll
-      scheduleNextPoll(0);
+      // Immediate first poll if chat continuation token is available
+      if (continuationToken) {
+        scheduleNextPoll(0);
+      }
 
       // Periodic viewer and like count update for YouTube
       pollInstance.viewerIntervalId = setInterval(async () => {

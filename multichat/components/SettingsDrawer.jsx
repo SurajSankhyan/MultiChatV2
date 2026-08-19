@@ -1493,18 +1493,21 @@ export default function SettingsDrawer({
                   {activeChannels.map(ch => {
                     const cleanName = ch.name.toLowerCase().replace(/^@+/, '').trim();
                     const rawClean = ch.name.toLowerCase().replace('@', '').trim();
-                    const channelSpecificStatus = platformStatuses?.[cleanName] || platformStatuses?.[rawClean];
-                    const status = channelSpecificStatus
-                      ? channelSpecificStatus
-                      : (ch.enabled
-                          ? (platformStatuses?.[ch.platform] === 'connected' ? 'connected' : 'connecting')
-                          : 'disconnected');
+                    const atClean = `@${rawClean}`;
+                    const channelSpecificStatus = platformStatuses?.[cleanName] || 
+                                                 platformStatuses?.[rawClean] || 
+                                                 platformStatuses?.[atClean] || 
+                                                 platformStatuses?.[ch.name] || 
+                                                 platformStatuses?.[ch.name.toLowerCase()];
+                    const status = !ch.enabled
+                      ? 'disconnected'
+                      : (channelSpecificStatus || (platformStatuses?.[ch.platform] === 'connected' ? 'connected' : 'connecting'));
                     const statusColor = status === 'connected' ? '#10b981' : status === 'connecting' ? '#38bdf8' : status === 'offline' ? '#f59e0b' : '#71717a';
 
                     return (
                       <div key={ch.id} className="channel-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px', marginBottom: 8 }}>
                         <div className="channel-info" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <PlatformLogo platform={ch.platform} isShorts={ch.platform === 'youtube' && youtubeShortsChannels.has(cleanName)} size={18} />
+                          <PlatformLogo platform={ch.platform} isShorts={ch.platform === 'youtube' && (youtubeShortsChannels.has(cleanName) || youtubeShortsChannels.has(rawClean) || youtubeShortsChannels.has(ch.name))} size={18} />
                           <div>
                             <div className="channel-name" style={{ fontWeight: 600, fontSize: 14, color: '#ffffff' }}>{ch.name}</div>
                             <div className="channel-platform" style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>

@@ -9,9 +9,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
   const targetUrl = `https://www.youtube.com/${decodedPath}${queryStr ? `?${queryStr}` : ''}`;
   
   const headers = new Headers();
-  headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36');
+  headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36');
   headers.set('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8');
   headers.set('Accept-Language', 'en-US,en;q=0.9');
+  headers.set('sec-ch-ua', '"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"');
+  headers.set('sec-ch-ua-mobile', '?0');
+  headers.set('sec-ch-ua-platform', '"Windows"');
+  headers.set('sec-fetch-dest', 'document');
+  headers.set('sec-fetch-mode', 'navigate');
+  headers.set('sec-fetch-site', 'none');
+  headers.set('sec-fetch-user', '?1');
   headers.set('Referer', 'https://www.youtube.com/');
   headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
 
@@ -46,8 +53,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ pat
   const targetUrl = `https://www.youtube.com/${decodedPath}${queryStr ? `?${queryStr}` : ''}`;
   
   const headers = new Headers();
-  headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36');
+  headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36');
   headers.set('Accept-Language', 'en-US,en;q=0.9');
+  headers.set('sec-ch-ua', '"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"');
+  headers.set('sec-ch-ua-mobile', '?0');
+  headers.set('sec-ch-ua-platform', '"Windows"');
   headers.set('Referer', 'https://www.youtube.com/');
   headers.set('Origin', 'https://www.youtube.com');
   headers.set('Content-Type', 'application/json');
