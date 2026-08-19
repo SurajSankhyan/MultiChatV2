@@ -301,7 +301,9 @@ export class YoutubeChatClient {
     // 1. Try segmentedLikeDislikeButtonViewModel / toggleButtonRenderer accessibility or label
     const labelMatch = html.match(/"label"\s*:\s*"([0-9.,KMBkmb]+)\s+likes?"/i) || 
                        html.match(/"accessibilityData"\s*:\s*\{"label"\s*:\s*"([0-9.,KMBkmb]+)\s+likes?"\}/i) ||
-                       html.match(/"label"\s*:\s*"[Ll]ike (?:this video )?along with ([0-9.,KMBkmb]+) other people"/i);
+                       html.match(/"label"\s*:\s*"[Ll]ike (?:this video )?along with ([0-9.,KMBkmb]+) other people"/i) ||
+                       html.match(/"accessibilityData"\s*:\s*\{"label"\s*:\s*"[Ll]ike (?:this video )?along with ([0-9.,KMBkmb]+) other people"/i) ||
+                       html.match(/"defaultText"\s*:\s*\{"accessibility"\s*:\s*\{"accessibilityData"\s*:\s*\{"label"\s*:\s*"([0-9.,KMBkmb]+)\s+likes?"\}\}/i);
     if (labelMatch && labelMatch[1]) {
       const text = labelMatch[1].toLowerCase().replace(/,/g, '');
       if (text.includes('k')) {
@@ -317,14 +319,17 @@ export class YoutubeChatClient {
     }
 
     // 2. Try raw likeCount text or likeCount numeric
-    const likeCountMatch = html.match(/"likeCount"\s*:\s*"([^"]+)"/) || html.match(/"likes"\s*:\s*([0-9]+)/);
+    const likeCountMatch = html.match(/"likeCount"\s*:\s*"([^"]+)"/) || 
+                           html.match(/"likeCount"\s*:\s*([0-9]+)/) ||
+                           html.match(/"likes"\s*:\s*([0-9]+)/);
     if (likeCountMatch && likeCountMatch[1]) {
       const val = parseInt(String(likeCountMatch[1]).replace(/[^0-9]/g, ''), 10);
       if (!isNaN(val)) return val;
     }
 
     // 3. Try factoid or toggleButton text
-    const factoidMatch = html.match(/"factoidRenderer"\s*:\s*\{"value"\s*:\s*\{"simpleText"\s*:\s*"([^"]+)"\}\s*,\s*"label"\s*:\s*\{"simpleText"\s*:\s*"Likes"/i);
+    const factoidMatch = html.match(/"factoidRenderer"\s*:\s*\{"value"\s*:\s*\{"simpleText"\s*:\s*"([^"]+)"\}\s*,\s*"label"\s*:\s*\{"simpleText"\s*:\s*"Likes"/i) ||
+                         html.match(/"factoidRenderer"\s*:\s*\{"value"\s*:\s*\{"runs"\s*:\s*\[\{"text"\s*:\s*"([^"]+)"\}\]\}\s*,\s*"label"\s*:\s*\{"simpleText"\s*:\s*"Likes"/i);
     if (factoidMatch && factoidMatch[1]) {
       const text = factoidMatch[1].toLowerCase().replace(/,/g, '');
       if (text.includes('k')) {
@@ -409,12 +414,14 @@ export class YoutubeChatClient {
     
     const existing = this.activePolls.get(pollKey);
     if (existing) {
+      if (existing.timeoutId) clearTimeout(existing.timeoutId);
       if (existing.intervalId) clearInterval(existing.intervalId);
       if (existing.viewerIntervalId) clearInterval(existing.viewerIntervalId);
     }
 
     const pollInstance = {
       isOffline: true,
+      timeoutId: null,
       intervalId: null,
       viewerIntervalId: null,
       seenIds: new Set(),
@@ -824,15 +831,34 @@ export class YoutubeChatClient {
 
         if (liveChatCont.actions) {
           liveChatCont.actions.forEach(action => {
-            // Deduplicate: skip messages we've already emitted
-            const item = action.addChatItemAction?.item;
+            // 1. Process normal chat item
+            let item = action.addChatItemAction?.item;
+
+            // 2. Process ticker Super Chat / Super Sticker item
+            if (!item && action.addLiveChatTickerItemAction?.item) {
+              const tickerItem = action.addLiveChatTickerItemAction.item;
+              const tickerRenderer = tickerItem.liveChatTickerPaidMessageItemRenderer ||
+                                     tickerItem.liveChatTickerPaidStickerItemRenderer ||
+                                     tickerItem.liveChatTickerSponsorItemRenderer;
+              if (tickerRenderer?.showItemEndpoint?.showLiveChatItemEndpoint?.renderer) {
+                item = tickerRenderer.showItemEndpoint.showLiveChatItemEndpoint.renderer;
+              }
+            }
+
+            // 3. Process live banner
+            if (!item && action.addBannerRenderer?.bannerRenderer?.liveChatBannerRenderer?.contents) {
+              item = action.addBannerRenderer.bannerRenderer.liveChatBannerRenderer.contents;
+            }
+
             if (item) {
               const renderer = item.liveChatTextMessageRenderer || 
                               item.liveChatPaidMessageRenderer || 
                               item.liveChatMembershipItemRenderer ||
                               item.liveChatPaidStickerRenderer ||
                               item.liveChatGiftMembershipReceivedRenderer ||
-                              item.liveChatMembershipGiftRedeemedRenderer;
+                              item.liveChatMembershipGiftRedeemedRenderer ||
+                              item.liveChatSponsorshipsGiftPurchaseAnnouncementRenderer ||
+                              item.liveChatSponsorshipsGiftRedemptionAnnouncementRenderer;
               if (renderer && renderer.id) {
                 if (poll.seenIds.has(renderer.id)) return;
                 poll.seenIds.add(renderer.id);
@@ -1005,6 +1031,49 @@ export class YoutubeChatClient {
           renderer.giftHeader.runs.forEach(run => { headerText += run.text || ''; });
         }
         text = headerText || 'Redeemed a membership gift!';
+        parts.push({
+          type: 'text',
+          content: text
+        });
+        
+        eventDetails = {
+          tier: 'Membership Gift',
+          headerBg: '#0f9d58',
+          bodyBg: '#0b8043',
+          authorTextColor: '#ffffff'
+        };
+      } else if (item.liveChatSponsorshipsGiftPurchaseAnnouncementRenderer) {
+        renderer = item.liveChatSponsorshipsGiftPurchaseAnnouncementRenderer;
+        isSystemEvent = true;
+        eventType = 'subscription';
+        
+        const header = renderer.header?.liveChatSponsorshipsHeaderRenderer;
+        let headerText = '';
+        if (header?.primaryText?.runs) {
+          header.primaryText.runs.forEach(r => { headerText += r.text || ''; });
+        }
+        text = headerText || 'Gifted memberships!';
+        parts.push({
+          type: 'text',
+          content: text
+        });
+        
+        eventDetails = {
+          tier: 'Membership Gift',
+          headerBg: '#0f9d58',
+          bodyBg: '#0b8043',
+          authorTextColor: '#ffffff'
+        };
+      } else if (item.liveChatSponsorshipsGiftRedemptionAnnouncementRenderer) {
+        renderer = item.liveChatSponsorshipsGiftRedemptionAnnouncementRenderer;
+        isSystemEvent = true;
+        eventType = 'subscription';
+        
+        let headerText = '';
+        if (renderer.message?.runs) {
+          renderer.message.runs.forEach(r => { headerText += r.text || ''; });
+        }
+        text = headerText || 'Accepted membership gift!';
         parts.push({
           type: 'text',
           content: text
