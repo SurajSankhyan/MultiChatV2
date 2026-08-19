@@ -589,7 +589,18 @@ export default function ChatDashboard({
     kick: 'disconnected'
   });
 
-  const [youtubeShortsChannels, setYoutubeShortsChannels] = useState(new Set());
+  const [youtubeShortsChannels, setYoutubeShortsChannels] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('prochat_cached_youtube_shorts_channels');
+        if (saved) {
+          const arr = JSON.parse(saved);
+          if (Array.isArray(arr)) return new Set(arr);
+        }
+      } catch (e) {}
+    }
+    return new Set();
+  });
 
   // Client references
   const twitchClientRef = useRef(null);
@@ -1010,12 +1021,15 @@ export default function ChatDashboard({
             if (metadata.isShorts) {
               next.add(ch);
               next.add(rawClean);
+              next.add(atClean);
               next.add(justClean);
             } else {
               next.delete(ch);
               next.delete(rawClean);
+              next.delete(atClean);
               next.delete(justClean);
             }
+            try { localStorage.setItem('prochat_cached_youtube_shorts_channels', JSON.stringify(Array.from(next))); } catch (e) {}
             return next;
           });
         }
@@ -1057,6 +1071,7 @@ export default function ChatDashboard({
           next.delete(rawClean);
           next.delete(atClean);
           next.delete(justClean);
+          try { localStorage.setItem('prochat_cached_youtube_shorts_channels', JSON.stringify(Array.from(next))); } catch (e) {}
           return next;
         });
       }

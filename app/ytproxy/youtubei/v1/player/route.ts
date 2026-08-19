@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   const { searchParams } = new URL(request.url);
-  const targetUrl = `https://www.youtube.com/youtubei/v1/browse?${searchParams.toString()}`;
+  const queryStr = searchParams.toString();
+  const targetUrl = `https://www.youtube.com/youtubei/v1/player${queryStr ? `?${queryStr}` : ''}`;
   
   try {
     const body = await request.json();
