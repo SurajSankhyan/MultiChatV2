@@ -785,45 +785,6 @@ export default function ChatDashboard({
               return next.length > 500 ? next.slice(-500) : next;
             });
 
-            // Update uniqueChatters state seamlessly
-            const author = msg.username || msg.displayName || 'Anonymous';
-            const cleanAuthor = author.toLowerCase().replace('@', '').trim();
-            const avatar = msg.avatarUrl || msg.avatar || '';
-            const platform = msg.platform || 'youtube';
-
-            setUniqueChatters(prev => {
-              const existingIdx = prev.findIndex(c => 
-                c.username.toLowerCase().replace('@', '').trim() === cleanAuthor && 
-                c.platform === platform
-              );
-
-              if (existingIdx !== -1) {
-                const updated = [...prev];
-                updated[existingIdx] = {
-                  ...updated[existingIdx],
-                  messageCount: (updated[existingIdx].messageCount || 1) + 1,
-                  avatar: avatar || updated[existingIdx].avatar,
-                  displayName: msg.displayName || updated[existingIdx].displayName,
-                  lastSeen: Date.now()
-                };
-                return updated;
-              } else {
-                return [
-                  ...prev,
-                  {
-                    id: `${platform}_${cleanAuthor}_${Date.now()}`,
-                    username: cleanAuthor,
-                    displayName: msg.displayName || author,
-                    avatar: avatar,
-                    platform: platform,
-                    firstSeen: Date.now(),
-                    lastSeen: Date.now(),
-                    messageCount: 1
-                  }
-                ];
-              }
-            });
-
             const cfg = settingsRef.current;
             if (msg.isSystemEvent) {
               if (cfg.enableAlertSound) {
