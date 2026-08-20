@@ -1964,10 +1964,10 @@ export default function ChatFeed({
                               if (!rank || rank < 1 || rank > 3) return null;
 
                               const rankBg = rank === 1 
-                                ? '#4c1d95' 
+                                ? '#7c3aed' 
                                 : rank === 2 
-                                ? '#4338ca' 
-                                : '#3b0764';
+                                ? '#6366f1' 
+                                : '#a855f7';
 
                               return renderBadgeWithTooltip(
                                 <span 
@@ -1977,30 +1977,33 @@ export default function ChatFeed({
                                   style={{
                                     display: 'inline-flex',
                                     alignItems: 'center',
-                                    gap: '3.5px',
+                                    gap: '4px',
                                     backgroundColor: rankBg,
                                     color: '#ffffff',
-                                    padding: '1.5px 7.5px 1.5px 6.5px',
+                                    padding: '2px 8px 2px 7px',
                                     borderRadius: '9999px',
-                                    fontSize: '11px',
+                                    fontSize: '11.5px',
                                     fontWeight: '700',
                                     lineHeight: '1',
                                     verticalAlign: 'middle',
                                     letterSpacing: '-0.2px',
                                     boxShadow: '0 1px 3px rgba(0, 0, 0, 0.4)',
-                                    userSelect: 'none'
+                                    userSelect: 'none',
+                                    margin: '0 4px',
+                                    flexShrink: 0
                                   }}
                                 >
                                   <svg 
                                     viewBox="0 0 24 24" 
                                     fill="none" 
                                     stroke="currentColor" 
-                                    strokeWidth="2.5" 
+                                    strokeWidth="2.3" 
                                     strokeLinecap="round" 
                                     strokeLinejoin="round" 
-                                    style={{ width: '11px', height: '11px', display: 'block' }}
+                                    style={{ width: '12px', height: '12px', display: 'block', flexShrink: 0 }}
                                   >
-                                    <path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14" />
+                                    <path d="M4 18h16" />
+                                    <path d="m4 14 3.5-7 4.5 4 4.5-4 3.5 7H4Z" />
                                   </svg>
                                   <span>#{rank}</span>
                                 </span>,

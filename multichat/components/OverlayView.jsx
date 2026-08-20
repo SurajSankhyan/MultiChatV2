@@ -940,7 +940,7 @@ export default function OverlayView() {
                     }
                     if (typeof badge === 'string' && badge.startsWith('rank_')) {
                       const rankNum = badge.replace('rank_', '');
-                      const rankBg = rankNum === '1' ? '#4c1d95' : rankNum === '2' ? '#4338ca' : '#3b0764';
+                      const rankBg = rankNum === '1' ? '#7c3aed' : rankNum === '2' ? '#6366f1' : '#a855f7';
                       return (
                         <span 
                           key={badge} 
@@ -949,21 +949,23 @@ export default function OverlayView() {
                           style={{
                             display: 'inline-flex',
                             alignItems: 'center',
-                            gap: '3px',
+                            gap: '4px',
                             backgroundColor: rankBg,
                             color: '#ffffff',
-                            padding: '1px 6px',
+                            padding: '2px 7px',
                             borderRadius: '9999px',
                             fontSize: '11px',
                             fontWeight: '700',
                             lineHeight: '1',
                             marginLeft: '4px',
+                            marginRight: '2px',
                             verticalAlign: 'middle',
                             boxShadow: '0 1px 3px rgba(0, 0, 0, 0.4)'
                           }}
                         >
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '10px', height: '10px', display: 'block' }}>
-                            <path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14" />
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" style={{ width: '11px', height: '11px', display: 'block' }}>
+                            <path d="M4 18h16" />
+                            <path d="m4 14 3.5-7 4.5 4 4.5-4 3.5 7H4Z" />
                           </svg>
                           <span>#{rankNum}</span>
                         </span>

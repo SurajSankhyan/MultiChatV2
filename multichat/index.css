@@ -1238,6 +1238,37 @@ body {
 .msg-badge.verified { background: #1d9bf0; }
 .msg-badge.bot { background: #5b5b5f; font-size: 9px; padding: 1px 3px; border-radius: 2px; }
 
+/* YouTube Top Contributor / Leaderboard Rank Pill (#1, #2, #3) */
+.youtube-rank-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #ffffff;
+  padding: 2px 8px 2px 7px;
+  border-radius: 9999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: middle;
+  letter-spacing: -0.2px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  user-select: none;
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+.youtube-rank-badge.youtube-rank-1 {
+  background-color: #7c3aed;
+}
+
+.youtube-rank-badge.youtube-rank-2 {
+  background-color: #6366f1;
+}
+
+.youtube-rank-badge.youtube-rank-3 {
+  background-color: #a855f7;
+}
+
 .msg-platform-icon {
   display: inline-flex;
   align-items: center;
