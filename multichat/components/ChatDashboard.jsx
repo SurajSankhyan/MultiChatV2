@@ -25,7 +25,8 @@ import {
   PanelLeft,
   Globe,
   ThumbsUp,
-  Gift
+  Gift,
+  Crown
 } from 'lucide-react';
 import ChatFeed from './ChatFeed';
 import ChatInput from './ChatInput';
@@ -2145,6 +2146,7 @@ export default function ChatDashboard({
   const [uptimeDisplayMode, setUptimeDisplayMode] = useState('individual'); // 'individual' | 'combined' | 'hidden'
   const [likesDisplayMode, setLikesDisplayMode] = useState('individual'); // 'individual' | 'combined' | 'hidden'
   const [superchatDisplayMode, setSuperchatDisplayMode] = useState('amount'); // 'amount' | 'hidden'
+  const [membershipDisplayMode, setMembershipDisplayMode] = useState('count'); // 'count' | 'hidden'
   const [participantFilter, setParticipantFilter] = useState('all');
 
   // Memoized counts — only recalculate when uniqueChatters changes
@@ -2248,6 +2250,13 @@ export default function ChatDashboard({
     });
   };
 
+  const handleMembershipClick = () => {
+    setMembershipDisplayMode(prev => {
+      if (prev === 'count') return 'hidden';
+      return 'count';
+    });
+  };
+
   const getWatchersTooltip = () => {
     const parts = [];
     activeChannels.filter(ch => ch.enabled).forEach(ch => {
@@ -2318,17 +2327,22 @@ export default function ChatDashboard({
     return isNaN(val) ? 0 : val;
   };
 
-  const { liveSuperchatTotal, liveSuperchatCount } = useMemo(() => {
+  const { liveSuperchatTotal, liveSuperchatCount, liveMembershipCount } = useMemo(() => {
     let sum = 0;
     let count = 0;
+    let memberCount = 0;
     messages.forEach(msg => {
-      if (msg.platform === 'youtube' && msg.isSystemEvent && msg.eventType === 'donation') {
-        const amt = parseAmountValue(msg.eventDetails?.amount);
-        sum += amt;
-        count += 1;
+      if (msg.platform === 'youtube' && msg.isSystemEvent) {
+        if (msg.eventType === 'donation') {
+          const amt = parseAmountValue(msg.eventDetails?.amount);
+          sum += amt;
+          count += 1;
+        } else if (msg.eventType === 'subscription' || msg.eventType === 'membership') {
+          memberCount += 1;
+        }
       }
     });
-    return { liveSuperchatTotal: sum, liveSuperchatCount: count };
+    return { liveSuperchatTotal: sum, liveSuperchatCount: count, liveMembershipCount: memberCount };
   }, [messages]);
 
   const currencySymbol = settings.superchatCurrency || '₹';
@@ -2504,6 +2518,16 @@ export default function ChatDashboard({
                         <span>--</span>
                       )}
                     </div>
+                    <div className="metric-pill-divider" />
+                    <div className="metric-pill-section" onClick={handleMembershipClick} title="Total YouTube Memberships">
+                      <Crown size={13} style={{ color: 'var(--text-muted)' }} />
+                      {membershipDisplayMode === 'count' && (
+                        <span>{liveMembershipCount} {liveMembershipCount === 1 ? 'Member' : 'Members'}</span>
+                      )}
+                      {membershipDisplayMode === 'hidden' && (
+                        <span>--</span>
+                      )}
+                    </div>
                   </>
                 )}
               </div>
@@ -2556,11 +2580,18 @@ export default function ChatDashboard({
                     );
                   })}
                   {hasYoutubeChannel && (
-                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
-                      <Gift size={12} style={{ color: '#eab308' }} />
-                      <span style={{ fontWeight: 600 }}>Super Chats:</span>
-                      <span>{formatSuperchatAmount(liveSuperchatTotal)} ({liveSuperchatCount} {liveSuperchatCount === 1 ? 'donation' : 'donations'})</span>
-                    </div>
+                    <>
+                      <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                        <Gift size={12} style={{ color: '#eab308' }} />
+                        <span style={{ fontWeight: 600 }}>Super Chats:</span>
+                        <span>{formatSuperchatAmount(liveSuperchatTotal)} ({liveSuperchatCount} {liveSuperchatCount === 1 ? 'donation' : 'donations'})</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+                        <Crown size={12} style={{ color: '#10b981' }} />
+                        <span style={{ fontWeight: 600 }}>Memberships:</span>
+                        <span>{liveMembershipCount} {liveMembershipCount === 1 ? 'member' : 'members'}</span>
+                      </div>
+                    </>
                   )}
                 </div>
               ) : (
