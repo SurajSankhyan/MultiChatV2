@@ -131,23 +131,9 @@ export class YoutubeChatClient {
     throw lastError || new Error('All CORS proxies failed to load page');
   }
 
-  // Fetch structured player metadata directly via Innertube Player API or Mobile Watch Proxy
+  // Fetch structured player metadata directly via Innertube Player API
   async fetchPlayerMetadata(videoId, apiKey = '') {
     if (!videoId) return null;
-
-    // 0. Try fetching Mobile YouTube watch page via query proxy (returns static server-rendered startTimestamp & viewers 100% reliably)
-    try {
-      const mwebUrl = `/api/youtube/proxy?url=${encodeURIComponent(`https://m.youtube.com/watch?v=${videoId}`)}`;
-      const res0 = await fetch(mwebUrl);
-      if (res0.ok) {
-        const html0 = await res0.text();
-        const meta0 = this.parseMetadataFromHtml(html0);
-        if (meta0 && meta0.startTime) {
-          console.log(`YouTube client: resolved exact live broadcast start time via MWEB proxy: ${new Date(meta0.startTime).toISOString()}`);
-          return meta0;
-        }
-      }
-    } catch (e) {}
 
     const payload = {
       context: {
@@ -604,32 +590,6 @@ export class YoutubeChatClient {
            }
          }
        }
-    }
-
-    // Fallback for startTime from relative live status (e.g. "Started streaming 99 minutes ago")
-    if (!startTime && html) {
-      const streamMatches = [
-        ...html.matchAll(/(?:Started streaming|Streamed live|Started)\s+([0-9]+(?:\.[0-9]+)?\s*(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?)\s*ago)/gi)
-      ];
-      for (const m of streamMatches) {
-        const timeStr = m[1];
-        const numMatch = timeStr.match(/[0-9]+(?:\.[0-9]+)?/);
-        if (numMatch) {
-          const num = parseFloat(numMatch[0]);
-          let deltaSecs = 0;
-          if (/second|sec/i.test(timeStr)) deltaSecs = num;
-          else if (/minute|min/i.test(timeStr)) deltaSecs = num * 60;
-          else if (/hour|hr/i.test(timeStr)) deltaSecs = num * 3600;
-          else if (/day/i.test(timeStr)) deltaSecs = num * 86400;
-
-          if (deltaSecs > 0) {
-            startTime = Date.now() - Math.round(deltaSecs * 1000);
-            isLive = true;
-            isExact = false;
-            break;
-          }
-        }
-      }
     }
 
     // Check aspect ratio for Shorts
@@ -1090,6 +1050,7 @@ export class YoutubeChatClient {
       this.activePolls.set(pollKey, pollInstance);
       this.onStatus(pollKey, 'connected', { 
         startTime: pollInstance.startTimestamp,
+        isExact: !!pollInstance.isExactStartTime,
         viewers: pollInstance.viewers,
         likes: pollInstance.likes,
         isShorts,
@@ -1157,6 +1118,7 @@ export class YoutubeChatClient {
 
             this.onStatus(pollKey, 'connected', { 
               startTime: pollInstance.startTimestamp,
+              isExact: !!pollInstance.isExactStartTime,
               viewers: pollInstance.viewers,
               likes: pollInstance.likes,
               isShorts: pollInstance.isShorts,
