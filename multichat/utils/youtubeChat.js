@@ -197,11 +197,15 @@ export class YoutubeChatClient {
 
     // 1. Try local proxy
     try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2500);
       const res = await fetch(localEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: controller.signal
       });
+      clearTimeout(timer);
       if (res.ok) {
         const data = await res.json();
         const parsed = parsePlayerJson(data);
@@ -211,35 +215,22 @@ export class YoutubeChatClient {
 
     // 2. Try query proxy
     try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2500);
       const queryUrl = `/api/youtube/proxy?url=${encodeURIComponent(endpoint)}`;
       const res = await fetch(queryUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: controller.signal
       });
+      clearTimeout(timer);
       if (res.ok) {
         const data = await res.json();
         const parsed = parsePlayerJson(data);
         if (parsed) return parsed;
       }
     } catch (e) {}
-
-    // 3. Try client-side CORS proxies
-    for (const proxyFn of this.proxies) {
-      try {
-        const corsUrl = proxyFn(endpoint);
-        const res = await fetch(corsUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const parsed = parsePlayerJson(data);
-          if (parsed) return parsed;
-        }
-      } catch (e) {}
-    }
 
     return null;
   }
@@ -881,24 +872,30 @@ export class YoutubeChatClient {
         console.log(`YouTube client: resolving video ID: ${liveUrl}`);
         pageHtml = await this.fetchWithProxyFallback(liveUrl);
 
-        // Extract channel ID from HTML
+        // Extract channel ID and channel title directly from HTML (0ms)
         const canonicalMatch = pageHtml.match(/<link\s+rel="canonical"\s+href="https:\/\/www\.youtube\.com\/channel\/([^"]+)"/) ||
                                pageHtml.match(/youtube\.com\/channel\/(UC[a-zA-Z0-9_-]+)/);
         const channelId = canonicalMatch ? canonicalMatch[1] : null;
+
+        const titleMatch = pageHtml.match(/<meta\s+property="og:title"\s+content="([^"]+)"/i) ||
+                           pageHtml.match(/<title>([^<]+)<\/title>/i);
+        if (titleMatch && titleMatch[1]) {
+          const cleanTitle = titleMatch[1].replace(/\s*-\s*YouTube$/i, '').trim();
+          if (cleanTitle && cleanTitle.toLowerCase() !== 'youtube') {
+            resolvedDisplayName = cleanTitle;
+            YOUTUBE_NAME_CACHE.set(pollKey, cleanTitle);
+            if (channelId) YOUTUBE_NAME_CACHE.set(channelId, cleanTitle);
+          }
+        }
 
         videoId = this.extractLiveVideoId(pageHtml);
 
         if (!videoId) {
           console.log(`YouTube client: channel ${pollKey} is offline.`);
-          if (channelId) {
-            try {
-              const resolved = await this.resolveChannelName(channelId);
-              if (resolved) {
-                resolvedDisplayName = resolved;
-              }
-            } catch (e) {
-              console.warn("Failed to resolve offline channel display name:", e.message);
-            }
+          if (channelId && !YOUTUBE_NAME_CACHE.has(channelId)) {
+            this.resolveChannelName(channelId).then(resolved => {
+              if (resolved) this.onNameResolved(pollKey, resolved);
+            }).catch(() => {});
           }
           this.onStatus(pollKey, 'offline', { startTime: null, viewers: 0, likes: 0, displayName: resolvedDisplayName });
           this.setupOfflinePoll(trimmedName, chatMode);
@@ -917,16 +914,11 @@ export class YoutubeChatClient {
           }
         }
 
-        // Resolve channel display name for online channel
-        if (channelId) {
-          try {
-            const resolved = await this.resolveChannelName(channelId);
-            if (resolved) {
-              resolvedDisplayName = resolved;
-            }
-          } catch (e) {
-            console.warn("Failed to resolve online channel display name:", e.message);
-          }
+        // Async resolve channel display name in background without blocking connection
+        if (channelId && !YOUTUBE_NAME_CACHE.has(channelId)) {
+          this.resolveChannelName(channelId).then(resolved => {
+            if (resolved) this.onNameResolved(pollKey, resolved);
+          }).catch(() => {});
         }
       }
 
