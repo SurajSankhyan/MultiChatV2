@@ -3,6 +3,7 @@ import { X, MessageSquare } from 'lucide-react';
 import PlatformLogo, { DefaultSubscriberBadge, KickGiftedSubsBadge, TwitchDefaultSubscriberBadge } from './PlatformLogo';
 import { parseMessageContent } from '../utils/emotes';
 import { getLiveTwitchBadgeUrl } from '../utils/twitchChat';
+import { calculateYoutubeTop3Ranks } from '../utils/youtubeChat';
 import { Tooltip, TooltipTrigger, TooltipContent } from './ui/interfaces-tooltip';
 
 export default function ThreadModal({ 
@@ -12,6 +13,7 @@ export default function ThreadModal({
   settings
 }) {
   const [isClosing, setIsClosing] = React.useState(false);
+  const youtubeTop3Ranks = React.useMemo(() => calculateYoutubeTop3Ranks(messages), [messages]);
 
   const handleClose = React.useCallback(() => {
     setIsClosing(true);
@@ -478,7 +480,7 @@ export default function ThreadModal({
   };
 
   const renderBadge = (badge, msg) => {
-    if (msg.platform === 'youtube' && badge === 'broadcaster') {
+    if (msg.platform === 'youtube' && (badge === 'broadcaster' || (typeof badge === 'string' && badge.startsWith('rank_')))) {
       return null;
     }
 
@@ -576,11 +578,88 @@ export default function ThreadModal({
                   className={`thread-modal-message-row ${msg.isMock ? 'mock-prior-message' : ''}`}
                 >
                   <div className="thread-modal-main-message">
-                    {/* Render badges before username */}
-                    {msg.badges && (msg.platform === 'kick' ? sortKickBadges(msg.badges) : msg.badges).map(badge => renderBadge(badge, msg))}
+                    {/* Render badges before username for non-YouTube platforms */}
+                    {msg.platform !== 'youtube' && msg.badges && (msg.platform === 'kick' ? sortKickBadges(msg.badges) : msg.badges).map(badge => renderBadge(badge, msg))}
 
                     {/* Username */}
                     {renderUsernameWithTooltip(msg, { color: getUsernameColor(msg), fontWeight: '700', marginRight: '6px' })}
+
+                    {/* For YouTube: standard badges + dynamic rank badge after username */}
+                    {msg.platform === 'youtube' && (
+                      <>
+                        {msg.badges && msg.badges.map(badge => renderBadge(badge, msg))}
+                        {(() => {
+                          const keys = [
+                            msg.channelId,
+                            msg.authorChannelId,
+                            msg.authorExternalChannelId,
+                            msg.userId,
+                            msg.username,
+                            msg.displayName
+                          ].filter(Boolean).map(k => String(k).toLowerCase().trim());
+
+                          let rank = (typeof msg.youtubeRank === 'number' && msg.youtubeRank >= 1 && msg.youtubeRank <= 3) ? msg.youtubeRank : null;
+
+                          if (!rank && Array.isArray(msg.badges)) {
+                            if (msg.badges.includes('rank_1')) rank = 1;
+                            else if (msg.badges.includes('rank_2')) rank = 2;
+                            else if (msg.badges.includes('rank_3')) rank = 3;
+                          }
+
+                          if (!rank && youtubeTop3Ranks) {
+                            for (const k of keys) {
+                              const found = youtubeTop3Ranks.get(k);
+                              if (found && found >= 1 && found <= 3) {
+                                rank = found;
+                                break;
+                              }
+                            }
+                          }
+                          if (!rank || rank < 1 || rank > 3) return null;
+                          return (
+                            <span 
+                              key={`${msg.id}-thread-yt-rank-${rank}`}
+                              className={`youtube-rank-badge youtube-rank-${rank}`}
+                              title={`Top Contributor #${rank}`}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '4px',
+                                backgroundColor: '#3b00bb',
+                                color: '#ffffff',
+                                padding: '2px 8px 2px 7px',
+                                borderRadius: '9999px',
+                                fontSize: '12px',
+                                fontWeight: '800',
+                                lineHeight: '1',
+                                verticalAlign: 'middle',
+                                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.4)',
+                                margin: '0 4px',
+                                flexShrink: 0
+                              }}
+                            >
+                              <svg 
+                                viewBox="0 0 24 24" 
+                                fill="none" 
+                                stroke="#ffffff" 
+                                strokeWidth="2" 
+                                strokeLinecap="round" 
+                                strokeLinejoin="round" 
+                                style={{ width: '12px', height: '12px', display: 'block', flexShrink: 0 }}
+                              >
+                                <circle cx="3.5" cy="6" r="1.3" fill="#ffffff" stroke="none" />
+                                <circle cx="12" cy="3" r="1.3" fill="#ffffff" stroke="none" />
+                                <circle cx="20.5" cy="6" r="1.3" fill="#ffffff" stroke="none" />
+                                <path d="M3.5 7.5 L5.5 16 H18.5 L20.5 7.5 L15 12 L12 4.5 L9 12 Z" />
+                                <line x1="4.5" y1="19" x2="19.5" y2="19" strokeWidth="2.2" strokeLinecap="round" />
+                              </svg>
+                              <span>#{rank}</span>
+                            </span>
+                          );
+                        })()}
+                      </>
+                    )}
 
                     {/* Message text / emotes */}
                     <span className="thread-modal-text">

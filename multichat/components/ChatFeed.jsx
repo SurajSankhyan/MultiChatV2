@@ -5,6 +5,7 @@ import { ArrowDown, MessageSquare, MoreVertical, Volume2, User, ShieldAlert, Tra
 import PlatformLogo, { DefaultSubscriberBadge, KickGiftedSubsBadge, TwitchDefaultSubscriberBadge } from './PlatformLogo';
 import { Tooltip, TooltipTrigger, TooltipContent } from './ui/interfaces-tooltip';
 import { getLiveTwitchBadgeUrl } from '../utils/twitchChat';
+import { calculateYoutubeTop3Ranks } from '../utils/youtubeChat';
 import { requestKickAvatar } from '../utils/kickAvatarResolver';
 
 const appStartTime = Date.now();
@@ -702,63 +703,8 @@ export default function ChatFeed({
   }, [messages, blockedUsers, moderation?.bannedUsers, activeChannels]);
 
   // Dynamic YouTube Top Contributor / Leaderboard Rank (#1, #2, #3) mapping
-  const youtubeTop3Ranks = useMemo(() => {
-    const userDonationMap = new Map();
-    const explicitRankMap = new Map();
-
-    messages.forEach(msg => {
-      const keys = [
-        msg.channelId,
-        msg.authorChannelId,
-        msg.authorExternalChannelId,
-        msg.userId,
-        msg.username,
-        msg.displayName
-      ].filter(Boolean).map(k => String(k).toLowerCase().trim());
-
-      if (keys.length === 0) return;
-
-      // Extract donation amounts
-      if (msg.isSystemEvent && msg.eventType === 'donation') {
-        const amtStr = msg.eventDetails?.amount || '';
-        const amt = parseFloat(String(amtStr).replace(/[^\d.]/g, ''));
-        if (!isNaN(amt) && amt > 0) {
-          keys.forEach(k => {
-            userDonationMap.set(k, (userDonationMap.get(k) || 0) + amt);
-          });
-        }
-      }
-
-      // Check if message carried a rank or badges with rank
-      let rank = msg.youtubeRank;
-      if (!rank && Array.isArray(msg.badges)) {
-        if (msg.badges.includes('rank_1')) rank = 1;
-        else if (msg.badges.includes('rank_2')) rank = 2;
-        else if (msg.badges.includes('rank_3')) rank = 3;
-      }
-      if (rank && rank >= 1 && rank <= 3) {
-        keys.forEach(k => {
-          explicitRankMap.set(k, rank);
-        });
-      }
-    });
-
-    const sortedContributors = Array.from(userDonationMap.entries())
-      .sort((a, b) => b[1] - a[1]);
-
-    const top3Map = new Map();
-
-    sortedContributors.slice(0, 3).forEach(([userKey], idx) => {
-      top3Map.set(userKey, idx + 1);
-    });
-
-    // Explicit rank from YouTube authorBadges / server ALWAYS sets into top3Map
-    explicitRankMap.forEach((rank, userKey) => {
-      top3Map.set(userKey, rank);
-    });
-
-    return top3Map;
-  }, [messages]);
+  // If User A has #1 and later User B takes #1, User A's rank is removed/updated dynamically
+  const youtubeTop3Ranks = useMemo(() => calculateYoutubeTop3Ranks(messages), [messages]);
 
   // Filter messages based on the active top tab
   // useMemo: only re-runs when visibleMessages or activeTab change
@@ -1944,13 +1890,15 @@ export default function ChatFeed({
                                 msg.displayName
                               ].filter(Boolean).map(k => String(k).toLowerCase().trim());
 
-                              let rank = (msg.youtubeRank && msg.youtubeRank >= 1 && msg.youtubeRank <= 3) ? msg.youtubeRank : null;
+                              let rank = (typeof msg.youtubeRank === 'number' && msg.youtubeRank >= 1 && msg.youtubeRank <= 3) ? msg.youtubeRank : null;
+
                               if (!rank && Array.isArray(msg.badges)) {
                                 if (msg.badges.includes('rank_1')) rank = 1;
                                 else if (msg.badges.includes('rank_2')) rank = 2;
                                 else if (msg.badges.includes('rank_3')) rank = 3;
                               }
-                              if (!rank) {
+
+                              if (!rank && youtubeTop3Ranks) {
                                 for (const k of keys) {
                                   const found = youtubeTop3Ranks.get(k);
                                   if (found && found >= 1 && found <= 3) {
@@ -1959,13 +1907,10 @@ export default function ChatFeed({
                                   }
                                 }
                               }
+
                               if (!rank || rank < 1 || rank > 3) return null;
 
-                              const rankBg = rank === 1 
-                                ? '#7c3aed' 
-                                : rank === 2 
-                                ? '#6366f1' 
-                                : '#a855f7';
+                              const rankBg = '#3b00bb';
 
                               return renderBadgeWithTooltip(
                                 <span 
@@ -1975,13 +1920,14 @@ export default function ChatFeed({
                                   style={{
                                     display: 'inline-flex',
                                     alignItems: 'center',
+                                    justifyContent: 'center',
                                     gap: '4px',
                                     backgroundColor: rankBg,
                                     color: '#ffffff',
                                     padding: '2px 8px 2px 7px',
                                     borderRadius: '9999px',
-                                    fontSize: '11.5px',
-                                    fontWeight: '700',
+                                    fontSize: '12px',
+                                    fontWeight: '800',
                                     lineHeight: '1',
                                     verticalAlign: 'middle',
                                     letterSpacing: '-0.2px',
@@ -1994,14 +1940,17 @@ export default function ChatFeed({
                                   <svg 
                                     viewBox="0 0 24 24" 
                                     fill="none" 
-                                    stroke="currentColor" 
-                                    strokeWidth="2.3" 
+                                    stroke="#ffffff" 
+                                    strokeWidth="2" 
                                     strokeLinecap="round" 
                                     strokeLinejoin="round" 
-                                    style={{ width: '12px', height: '12px', display: 'block', flexShrink: 0 }}
+                                    style={{ width: '13px', height: '13px', display: 'block', flexShrink: 0 }}
                                   >
-                                    <path d="M4 18h16" />
-                                    <path d="m4 14 3.5-7 4.5 4 4.5-4 3.5 7H4Z" />
+                                    <circle cx="3.5" cy="6" r="1.3" fill="#ffffff" stroke="none" />
+                                    <circle cx="12" cy="3" r="1.3" fill="#ffffff" stroke="none" />
+                                    <circle cx="20.5" cy="6" r="1.3" fill="#ffffff" stroke="none" />
+                                    <path d="M3.5 7.5 L5.5 16 H18.5 L20.5 7.5 L15 12 L12 4.5 L9 12 Z" />
+                                    <line x1="4.5" y1="19" x2="19.5" y2="19" strokeWidth="2.2" strokeLinecap="round" />
                                   </svg>
                                   <span>#{rank}</span>
                                 </span>,

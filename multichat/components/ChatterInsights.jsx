@@ -3,6 +3,7 @@ import { Tv, Calendar, Users, Star, User, Ban, X, ExternalLink, Maximize2, Minim
 import PlatformLogo, { DefaultSubscriberBadge, KickGiftedSubsBadge, TwitchDefaultSubscriberBadge } from './PlatformLogo';
 import { parseMessageContent } from '../utils/emotes';
 import { getLiveTwitchBadgeUrl } from '../utils/twitchChat';
+import { calculateYoutubeTop3Ranks } from '../utils/youtubeChat';
 import { Tooltip, TooltipTrigger, TooltipContent } from './ui/interfaces-tooltip';
 import { GLOBAL_AVATAR_CACHE } from './ChatFeed';
 
@@ -24,6 +25,8 @@ export default function ChatterInsights({
   onThreadClick,
   settings
 }) {
+  const youtubeTop3Ranks = React.useMemo(() => calculateYoutubeTop3Ranks(messages), [messages]);
+
   if (!chatter) return null;
 
   const usernameLower = chatter.username.toLowerCase();
@@ -821,47 +824,7 @@ export default function ChatterInsights({
     }
 
     if (typeof badge === 'string' && badge.startsWith('rank_')) {
-      const rankNum = badge.replace('rank_', '');
-      const rankBg = rankNum === '1' ? '#7c3aed' : rankNum === '2' ? '#6366f1' : '#a855f7';
-      return (
-        <span 
-          key={badge} 
-          className={`youtube-rank-badge youtube-rank-${rankNum}`} 
-          title={`Top Contributor #${rankNum}`}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '4px',
-            backgroundColor: rankBg,
-            color: '#ffffff',
-            padding: '2px 8px 2px 7px',
-            borderRadius: '9999px',
-            fontSize: '11.5px',
-            fontWeight: '700',
-            lineHeight: '1',
-            verticalAlign: 'middle',
-            letterSpacing: '-0.2px',
-            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.4)',
-            userSelect: 'none',
-            margin: '0 4px',
-            flexShrink: 0
-          }}
-        >
-          <svg 
-            viewBox="0 0 24 24" 
-            fill="none" 
-            stroke="currentColor" 
-            strokeWidth="2.3" 
-            strokeLinecap="round" 
-            strokeLinejoin="round" 
-            style={{ width: '12px', height: '12px', display: 'block', flexShrink: 0 }}
-          >
-            <path d="M4 18h16" />
-            <path d="m4 14 3.5-7 4.5 4 4.5-4 3.5 7H4Z" />
-          </svg>
-          <span>#{rankNum}</span>
-        </span>
-      );
+      return null;
     }
 
     const displayChar = 
@@ -1194,9 +1157,28 @@ export default function ChatterInsights({
                 <span className="chatter-modal-badges" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                   {chatter.badges && (chatter.platform === 'kick' ? sortKickBadges(chatter.badges) : chatter.badges).map(badge => renderBadgeWithTooltip(renderBadge(badge), badge))}
                   {(() => {
-                    const rank = chatter.youtubeRank || (chatter.badges?.includes('rank_1') ? 1 : chatter.badges?.includes('rank_2') ? 2 : chatter.badges?.includes('rank_3') ? 3 : null);
+                    if (chatter.platform !== 'youtube') return null;
+                    const chatterKeys = [chatter.channelId, chatter.authorChannelId, chatter.username, chatter.displayName]
+                      .filter(Boolean).map(k => String(k).toLowerCase().trim());
+                    let rank = (typeof chatter.youtubeRank === 'number' && chatter.youtubeRank >= 1 && chatter.youtubeRank <= 3) ? chatter.youtubeRank : null;
+
+                    if (!rank && Array.isArray(chatter.badges)) {
+                      if (chatter.badges.includes('rank_1')) rank = 1;
+                      else if (chatter.badges.includes('rank_2')) rank = 2;
+                      else if (chatter.badges.includes('rank_3')) rank = 3;
+                    }
+
+                    if (!rank && youtubeTop3Ranks) {
+                      for (const k of chatterKeys) {
+                        const found = youtubeTop3Ranks.get(k);
+                        if (found && found >= 1 && found <= 3) {
+                          rank = found;
+                          break;
+                        }
+                      }
+                    }
                     if (!rank || rank < 1 || rank > 3) return null;
-                    const rankBg = rank === 1 ? '#7c3aed' : rank === 2 ? '#6366f1' : '#a855f7';
+                    const rankBg = '#3b00bb';
                     return (
                       <span 
                         key={`chatter-yt-rank-${rank}`}
@@ -1205,13 +1187,14 @@ export default function ChatterInsights({
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',
+                          justifyContent: 'center',
                           gap: '4px',
                           backgroundColor: rankBg,
                           color: '#ffffff',
                           padding: '2px 8px 2px 7px',
                           borderRadius: '9999px',
-                          fontSize: '11.5px',
-                          fontWeight: '700',
+                          fontSize: '12px',
+                          fontWeight: '800',
                           lineHeight: '1',
                           verticalAlign: 'middle',
                           boxShadow: '0 1px 3px rgba(0, 0, 0, 0.4)',
@@ -1219,9 +1202,20 @@ export default function ChatterInsights({
                           flexShrink: 0
                         }}
                       >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" style={{ width: '12px', height: '12px', display: 'block', flexShrink: 0 }}>
-                          <path d="M4 18h16" />
-                          <path d="m4 14 3.5-7 4.5 4 4.5-4 3.5 7H4Z" />
+                        <svg 
+                          viewBox="0 0 24 24" 
+                          fill="none" 
+                          stroke="#ffffff" 
+                          strokeWidth="2" 
+                          strokeLinecap="round" 
+                          strokeLinejoin="round" 
+                          style={{ width: '13px', height: '13px', display: 'block', flexShrink: 0 }}
+                        >
+                          <circle cx="3.5" cy="6" r="1.3" fill="#ffffff" stroke="none" />
+                          <circle cx="12" cy="3" r="1.3" fill="#ffffff" stroke="none" />
+                          <circle cx="20.5" cy="6" r="1.3" fill="#ffffff" stroke="none" />
+                          <path d="M3.5 7.5 L5.5 16 H18.5 L20.5 7.5 L15 12 L12 4.5 L9 12 Z" />
+                          <line x1="4.5" y1="19" x2="19.5" y2="19" strokeWidth="2.2" strokeLinecap="round" />
                         </svg>
                         <span>#{rank}</span>
                       </span>

@@ -1035,31 +1035,42 @@ export class YoutubeChatClient {
         viewers: currentViewers,
         likes: currentLikes,
         isPolling: false,
-        retryCount: 0,
+        rankSlots: { 1: null, 2: null, 3: null },
         contributorDonationMap: new Map(),
-        explicitRankMap: new Map(),
         recordDonation(userKey, amount) {
           if (!userKey || isNaN(amount) || amount <= 0) return;
           const k = String(userKey).toLowerCase().trim();
           this.contributorDonationMap.set(k, (this.contributorDonationMap.get(k) || 0) + amount);
         },
-        recordExplicitRank(userKey, rank) {
-          if (!userKey || !rank || rank < 1 || rank > 3) return;
-          const k = String(userKey).toLowerCase().trim();
-          this.explicitRankMap.set(k, rank);
+        recordExplicitRank(keys = [], rank) {
+          if (!rank || rank < 1 || rank > 3) return;
+          const keyArr = (Array.isArray(keys) ? keys : [keys]).filter(Boolean).map(k => String(k).toLowerCase().trim());
+          if (keyArr.length === 0) return;
+          
+          // Clear any existing slot held by this user
+          for (let r = 1; r <= 3; r++) {
+            if (this.rankSlots[r] && keyArr.some(k => this.rankSlots[r].keys.includes(k))) {
+              this.rankSlots[r] = null;
+            }
+          }
+          // Assign slot to this user (displacing previous holder)
+          this.rankSlots[rank] = { primaryKey: keyArr[0], keys: keyArr };
         },
         getRankForUser(keys = []) {
-          for (const k of keys) {
-            if (!k) continue;
-            const lower = String(k).toLowerCase().trim();
-            if (this.explicitRankMap.has(lower)) return this.explicitRankMap.get(lower);
+          const keyArr = (Array.isArray(keys) ? keys : [keys]).filter(Boolean).map(k => String(k).toLowerCase().trim());
+          // 1. Check active explicit rank slots
+          for (let r = 1; r <= 3; r++) {
+            if (this.rankSlots[r] && keyArr.some(k => this.rankSlots[r].keys.includes(k))) {
+              return r;
+            }
           }
+          // 2. Check stream donations
           if (this.contributorDonationMap.size > 0) {
             const sorted = Array.from(this.contributorDonationMap.entries()).sort((a, b) => b[1] - a[1]);
             for (let i = 0; i < Math.min(3, sorted.length); i++) {
               const [contributorKey] = sorted[i];
-              for (const k of keys) {
-                if (k && String(k).toLowerCase().trim() === contributorKey) {
+              for (const k of keyArr) {
+                if (k === contributorKey) {
                   return i + 1;
                 }
               }
@@ -1177,7 +1188,8 @@ export class YoutubeChatClient {
   }
 
   async pollChat(channelName) {
-    const poll = this.activePolls.get(channelName);
+    const pollKey = (channelName || '').toLowerCase().replace('@', '').trim();
+    const poll = this.activePolls.get(pollKey) || this.activePolls.get(channelName);
     if (!poll || !poll.apiKey || !poll.continuationToken) return;
     if (poll.isPolling) return; // Prevent concurrent requests for same token
     poll.isPolling = true;
@@ -1602,8 +1614,24 @@ export class YoutubeChatClient {
         ...(Array.isArray(renderer.authorNameBadges) ? renderer.authorNameBadges : []),
         ...(renderer.authorNameBadge ? [renderer.authorNameBadge] : []),
         ...(Array.isArray(renderer.rankingBadges) ? renderer.rankingBadges : []),
-        ...(Array.isArray(renderer.leaderboardBadges) ? renderer.leaderboardBadges : [])
+        ...(Array.isArray(renderer.leaderboardBadges) ? renderer.leaderboardBadges : []),
+        ...(Array.isArray(renderer.customBadges) ? renderer.customBadges : []),
+        ...(renderer.authorRankingBadge ? [renderer.authorRankingBadge] : []),
+        ...(renderer.rankingBadge ? [renderer.rankingBadge] : []),
+        ...(renderer.leaderboardBadge ? [renderer.leaderboardBadge] : []),
+        ...(renderer.topChatterBadge ? [renderer.topChatterBadge] : []),
+        ...(Array.isArray(renderer.beforeContentButtons) ? renderer.beforeContentButtons : []),
+        ...(Array.isArray(renderer.afterContentButtons) ? renderer.afterContentButtons : []),
+        ...(Array.isArray(renderer.inlineActionButtons) ? renderer.inlineActionButtons : []),
+        ...(Array.isArray(renderer.inline_action_buttons) ? renderer.inline_action_buttons : [])
       ];
+
+      // Check whole renderer for direct crown/rank buttons or fields
+      const wholeRendererRank = extractRankFromBadge(renderer);
+      if (wholeRendererRank && wholeRendererRank >= 1 && wholeRendererRank <= 3) {
+        youtubeRank = wholeRendererRank;
+        if (!badges.includes(`rank_${wholeRendererRank}`)) badges.push(`rank_${wholeRendererRank}`);
+      }
 
       if (allBadgeSources.length > 0) {
         allBadgeSources.forEach(b => {
@@ -1615,15 +1643,18 @@ export class YoutubeChatClient {
                                 b.authorBadgeRenderer || 
                                 b;
 
-          const rawJson = JSON.stringify(b).toLowerCase();
-          const tooltip = (
+          const rawJson = JSON.stringify(b);
+          const rawLower = rawJson.toLowerCase();
+          const tooltip = String(
             badgeRenderer.tooltip || 
             badgeRenderer.accessibility?.accessibilityData?.label || 
             badgeRenderer.customThumbnail?.accessibility?.accessibilityData?.label ||
+            badgeRenderer.label ||
             badgeRenderer.icon?.iconType ||
             ''
-          ).toLowerCase();
-          const iconType = (badgeRenderer.icon?.iconType || '').toUpperCase();
+          ).trim();
+          const tooltipLower = tooltip.toLowerCase();
+          const iconType = String(badgeRenderer.icon?.iconType || '').toUpperCase();
           const thumbs = badgeRenderer.customThumbnail?.thumbnails || [];
           let iconUrl = null;
           if (thumbs.length > 0) {
@@ -1631,67 +1662,33 @@ export class YoutubeChatClient {
           }
           const lowerUrl = (iconUrl || '').toLowerCase();
 
-          // Standard badges
-          if (tooltip.includes('moderator') || rawJson.includes('"moderator"') || iconType === 'MODERATOR') {
-            badges.push('moderator');
+          // 1. Standard badges
+          if (tooltipLower.includes('moderator') || rawLower.includes('"moderator"') || iconType === 'MODERATOR') {
+            if (!badges.includes('moderator')) badges.push('moderator');
             if (iconUrl) badgeImages['moderator'] = iconUrl;
-          } else if (tooltip.includes('owner') || tooltip.includes('broadcaster') || iconType === 'OWNER') {
-            badges.push('broadcaster');
+          } else if (tooltipLower.includes('owner') || tooltipLower.includes('broadcaster') || iconType === 'OWNER' || rawLower.includes('"owner"')) {
+            if (!badges.includes('broadcaster')) badges.push('broadcaster');
             if (iconUrl) badgeImages['broadcaster'] = iconUrl;
-          } else if (tooltip.includes('verified') || iconType === 'VERIFIED') {
-            badges.push('verified');
+          } else if (tooltipLower.includes('verified') || iconType === 'VERIFIED' || rawLower.includes('"verified"')) {
+            if (!badges.includes('verified')) badges.push('verified');
             if (iconUrl) badgeImages['verified'] = iconUrl;
           }
 
-          // Check if this badge is a Top Contributor / Leaderboard Rank (#1, #2, #3)
-          const isRankBadge = 
-            rawJson.includes('top') || 
-            rawJson.includes('contributor') || 
-            rawJson.includes('leaderboard') || 
-            rawJson.includes('rank') || 
-            rawJson.includes('crown') || 
-            rawJson.includes('fan') || 
-            rawJson.includes('1st') || 
-            rawJson.includes('2nd') || 
-            rawJson.includes('3rd') || 
-            rawJson.includes('#1') || 
-            rawJson.includes('#2') || 
-            rawJson.includes('#3') || 
-            rawJson.includes('योगदानकर्ता') || 
-            rawJson.includes('शीर्ष') || 
-            rawJson.includes('gifting') || 
-            rawJson.includes('gifter') || 
-            rawJson.includes('donor') ||
-            lowerUrl.includes('top_fan') ||
-            lowerUrl.includes('top_contributor') ||
-            lowerUrl.includes('crown') ||
-            lowerUrl.includes('rank');
-
-          if (isRankBadge) {
-            let r = 1;
-            const numMatch = tooltip.match(/(?:#|rank\s*|top\s*(?:fan|contributor|giver|member)?\s*#?|\b)([1-3])\b/) ||
-                             rawJson.match(/(?:#|rank\s*|top\s*(?:fan|contributor|giver|member)?\s*#?)([1-3])\b/) ||
-                             lowerUrl.match(/(?:top_fan_|rank_|contributor_)([1-3])/);
-            if (numMatch && numMatch[1]) {
-              r = parseInt(numMatch[1], 10);
-            } else if (rawJson.includes('2nd') || rawJson.includes('top 2') || rawJson.includes('#2')) {
-              r = 2;
-            } else if (rawJson.includes('3rd') || rawJson.includes('top 3') || rawJson.includes('#3')) {
-              r = 3;
-            } else if (rawJson.includes('1st') || rawJson.includes('top 1') || rawJson.includes('#1') || rawJson.includes('top contributor') || rawJson.includes('top fan') || rawJson.includes('contributor')) {
-              r = 1;
-            }
-            if (r >= 1 && r <= 3) {
-              youtubeRank = r;
-              badges.push(`rank_${r}`);
-            }
+          // 2. Check if this badge is a Top Contributor / Leaderboard Rank (#1, #2, #3)
+          const rankNum = extractRankFromBadge(b);
+          if (rankNum && rankNum >= 1 && rankNum <= 3) {
+            youtubeRank = rankNum;
+            if (!badges.includes(`rank_${rankNum}`)) badges.push(`rank_${rankNum}`);
           } else if (
-            tooltip.includes('member') || 
-            tooltip.includes('sponsor') || 
-            tooltip.includes('subscriber') || 
-            (badgeRenderer.customThumbnail && !isRankBadge)
+            tooltipLower.includes('member') || 
+            tooltipLower.includes('sponsor') || 
+            tooltipLower.includes('subscriber') || 
+            tooltipLower.includes('month') || 
+            tooltipLower.includes('year') ||
+            tooltipLower.includes('सदस्य') ||
+            (badgeRenderer.customThumbnail && !iconType && !rankNum)
           ) {
-            badges.push('member');
+            if (!badges.includes('member')) badges.push('member');
             if (iconUrl) badgeImages['member'] = iconUrl;
           }
         });
@@ -1706,7 +1703,8 @@ export class YoutubeChatClient {
         }
       }
 
-      const poll = this.activePolls.get(channelName);
+      const pollKey = (channelName || '').toLowerCase().replace('@', '').trim();
+      const poll = this.activePolls.get(pollKey) || this.activePolls.get(channelName);
       const isShorts = poll ? poll.isShorts : false;
 
       // Check if user has a rank recorded in the active poll
@@ -1719,10 +1717,10 @@ export class YoutubeChatClient {
         }
       }
 
-      // If youtubeRank was found, record it in poll so all subsequent messages for this user retain their rank
+      // If youtubeRank was found, record it in poll so subsequent messages dynamically track this slot
       if (youtubeRank && poll && poll.recordExplicitRank) {
-        if (username) poll.recordExplicitRank(username, youtubeRank);
-        if (authorChannelId) poll.recordExplicitRank(authorChannelId, youtubeRank);
+        const userKeys = [authorChannelId, username, displayName].filter(Boolean);
+        poll.recordExplicitRank(userKeys, youtubeRank);
       }
 
       // Check if user is a bot
@@ -1856,3 +1854,210 @@ function normalizeUrl(url) {
   }
   return 'https://' + trimmed;
 }
+
+export function extractRankFromBadge(b) {
+  if (!b) return null;
+  const badgeRenderer = b.liveChatAuthorBadgeRenderer || 
+                        b.liveChatLeaderboardBadgeRenderer || 
+                        b.liveChatContributorBadgeRenderer || 
+                        b.liveChatRankingBadgeRenderer || 
+                        b.liveChatTopChatterBadgeRenderer ||
+                        b.authorBadgeRenderer || 
+                        b.authorRankingBadgeRenderer ||
+                        b.buttonViewModel ||
+                        b.buttonRenderer ||
+                        b;
+
+  const rawJson = JSON.stringify(b);
+  const rawLower = rawJson.toLowerCase();
+
+  const tooltip = String(
+    badgeRenderer.title ||
+    badgeRenderer.accessibilityText ||
+    badgeRenderer.tooltip || 
+    badgeRenderer.accessibility?.accessibilityData?.label || 
+    badgeRenderer.customThumbnail?.accessibility?.accessibilityData?.label ||
+    badgeRenderer.label ||
+    badgeRenderer.icon?.iconType ||
+    badgeRenderer.iconName ||
+    ''
+  ).trim();
+  const tooltipLower = tooltip.toLowerCase();
+
+  const iconType = String(badgeRenderer.icon?.iconType || badgeRenderer.iconName || '').toUpperCase();
+  const thumbs = badgeRenderer.customThumbnail?.thumbnails || [];
+  const iconUrl = (thumbs[thumbs.length - 1]?.url || thumbs[0]?.url || '').toLowerCase();
+
+  // If this is clearly a moderator, owner, or verified badge, return null unless it explicitly has a crown/rank
+  if (
+    (tooltipLower.includes('moderator') || iconType === 'MODERATOR' || 
+    tooltipLower.includes('owner') || iconType === 'OWNER' || 
+    tooltipLower.includes('verified') || iconType === 'VERIFIED') &&
+    !iconType.includes('CROWN') && !tooltipLower.includes('#')
+  ) {
+    return null;
+  }
+
+  // If it's a member duration tooltip like "Member (2 months)" or "Member for 2 years", it is NOT a leaderboard rank
+  if (
+    tooltipLower.includes('month') || 
+    tooltipLower.includes('year') || 
+    tooltipLower.includes('member (') || 
+    tooltipLower.includes('member for') ||
+    tooltipLower.includes('subscribed for') ||
+    tooltipLower.includes('सदस्य (')
+  ) {
+    return null;
+  }
+
+  // 1. Icon type check
+  if (iconType.includes('LEADERBOARD_1') || iconType.includes('RANK_1') || iconType.includes('SUPER_CHAT_1')) return 1;
+  if (iconType.includes('LEADERBOARD_2') || iconType.includes('RANK_2') || iconType.includes('SUPER_CHAT_2')) return 2;
+  if (iconType.includes('LEADERBOARD_3') || iconType.includes('RANK_3') || iconType.includes('SUPER_CHAT_3')) return 3;
+
+  // 2. Exact string match on tooltip or label: "#1", "#2", "#3", "1", "2", "3", "1st", "2nd", "3rd"
+  if (/^#?\s*1(?:\s*st)?$/i.test(tooltip)) return 1;
+  if (/^#?\s*2(?:\s*nd)?$/i.test(tooltip)) return 2;
+  if (/^#?\s*3(?:\s*rd)?$/i.test(tooltip)) return 3;
+
+  // 3. Regex match in tooltip or label (English, Hindi, Russian, Spanish, French, etc.)
+  const rankRegex = /(?:#|№|n\.º|nº|rank\s*|top\s*(?:fan|contributor|giver|member|chatter)?\s*#?|शीर्ष\s*|योगदानकर्ता\s*#?|रैंक\s*)\s*([1-3])\b/i;
+  const match = tooltip.match(rankRegex) || rawLower.match(/(?:"tooltip"|"label"|"title"|"accessibilitytext")\s*:\s*"[^"]*?(?:#|№|n\.º|rank|top|शीर्ष|रैंक)[^\d]*?([1-3])\b/i);
+  if (match && match[1]) {
+    return parseInt(match[1], 10);
+  }
+
+  // 4. Check if icon/url/json mentions crown or leaderboard or top contributor with 1..3
+  if (iconType.includes('CROWN') || iconType.includes('LEADERBOARD') || iconType.includes('TOP_CHATTER') || iconUrl.includes('crown') || iconUrl.includes('top_fan') || rawLower.includes('crown') || rawLower.includes('leaderboard')) {
+    const numM = tooltip.match(/([1-3])/) || iconUrl.match(/([1-3])/) || rawLower.match(/([1-3])/);
+    if (numM) return parseInt(numM[1], 10);
+  }
+
+  // 5. Check raw json for "#1", "#2", "#3"
+  if (rawLower.includes('"#1"') || rawLower.includes('"# 1"') || rawLower.includes('top contributor #1') || rawLower.includes('top fan #1') || rawLower.includes('leaderboard #1')) return 1;
+  if (rawLower.includes('"#2"') || rawLower.includes('"# 2"') || rawLower.includes('top contributor #2') || rawLower.includes('top fan #2') || rawLower.includes('leaderboard #2')) return 2;
+  if (rawLower.includes('"#3"') || rawLower.includes('"# 3"') || rawLower.includes('top contributor #3') || rawLower.includes('top fan #3') || rawLower.includes('leaderboard #3')) return 3;
+
+  return null;
+}
+
+/**
+ * Computes dynamic exclusive YouTube Top #1, #2, #3 Contributor / Leaderboard ranks.
+ * Strictly mirrors YouTube Live Chat feed:
+ * 1. Explicit YouTube badges (authorBadges, rankingBadges, crowns e.g. ARATHI K V #2).
+ * 2. Verified Super Chat / Donation Leaderboard.
+ * 3. NO synthetic message guessing: Users without a badge on YouTube NEVER get a badge.
+ * 4. Broadcasters, moderators, and bots NEVER receive viewer contributor ranks.
+ * 5. Strict exclusivity & displacement: at most ONE user holds each rank slot at any moment.
+ *    If User A holds #2 and later User B takes #2, User A's #2 rank is removed.
+ * Returns a Map of userKey -> rank (1, 2, or 3).
+ */
+export function calculateYoutubeTop3Ranks(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) return new Map();
+
+  const rankSlots = { 1: null, 2: null, 3: null };
+  const userDonations = new Map(); // canonicalId -> { total: number, keys: Set<string>, lastTimestamp: number }
+
+  const knownBots = new Set(['nightbot', 'streamelements', 'wizebot', 'moobot', 'kickbot', 'botrix', 'botrixoficial', 'botrixofficial', 'streamlabs', 'fossabot', 'soundalerts', 'kbot']);
+
+  messages.forEach((msg, idx) => {
+    if (!msg || msg.platform !== 'youtube') return;
+
+    const isBroadcaster = (msg.badges && (msg.badges.includes('broadcaster') || msg.badges.includes('owner'))) || msg.isOwner || msg.isBroadcaster;
+    const isBot = knownBots.has((msg.username || '').toLowerCase()) || (msg.userRole === 'bot');
+    if (isBroadcaster || isBot) return;
+
+    const keys = [
+      msg.channelId,
+      msg.authorChannelId,
+      msg.authorExternalChannelId,
+      msg.userId,
+      msg.username,
+      msg.displayName
+    ].filter(Boolean).map(k => String(k).toLowerCase().trim());
+
+    if (keys.length === 0) return;
+    const canonicalId = (msg.authorChannelId || msg.channelId || msg.username || keys[0]).toLowerCase().trim();
+    const timestamp = msg.rawTimestamp || (idx * 1000);
+
+    // 1. Super Chat / Donation Leaderboard
+    if (msg.isSystemEvent && msg.eventType === 'donation') {
+      const amtStr = msg.eventDetails?.amount || '';
+      const amt = parseFloat(String(amtStr).replace(/[^\d.]/g, ''));
+      if (!isNaN(amt) && amt > 0) {
+        const prev = userDonations.get(canonicalId) || { total: 0, keys: new Set(), lastTimestamp: timestamp };
+        prev.total += amt;
+        prev.lastTimestamp = Math.max(prev.lastTimestamp, timestamp);
+        keys.forEach(k => prev.keys.add(k));
+        userDonations.set(canonicalId, prev);
+      }
+    }
+
+    // 2. Explicit YouTube rank badge
+    let rank = (typeof msg.youtubeRank === 'number' && msg.youtubeRank >= 1 && msg.youtubeRank <= 3) 
+      ? msg.youtubeRank 
+      : null;
+
+    if (!rank && Array.isArray(msg.badges)) {
+      if (msg.badges.includes('rank_1')) rank = 1;
+      else if (msg.badges.includes('rank_2')) rank = 2;
+      else if (msg.badges.includes('rank_3')) rank = 3;
+    }
+
+    if (rank && rank >= 1 && rank <= 3) {
+      // Vacate any other slot this user was in
+      for (let r = 1; r <= 3; r++) {
+        if (rankSlots[r] && (rankSlots[r].canonicalId === canonicalId || keys.some(k => rankSlots[r].keys.includes(k)))) {
+          rankSlots[r] = null;
+        }
+      }
+      // Assign slot to this user (displaces prior holder of this rank)
+      rankSlots[rank] = {
+        canonicalId,
+        keys,
+        timestamp
+      };
+    }
+  });
+
+  const top3Map = new Map();
+
+  // Step 1: If Super Chat donations exist, assign unoccupied slots to top donors
+  if (userDonations.size > 0) {
+    const sortedDonors = Array.from(userDonations.values())
+      .sort((a, b) => {
+        if (b.total !== a.total) return b.total - a.total;
+        return b.lastTimestamp - a.lastTimestamp;
+      });
+
+    sortedDonors.slice(0, 3).forEach((donor, idx) => {
+      const r = idx + 1;
+      // Only assign if rank slot r is not occupied by an explicit YouTube badge
+      if (!rankSlots[r]) {
+        donor.keys.forEach(k => top3Map.set(k.toLowerCase().trim(), r));
+      }
+    });
+  }
+
+  // Step 2: Explicit ranks strictly populate and override
+  for (let r = 1; r <= 3; r++) {
+    const slot = rankSlots[r];
+    if (slot && slot.keys) {
+      // Clear any prior donation holder of rank r
+      for (const [k, mappedRank] of Array.from(top3Map.entries())) {
+        if (mappedRank === r) {
+          top3Map.delete(k);
+        }
+      }
+      slot.keys.forEach(k => {
+        top3Map.set(k.toLowerCase().trim(), r);
+      });
+      if (slot.canonicalId) {
+        top3Map.set(slot.canonicalId.toLowerCase().trim(), r);
+      }
+    }
+  }
+
+  return top3Map;
+}
+

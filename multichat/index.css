@@ -1242,12 +1242,14 @@ body {
 .youtube-rank-badge {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
+  background-color: #3b00bb;
   color: #ffffff;
   padding: 2px 8px 2px 7px;
   border-radius: 9999px;
-  font-size: 11.5px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 800;
   line-height: 1;
   vertical-align: middle;
   letter-spacing: -0.2px;
@@ -1257,16 +1259,10 @@ body {
   flex-shrink: 0;
 }
 
-.youtube-rank-badge.youtube-rank-1 {
-  background-color: #7c3aed;
-}
-
-.youtube-rank-badge.youtube-rank-2 {
-  background-color: #6366f1;
-}
-
+.youtube-rank-badge.youtube-rank-1,
+.youtube-rank-badge.youtube-rank-2,
 .youtube-rank-badge.youtube-rank-3 {
-  background-color: #a855f7;
+  background-color: #3b00bb;
 }
 
 .msg-platform-icon {

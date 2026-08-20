@@ -51,6 +51,7 @@ export class ChatSimulator {
     this.onMessage = onMessageCallback;
     this.intervals = [];
     this.isRunning = false;
+    this.youtubeRankSlots = { 1: 'streamfan99', 2: 'gamerpro_44', 3: 'alphaomega' };
   }
 
   start(channels) {
@@ -148,10 +149,27 @@ export class ChatSimulator {
           }
         }
 
-        // 15% chance to be Top 1, #2, #3 Contributor
-        if (Math.random() < 0.15) {
+        // 8% chance that this user claims or switches a rank (#1, #2, or #3), displacing previous holder
+        if (Math.random() < 0.08) {
           const r = Math.floor(Math.random() * 3) + 1;
+          if (this.youtubeRankSlots) {
+            // Vacate any other slot this user was in
+            for (let slot = 1; slot <= 3; slot++) {
+              if (this.youtubeRankSlots[slot] === username) {
+                this.youtubeRankSlots[slot] = null;
+              }
+            }
+            this.youtubeRankSlots[r] = username;
+          }
           badges.push(`rank_${r}`);
+        } else if (this.youtubeRankSlots) {
+          // If user already currently holds a top 3 rank, retain their rank badge
+          for (let slot = 1; slot <= 3; slot++) {
+            if (this.youtubeRankSlots[slot] === username) {
+              badges.push(`rank_${slot}`);
+              break;
+            }
+          }
         }
       } else if (platform === 'twitch') {
         const roles = ['broadcaster', 'moderator', 'vip', 'subscriber', 'bot'];
@@ -174,10 +192,10 @@ export class ChatSimulator {
     const lowerUser = username.toLowerCase();
     const knownBots = ['nightbot', 'streamelements', 'wizebot', 'moobot', 'kickbot', 'botrix', 'botrixoficial', 'botrixofficial', 'streamlabs', 'fossabot', 'soundalerts', 'kbot'];
     if (knownBots.includes(lowerUser) || (lowerUser.endsWith('bot') && lowerUser.length > 3)) {
-      badges.length = 0; // Clear other random rolls
-      badges.push('bot');
-      if (lowerUser === 'botrix') {
-        badges.push('moderator');
+      if (!badges.includes('bot')) badges.push('bot');
+      if (lowerUser === 'botrix' || lowerUser === 'streamlabs') {
+        if (!badges.includes('moderator')) badges.push('moderator');
+        if (!badges.includes('verified')) badges.push('verified');
       }
     }
 

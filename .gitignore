@@ -48,3 +48,4 @@ next-env.d.ts
 *.7z
 config.txt
 scratch/
+scratch*

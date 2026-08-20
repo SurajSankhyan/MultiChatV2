@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { parseMessageContent } from '../utils/emotes';
 import { TwitchChatClient, getLiveTwitchBadgeUrl } from '../utils/twitchChat';
 import { KickChatClient } from '../utils/kickChat';
-import { YoutubeChatClient } from '../utils/youtubeChat';
+import { YoutubeChatClient, calculateYoutubeTop3Ranks } from '../utils/youtubeChat';
 import { ChatSimulator } from '../utils/simulator';
 import PlatformLogo, { DefaultSubscriberBadge, KickGiftedSubsBadge, TwitchDefaultSubscriberBadge } from './PlatformLogo';
 
@@ -77,6 +77,7 @@ const getDefaultAvatar = (platform, username, id) => {
 export default function OverlayView() {
   const [messages, setMessages] = useState([]);
   const [fadingMsgIds, setFadingMsgIds] = useState(new Set());
+  const youtubeTop3Ranks = React.useMemo(() => calculateYoutubeTop3Ranks(messages), [messages]);
   
   // Extract configuration from query parameters & localStorage with real-time syncing
   const [settings, setSettings] = useState(() => {
@@ -887,101 +888,144 @@ export default function OverlayView() {
                   </span>
 
                   {/* For YouTube: badges after username */}
-                  {msg.platform === 'youtube' && showBadges && msg.badges && msg.badges.map(badge => {
-                    if (badge === 'broadcaster') {
-                      return null;
-                    }
-                    if (badge === 'verified') {
-                      return (
-                        <span key={badge} className="msg-badge-verified-wrapper" title="Verified" style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 4, verticalAlign: 'middle' }}>
-                          <svg className="msg-badge-verified-svg" viewBox="0 0 24 24" width="14" height="14" fill="#a0a0a0">
-                            <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-                          </svg>
-                        </span>
-                      );
-                    }
-                    if (badge === 'moderator') {
-                      return (
-                        <span key={badge} className="msg-badge-youtube-mod-wrapper" title="Moderator" style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 4, verticalAlign: 'middle' }}>
-                          <svg viewBox="0 0 24 24" width="14" height="14">
-                            <circle cx="12" cy="12" r="11" fill="#5e84f1" />
-                            <path 
-                              d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" 
+                  {msg.platform === 'youtube' && showBadges && (
+                    <>
+                      {msg.badges && msg.badges.map(badge => {
+                        if (badge === 'broadcaster' || (typeof badge === 'string' && badge.startsWith('rank_'))) {
+                          return null;
+                        }
+                        if (badge === 'verified') {
+                          return (
+                            <span key={badge} className="msg-badge-verified-wrapper" title="Verified" style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 4, verticalAlign: 'middle' }}>
+                              <svg className="msg-badge-verified-svg" viewBox="0 0 24 24" width="14" height="14" fill="#a0a0a0">
+                                <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                              </svg>
+                            </span>
+                          );
+                        }
+                        if (badge === 'moderator') {
+                          return (
+                            <span key={badge} className="msg-badge-youtube-mod-wrapper" title="Moderator" style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 4, verticalAlign: 'middle' }}>
+                              <svg viewBox="0 0 24 24" width="14" height="14">
+                                <circle cx="12" cy="12" r="11" fill="#5e84f1" />
+                                <path 
+                                  d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" 
+                                  fill="none" 
+                                  stroke="white" 
+                                  strokeWidth="2.5" 
+                                  strokeLinecap="round" 
+                                  strokeLinejoin="round" 
+                                />
+                              </svg>
+                            </span>
+                          );
+                        }
+                        const badgeImageUrl = (msg.badgeImages && msg.badgeImages[badge]) || 
+                                              (msg.platform === 'twitch' && msg.badgeVersions && getLiveTwitchBadgeUrl(msg.channel, badge, msg.badgeVersions[badge]));
+                        if (badgeImageUrl) {
+                          return (
+                            <img 
+                              key={badge} 
+                              className="msg-badge-icon" 
+                              src={badgeImageUrl} 
+                              alt={badge} 
+                              title={badge === 'member' ? 'Member' : badge === 'subscriber' ? 'Member' : badge}
+                              style={{ marginLeft: 4, marginRight: 0 }}
+                            />
+                          );
+                        }
+                        if (badge === 'subscriber' || badge === 'member') {
+                          return (
+                            <span key={badge} style={{ display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle', marginLeft: '4px', marginRight: 0 }} title={badge === 'member' ? 'Member' : 'Subscriber'}>
+                              <DefaultSubscriberBadge size={14} />
+                            </span>
+                          );
+                        }
+                        const displayChar = 
+                          badge === 'broadcaster' ? '👑' : null;
+
+                        if (!displayChar) return null;
+
+                        return (
+                          <span key={badge} className={`msg-badge ${badge} platform-${msg.platform}`} style={{ marginLeft: 4, marginRight: 0 }}>
+                            {displayChar}
+                          </span>
+                        );
+                      })}
+
+                      {/* Dynamic YouTube Top 1, #2, #3 Contributor Crown Pill Badge */}
+                      {(() => {
+                        const keys = [
+                          msg.channelId,
+                          msg.authorChannelId,
+                          msg.authorExternalChannelId,
+                          msg.userId,
+                          msg.username,
+                          msg.displayName
+                        ].filter(Boolean).map(k => String(k).toLowerCase().trim());
+
+                        let rank = (typeof msg.youtubeRank === 'number' && msg.youtubeRank >= 1 && msg.youtubeRank <= 3) ? msg.youtubeRank : null;
+
+                        if (!rank && Array.isArray(msg.badges)) {
+                          if (msg.badges.includes('rank_1')) rank = 1;
+                          else if (msg.badges.includes('rank_2')) rank = 2;
+                          else if (msg.badges.includes('rank_3')) rank = 3;
+                        }
+
+                        if (!rank && youtubeTop3Ranks) {
+                          for (const k of keys) {
+                            const found = youtubeTop3Ranks.get(k);
+                            if (found && found >= 1 && found <= 3) {
+                              rank = found;
+                              break;
+                            }
+                          }
+                        }
+                        if (!rank || rank < 1 || rank > 3) return null;
+                        return (
+                          <span 
+                            key={`overlay-yt-rank-${rank}`}
+                            className={`youtube-rank-badge youtube-rank-${rank}`}
+                            title={`Top Contributor #${rank}`}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '4px',
+                              backgroundColor: '#3b00bb',
+                              color: '#ffffff',
+                              padding: '2px 8px 2px 7px',
+                              borderRadius: '9999px',
+                              fontSize: '12px',
+                              fontWeight: '800',
+                              lineHeight: '1',
+                              marginLeft: '4px',
+                              marginRight: '2px',
+                              verticalAlign: 'middle',
+                              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.4)'
+                            }}
+                          >
+                            <svg 
+                              viewBox="0 0 24 24" 
                               fill="none" 
-                              stroke="white" 
-                              strokeWidth="2.5" 
+                              stroke="#ffffff" 
+                              strokeWidth="2" 
                               strokeLinecap="round" 
                               strokeLinejoin="round" 
-                            />
-                          </svg>
-                        </span>
-                      );
-                    }
-                    const badgeImageUrl = (msg.badgeImages && msg.badgeImages[badge]) || 
-                                          (msg.platform === 'twitch' && msg.badgeVersions && getLiveTwitchBadgeUrl(msg.channel, badge, msg.badgeVersions[badge]));
-                    if (badgeImageUrl) {
-                      return (
-                        <img 
-                          key={badge} 
-                          className="msg-badge-icon" 
-                          src={badgeImageUrl} 
-                          alt={badge} 
-                          title={badge === 'member' ? 'Member' : badge === 'subscriber' ? 'Member' : badge}
-                          style={{ marginLeft: 4, marginRight: 0 }}
-                        />
-                      );
-                    }
-                    if (badge === 'subscriber' || badge === 'member') {
-                      return (
-                        <span key={badge} style={{ display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle', marginLeft: '4px', marginRight: 0 }} title={badge === 'member' ? 'Member' : 'Subscriber'}>
-                          <DefaultSubscriberBadge size={14} />
-                        </span>
-                      );
-                    }
-                    if (typeof badge === 'string' && badge.startsWith('rank_')) {
-                      const rankNum = badge.replace('rank_', '');
-                      const rankBg = rankNum === '1' ? '#7c3aed' : rankNum === '2' ? '#6366f1' : '#a855f7';
-                      return (
-                        <span 
-                          key={badge} 
-                          className={`youtube-rank-badge youtube-rank-${rankNum}`} 
-                          title={`Top Contributor #${rankNum}`}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            backgroundColor: rankBg,
-                            color: '#ffffff',
-                            padding: '2px 7px',
-                            borderRadius: '9999px',
-                            fontSize: '11px',
-                            fontWeight: '700',
-                            lineHeight: '1',
-                            marginLeft: '4px',
-                            marginRight: '2px',
-                            verticalAlign: 'middle',
-                            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.4)'
-                          }}
-                        >
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" style={{ width: '11px', height: '11px', display: 'block' }}>
-                            <path d="M4 18h16" />
-                            <path d="m4 14 3.5-7 4.5 4 4.5-4 3.5 7H4Z" />
-                          </svg>
-                          <span>#{rankNum}</span>
-                        </span>
-                      );
-                    }
-                    const displayChar = 
-                      badge === 'broadcaster' ? '👑' : null;
-
-                    if (!displayChar) return null;
-
-                    return (
-                      <span key={badge} className={`msg-badge ${badge} platform-${msg.platform}`} style={{ marginLeft: 4, marginRight: 0 }}>
-                        {displayChar}
-                      </span>
-                    );
-                  })}
+                              style={{ width: '12px', height: '12px', display: 'block', flexShrink: 0 }}
+                            >
+                              <circle cx="3.5" cy="6" r="1.3" fill="#ffffff" stroke="none" />
+                              <circle cx="12" cy="3" r="1.3" fill="#ffffff" stroke="none" />
+                              <circle cx="20.5" cy="6" r="1.3" fill="#ffffff" stroke="none" />
+                              <path d="M3.5 7.5 L5.5 16 H18.5 L20.5 7.5 L15 12 L12 4.5 L9 12 Z" />
+                              <line x1="4.5" y1="19" x2="19.5" y2="19" strokeWidth="2.2" strokeLinecap="round" />
+                            </svg>
+                            <span>#{rank}</span>
+                          </span>
+                        );
+                      })()}
+                    </>
+                  )}
                   {chatStyle !== 'compact' && <span style={{ marginRight: '6px', color: '#d4d4d4' }}>:</span>}
 
                   <span 
