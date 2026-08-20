@@ -1035,7 +1035,38 @@ export class YoutubeChatClient {
         viewers: currentViewers,
         likes: currentLikes,
         isPolling: false,
-        retryCount: 0
+        retryCount: 0,
+        contributorDonationMap: new Map(),
+        explicitRankMap: new Map(),
+        recordDonation(userKey, amount) {
+          if (!userKey || isNaN(amount) || amount <= 0) return;
+          const k = String(userKey).toLowerCase().trim();
+          this.contributorDonationMap.set(k, (this.contributorDonationMap.get(k) || 0) + amount);
+        },
+        recordExplicitRank(userKey, rank) {
+          if (!userKey || !rank || rank < 1 || rank > 3) return;
+          const k = String(userKey).toLowerCase().trim();
+          this.explicitRankMap.set(k, rank);
+        },
+        getRankForUser(keys = []) {
+          for (const k of keys) {
+            if (!k) continue;
+            const lower = String(k).toLowerCase().trim();
+            if (this.explicitRankMap.has(lower)) return this.explicitRankMap.get(lower);
+          }
+          if (this.contributorDonationMap.size > 0) {
+            const sorted = Array.from(this.contributorDonationMap.entries()).sort((a, b) => b[1] - a[1]);
+            for (let i = 0; i < Math.min(3, sorted.length); i++) {
+              const [contributorKey] = sorted[i];
+              for (const k of keys) {
+                if (k && String(k).toLowerCase().trim() === contributorKey) {
+                  return i + 1;
+                }
+              }
+            }
+          }
+          return null;
+        }
       };
 
       this.activePolls.set(pollKey, pollInstance);
@@ -1231,6 +1262,24 @@ export class YoutubeChatClient {
           }
           nextToken = contData.timedContinuationData?.continuation ||
                       contData.invalidationContinuationData?.continuation;
+        }
+
+        // Parse active Super Chat ticker items to record stream top donors
+        if (liveChatCont.ticker?.liveChatTickerRenderer?.items && poll.recordDonation) {
+          liveChatCont.ticker.liveChatTickerRenderer.items.forEach(tickerItem => {
+            const tr = tickerItem.liveChatTickerPaidMessageItemRenderer ||
+                       tickerItem.liveChatTickerPaidStickerItemRenderer ||
+                       tickerItem.liveChatTickerSponsorItemRenderer;
+            if (tr) {
+              const userKey = tr.authorName?.simpleText || tr.authorExternalChannelId;
+              const amtStr = tr.amount?.simpleText || tr.purchaseAmountText?.simpleText || '';
+              const amt = parseFloat(String(amtStr).replace(/[^\d.]/g, ''));
+              if (userKey && !isNaN(amt) && amt > 0) {
+                poll.recordDonation(userKey, amt);
+                if (tr.authorExternalChannelId) poll.recordDonation(tr.authorExternalChannelId, amt);
+              }
+            }
+          });
         }
 
         if (liveChatCont.actions) {
@@ -1657,6 +1706,25 @@ export class YoutubeChatClient {
         }
       }
 
+      const poll = this.activePolls.get(channelName);
+      const isShorts = poll ? poll.isShorts : false;
+
+      // Check if user has a rank recorded in the active poll
+      if (!youtubeRank && poll && poll.getRankForUser) {
+        const userKeys = [authorChannelId, username, displayName].filter(Boolean);
+        const pollRank = poll.getRankForUser(userKeys);
+        if (pollRank && pollRank >= 1 && pollRank <= 3) {
+          youtubeRank = pollRank;
+          badges.push(`rank_${pollRank}`);
+        }
+      }
+
+      // If youtubeRank was found, record it in poll so all subsequent messages for this user retain their rank
+      if (youtubeRank && poll && poll.recordExplicitRank) {
+        if (username) poll.recordExplicitRank(username, youtubeRank);
+        if (authorChannelId) poll.recordExplicitRank(authorChannelId, youtubeRank);
+      }
+
       // Check if user is a bot
       const lowerUser = username.toLowerCase();
       const knownBots = ['nightbot', 'streamelements', 'wizebot', 'moobot', 'kickbot', 'botrix', 'botrixoficial', 'botrixofficial', 'streamlabs', 'fossabot', 'soundalerts', 'kbot'];
@@ -1670,9 +1738,6 @@ export class YoutubeChatClient {
       let avatar = photoThumbnails && photoThumbnails.length > 0 
         ? normalizeUrl(photoThumbnails[photoThumbnails.length - 1].url) 
         : null;
-
-      const poll = this.activePolls.get(channelName);
-      const isShorts = poll ? poll.isShorts : false;
 
       let deleteParams = null;
       let timeoutParams = null;
