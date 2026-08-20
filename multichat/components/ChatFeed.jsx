@@ -752,11 +752,9 @@ export default function ChatFeed({
       top3Map.set(userKey, idx + 1);
     });
 
-    // If explicit rank arrived from YouTube authorBadges and user isn't already assigned
+    // Explicit rank from YouTube authorBadges / server ALWAYS sets into top3Map
     explicitRankMap.forEach((rank, userKey) => {
-      if (!top3Map.has(userKey) && top3Map.size < 3) {
-        top3Map.set(userKey, rank);
-      }
+      top3Map.set(userKey, rank);
     });
 
     return top3Map;

@@ -1546,17 +1546,27 @@ export class YoutubeChatClient {
       }
       let youtubeRank = null;
 
+      // Scan all potential badge containers in the renderer
       const allBadgeSources = [
-        ...(renderer.authorBadges || []),
-        ...(renderer.badges || []),
-        ...(renderer.authorNameBadges || []),
-        ...(renderer.authorNameBadge ? [renderer.authorNameBadge] : [])
+        ...(Array.isArray(renderer.authorBadges) ? renderer.authorBadges : []),
+        ...(Array.isArray(renderer.badges) ? renderer.badges : []),
+        ...(Array.isArray(renderer.authorNameBadges) ? renderer.authorNameBadges : []),
+        ...(renderer.authorNameBadge ? [renderer.authorNameBadge] : []),
+        ...(Array.isArray(renderer.rankingBadges) ? renderer.rankingBadges : []),
+        ...(Array.isArray(renderer.leaderboardBadges) ? renderer.leaderboardBadges : [])
       ];
 
       if (allBadgeSources.length > 0) {
         allBadgeSources.forEach(b => {
-          const badgeRenderer = b.liveChatAuthorBadgeRenderer || b;
-          if (!badgeRenderer) return;
+          if (!b) return;
+          const badgeRenderer = b.liveChatAuthorBadgeRenderer || 
+                                b.liveChatLeaderboardBadgeRenderer || 
+                                b.liveChatContributorBadgeRenderer || 
+                                b.liveChatRankingBadgeRenderer || 
+                                b.authorBadgeRenderer || 
+                                b;
+
+          const rawJson = JSON.stringify(b).toLowerCase();
           const tooltip = (
             badgeRenderer.tooltip || 
             badgeRenderer.accessibility?.accessibilityData?.label || 
@@ -1571,44 +1581,38 @@ export class YoutubeChatClient {
             iconUrl = normalizeUrl(thumbs[thumbs.length - 1]?.url || thumbs[0]?.url);
           }
           const lowerUrl = (iconUrl || '').toLowerCase();
-          
-          if (tooltip.includes('moderator')) {
+
+          // Standard badges
+          if (tooltip.includes('moderator') || rawJson.includes('"moderator"') || iconType === 'MODERATOR') {
             badges.push('moderator');
             if (iconUrl) badgeImages['moderator'] = iconUrl;
-          } else if (tooltip.includes('owner') || tooltip.includes('broadcaster')) {
+          } else if (tooltip.includes('owner') || tooltip.includes('broadcaster') || iconType === 'OWNER') {
             badges.push('broadcaster');
             if (iconUrl) badgeImages['broadcaster'] = iconUrl;
-          } else if (tooltip.includes('verified')) {
+          } else if (tooltip.includes('verified') || iconType === 'VERIFIED') {
             badges.push('verified');
             if (iconUrl) badgeImages['verified'] = iconUrl;
-          } else if (
-            tooltip.includes('member') || 
-            tooltip.includes('sponsor') || 
-            tooltip.includes('subscriber') || 
-            (badgeRenderer.customThumbnail && !tooltip.includes('top') && !tooltip.includes('contributor') && !tooltip.includes('fan') && !tooltip.includes('rank') && !tooltip.includes('crown') && !lowerUrl.includes('top_fan') && !lowerUrl.includes('rank'))
-          ) {
-            badges.push('member');
-            if (iconUrl) badgeImages['member'] = iconUrl;
           }
 
-          // Parse Top Contributor / Leaderboard Rank (#1, #2, #3)
+          // Check if this badge is a Top Contributor / Leaderboard Rank (#1, #2, #3)
           const isRankBadge = 
-            tooltip.includes('top') || 
-            tooltip.includes('contributor') || 
-            tooltip.includes('leaderboard') || 
-            tooltip.includes('rank') || 
-            tooltip.includes('#') ||
-            tooltip.includes('fan') ||
-            tooltip.includes('1st') ||
-            tooltip.includes('2nd') ||
-            tooltip.includes('3rd') ||
-            tooltip.includes('योगदानकर्ता') ||
-            tooltip.includes('gifting') ||
-            tooltip.includes('gifter') ||
-            iconType.includes('TOP') || 
-            iconType.includes('RANK') || 
-            iconType.includes('CROWN') || 
-            iconType.includes('LEADERBOARD') ||
+            rawJson.includes('top') || 
+            rawJson.includes('contributor') || 
+            rawJson.includes('leaderboard') || 
+            rawJson.includes('rank') || 
+            rawJson.includes('crown') || 
+            rawJson.includes('fan') || 
+            rawJson.includes('1st') || 
+            rawJson.includes('2nd') || 
+            rawJson.includes('3rd') || 
+            rawJson.includes('#1') || 
+            rawJson.includes('#2') || 
+            rawJson.includes('#3') || 
+            rawJson.includes('योगदानकर्ता') || 
+            rawJson.includes('शीर्ष') || 
+            rawJson.includes('gifting') || 
+            rawJson.includes('gifter') || 
+            rawJson.includes('donor') ||
             lowerUrl.includes('top_fan') ||
             lowerUrl.includes('top_contributor') ||
             lowerUrl.includes('crown') ||
@@ -1617,22 +1621,40 @@ export class YoutubeChatClient {
           if (isRankBadge) {
             let r = 1;
             const numMatch = tooltip.match(/(?:#|rank\s*|top\s*(?:fan|contributor|giver|member)?\s*#?|\b)([1-3])\b/) ||
+                             rawJson.match(/(?:#|rank\s*|top\s*(?:fan|contributor|giver|member)?\s*#?)([1-3])\b/) ||
                              lowerUrl.match(/(?:top_fan_|rank_|contributor_)([1-3])/);
             if (numMatch && numMatch[1]) {
               r = parseInt(numMatch[1], 10);
-            } else if (tooltip.includes('2nd') || tooltip.includes('top 2') || tooltip.includes('#2')) {
+            } else if (rawJson.includes('2nd') || rawJson.includes('top 2') || rawJson.includes('#2')) {
               r = 2;
-            } else if (tooltip.includes('3rd') || tooltip.includes('top 3') || tooltip.includes('#3')) {
+            } else if (rawJson.includes('3rd') || rawJson.includes('top 3') || rawJson.includes('#3')) {
               r = 3;
-            } else if (tooltip.includes('1st') || tooltip.includes('top 1') || tooltip.includes('#1') || tooltip.includes('top contributor') || tooltip.includes('top fan') || tooltip.includes('contributor')) {
+            } else if (rawJson.includes('1st') || rawJson.includes('top 1') || rawJson.includes('#1') || rawJson.includes('top contributor') || rawJson.includes('top fan') || rawJson.includes('contributor')) {
               r = 1;
             }
             if (r >= 1 && r <= 3) {
               youtubeRank = r;
               badges.push(`rank_${r}`);
             }
+          } else if (
+            tooltip.includes('member') || 
+            tooltip.includes('sponsor') || 
+            tooltip.includes('subscriber') || 
+            (badgeRenderer.customThumbnail && !isRankBadge)
+          ) {
+            badges.push('member');
+            if (iconUrl) badgeImages['member'] = iconUrl;
           }
         });
+      }
+
+      // Check direct renderer rank fields if not found in badges
+      if (!youtubeRank) {
+        const directRank = renderer.authorRank || renderer.youtubeRank || renderer.topChatterRank || renderer.leaderboardRank || renderer.topFanRank || (renderer.isTopContributor ? 1 : null);
+        if (directRank && directRank >= 1 && directRank <= 3) {
+          youtubeRank = directRank;
+          badges.push(`rank_${directRank}`);
+        }
       }
 
       // Check if user is a bot
