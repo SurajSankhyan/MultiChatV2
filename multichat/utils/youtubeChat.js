@@ -171,16 +171,22 @@ export class YoutubeChatClient {
       const liveDetails = mf?.liveBroadcastDetails;
       const candidateTime = liveDetails?.actualStartTime || liveDetails?.startTimestamp || liveDetails?.scheduledStartTime || mf?.publishDate || mf?.uploadDate;
       let startTime = null;
+      let isExact = false;
       if (candidateTime) {
         if (typeof candidateTime === 'number') {
           startTime = candidateTime < 10000000000 ? candidateTime * 1000 : candidateTime;
+          isExact = !!(liveDetails?.actualStartTime || liveDetails?.startTimestamp);
         } else if (typeof candidateTime === 'string') {
           if (/^[0-9]{10,13}$/.test(candidateTime)) {
             const rawNum = parseInt(candidateTime, 10);
             startTime = rawNum < 10000000000 ? rawNum * 1000 : rawNum;
+            isExact = !!(liveDetails?.actualStartTime || liveDetails?.startTimestamp);
           } else {
             const parsed = Date.parse(candidateTime);
-            if (!isNaN(parsed) && parsed > 0 && parsed <= Date.now() + 60000) startTime = parsed;
+            if (!isNaN(parsed) && parsed > 0 && parsed <= Date.now() + 60000) {
+              startTime = parsed;
+              isExact = !!(liveDetails?.actualStartTime || liveDetails?.startTimestamp);
+            }
           }
         }
       }
@@ -196,6 +202,7 @@ export class YoutubeChatClient {
       return {
         isLive: !!json.videoDetails?.isLive || !!json.videoDetails?.isLiveContent || liveDetails?.isLiveNow !== false,
         startTime,
+        isExact,
         viewers,
         isShorts,
         title: json.videoDetails?.title

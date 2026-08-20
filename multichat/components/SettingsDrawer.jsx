@@ -892,55 +892,6 @@ export default function SettingsDrawer({
                       </div>
                     </div>
 
-                    <div className="setting-section" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: '#d4d4d4' }}>Show YouTube Profile Pictures</span>
-                        <label className="switch">
-                          <input 
-                            type="checkbox" 
-                            checked={!!settings.showYoutubeProfilePictures}
-                            onChange={(e) => updateSettings({ showYoutubeProfilePictures: e.target.checked })}
-                          />
-                          <span className="slider"></span>
-                        </label>
-                      </div>
-
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: '#d4d4d4' }}>Show Twitch Profile Pictures</span>
-                        <label className="switch">
-                          <input 
-                            type="checkbox" 
-                            checked={!!settings.showTwitchProfilePictures}
-                            onChange={(e) => updateSettings({ showTwitchProfilePictures: e.target.checked })}
-                          />
-                          <span className="slider"></span>
-                        </label>
-                      </div>
-
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: '#d4d4d4' }}>Show Kick Profile Pictures</span>
-                        <label className="switch">
-                          <input 
-                            type="checkbox" 
-                            checked={!!settings.showKickProfilePictures}
-                            onChange={(e) => updateSettings({ showKickProfilePictures: e.target.checked })}
-                          />
-                          <span className="slider"></span>
-                        </label>
-                      </div>
-
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: '#d4d4d4' }}>Show Quick Moderation Buttons</span>
-                        <label className="switch">
-                          <input 
-                            type="checkbox" 
-                            checked={!!settings.showQuickModActions}
-                            onChange={(e) => updateSettings({ showQuickModActions: e.target.checked })}
-                          />
-                          <span className="slider"></span>
-                        </label>
-                      </div>
-                    </div>
                   </div>
                 </div>
               )}
@@ -984,6 +935,18 @@ export default function SettingsDrawer({
                             type="checkbox" 
                             checked={settings.showYoutubeProfilePictures !== false}
                             onChange={(e) => updateSettings({ showYoutubeProfilePictures: e.target.checked })}
+                          />
+                          <span className="slider"></span>
+                        </label>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 14, color: '#d4d4d4' }}>Show Quick Moderation Buttons</span>
+                        <label className="switch">
+                          <input 
+                            type="checkbox" 
+                            checked={!!settings.showQuickModActions}
+                            onChange={(e) => updateSettings({ showQuickModActions: e.target.checked })}
                           />
                           <span className="slider"></span>
                         </label>
