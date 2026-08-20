@@ -2522,7 +2522,7 @@ export default function ChatDashboard({
                     <div className="metric-pill-section" onClick={handleMembershipClick} title="Total YouTube Memberships">
                       <Crown size={13} style={{ color: 'var(--text-muted)' }} />
                       {membershipDisplayMode === 'count' && (
-                        <span>{liveMembershipCount} {liveMembershipCount === 1 ? 'Member' : 'Members'}</span>
+                        <span>{liveMembershipCount}</span>
                       )}
                       {membershipDisplayMode === 'hidden' && (
                         <span>--</span>
