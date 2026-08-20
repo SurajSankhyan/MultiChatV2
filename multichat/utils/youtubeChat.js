@@ -1001,8 +1001,8 @@ export class YoutubeChatClient {
         apiKey = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
       }
 
-      // Resolve live stream start time via Innertube if not already extracted from HTML
-      if (!localStartTime && videoId) {
+      // Resolve exact live stream start time via InnerTube Player API
+      if ((!localStartTime || !isExactStartTime) && videoId) {
         try {
           const pMeta = await this.fetchPlayerMetadata(videoId, apiKey);
           if (pMeta) {
