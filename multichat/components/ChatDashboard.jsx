@@ -2059,15 +2059,27 @@ export default function ChatDashboard({
           displayName: msg.displayName || msg.username,
           platform: msg.platform,
           channel: msg.channel,
+          channelId: msg.channelId || msg.authorChannelId,
+          authorChannelId: msg.authorChannelId,
           isShorts: msg.isShorts,
           avatar: msg.avatar,
-          badges: msg.badges || [],
+          badges: msg.badges ? [...msg.badges] : [],
           badgeImages: msg.badgeImages || {},
           badgeVersions: msg.badgeVersions || {},
           color: msg.color,
+          youtubeRank: msg.youtubeRank,
           monthsSubscribed: msg.monthsSubscribed,
           giftedSubsCount: msg.giftedSubsCount
         });
+      } else {
+        const existing = chattersMap.get(lower);
+        if (msg.youtubeRank && !existing.youtubeRank) existing.youtubeRank = msg.youtubeRank;
+        if (msg.badges && msg.badges.length > 0) {
+          existing.badges = Array.from(new Set([...existing.badges, ...msg.badges]));
+        }
+        if (msg.avatar && (!existing.avatar || existing.avatar.includes('default'))) {
+          existing.avatar = msg.avatar;
+        }
       }
     });
     return Array.from(chattersMap.values());
@@ -3054,6 +3066,38 @@ export default function ChatDashboard({
                     }}
                   />
                   <span className="participant-name">{chatter.displayName}</span>
+                  {(() => {
+                    const rank = chatter.youtubeRank || (chatter.badges?.includes('rank_1') ? 1 : chatter.badges?.includes('rank_2') ? 2 : chatter.badges?.includes('rank_3') ? 3 : null);
+                    if (!rank || rank < 1 || rank > 3) return null;
+                    const rankBg = rank === 1 ? '#7c3aed' : rank === 2 ? '#6366f1' : '#a855f7';
+                    return (
+                      <span 
+                        className={`youtube-rank-badge youtube-rank-${rank}`}
+                        title={`Top Contributor #${rank}`}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          backgroundColor: rankBg,
+                          color: '#ffffff',
+                          padding: '1px 6px',
+                          borderRadius: '9999px',
+                          fontSize: '10px',
+                          fontWeight: '700',
+                          lineHeight: '1',
+                          marginLeft: '4px',
+                          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.4)',
+                          flexShrink: 0
+                        }}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" style={{ width: '10px', height: '10px', display: 'block' }}>
+                          <path d="M4 18h16" />
+                          <path d="m4 14 3.5-7 4.5 4 4.5-4 3.5 7H4Z" />
+                        </svg>
+                        <span>#{rank}</span>
+                      </span>
+                    );
+                  })()}
                   <Tooltip delayDuration={150}>
                     <TooltipTrigger asChild>
                       <span className="msg-platform-icon" style={{ cursor: 'pointer', marginRight: 0, marginLeft: 'auto', opacity: 0.8 }}>

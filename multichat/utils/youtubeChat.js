@@ -1549,7 +1549,12 @@ export class YoutubeChatClient {
         renderer.authorBadges.forEach(b => {
           const badgeRenderer = b.liveChatAuthorBadgeRenderer;
           if (!badgeRenderer) return;
-          const tooltip = (badgeRenderer.tooltip || badgeRenderer.accessibility?.accessibilityData?.label || '').toLowerCase();
+          const tooltip = (
+            badgeRenderer.tooltip || 
+            badgeRenderer.accessibility?.accessibilityData?.label || 
+            badgeRenderer.customThumbnail?.accessibility?.accessibilityData?.label ||
+            ''
+          ).toLowerCase();
           const iconType = (badgeRenderer.icon?.iconType || '').toUpperCase();
           const thumbs = badgeRenderer.customThumbnail?.thumbnails || [];
           let iconUrl = null;

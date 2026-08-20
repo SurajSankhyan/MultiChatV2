@@ -1193,6 +1193,40 @@ export default function ChatterInsights({
 
                 <span className="chatter-modal-badges" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                   {chatter.badges && (chatter.platform === 'kick' ? sortKickBadges(chatter.badges) : chatter.badges).map(badge => renderBadgeWithTooltip(renderBadge(badge), badge))}
+                  {(() => {
+                    const rank = chatter.youtubeRank || (chatter.badges?.includes('rank_1') ? 1 : chatter.badges?.includes('rank_2') ? 2 : chatter.badges?.includes('rank_3') ? 3 : null);
+                    if (!rank || rank < 1 || rank > 3) return null;
+                    const rankBg = rank === 1 ? '#7c3aed' : rank === 2 ? '#6366f1' : '#a855f7';
+                    return (
+                      <span 
+                        key={`chatter-yt-rank-${rank}`}
+                        className={`youtube-rank-badge youtube-rank-${rank}`}
+                        title={`Top Contributor #${rank}`}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          backgroundColor: rankBg,
+                          color: '#ffffff',
+                          padding: '2px 8px 2px 7px',
+                          borderRadius: '9999px',
+                          fontSize: '11.5px',
+                          fontWeight: '700',
+                          lineHeight: '1',
+                          verticalAlign: 'middle',
+                          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.4)',
+                          margin: '0 4px',
+                          flexShrink: 0
+                        }}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" style={{ width: '12px', height: '12px', display: 'block', flexShrink: 0 }}>
+                          <path d="M4 18h16" />
+                          <path d="m4 14 3.5-7 4.5 4 4.5-4 3.5 7H4Z" />
+                        </svg>
+                        <span>#{rank}</span>
+                      </span>
+                    );
+                  })()}
                 </span>
               </h3>
               <a 
