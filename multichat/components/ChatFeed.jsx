@@ -707,16 +707,25 @@ export default function ChatFeed({
     const explicitRankMap = new Map();
 
     messages.forEach(msg => {
-      if (msg.platform !== 'youtube') return;
-      const userKey = (msg.channelId || msg.authorChannelId || msg.userId || msg.username || '').toLowerCase().trim();
-      if (!userKey) return;
+      const keys = [
+        msg.channelId,
+        msg.authorChannelId,
+        msg.authorExternalChannelId,
+        msg.userId,
+        msg.username,
+        msg.displayName
+      ].filter(Boolean).map(k => String(k).toLowerCase().trim());
+
+      if (keys.length === 0) return;
 
       // Extract donation amounts
       if (msg.isSystemEvent && msg.eventType === 'donation') {
         const amtStr = msg.eventDetails?.amount || '';
         const amt = parseFloat(String(amtStr).replace(/[^\d.]/g, ''));
         if (!isNaN(amt) && amt > 0) {
-          userDonationMap.set(userKey, (userDonationMap.get(userKey) || 0) + amt);
+          keys.forEach(k => {
+            userDonationMap.set(k, (userDonationMap.get(k) || 0) + amt);
+          });
         }
       }
 
@@ -728,7 +737,9 @@ export default function ChatFeed({
         else if (msg.badges.includes('rank_3')) rank = 3;
       }
       if (rank && rank >= 1 && rank <= 3) {
-        explicitRankMap.set(userKey, rank);
+        keys.forEach(k => {
+          explicitRankMap.set(k, rank);
+        });
       }
     });
 
@@ -1926,8 +1937,30 @@ export default function ChatFeed({
 
                             {/* YouTube Top 1, #2, #3 Contributor Crown Pill Badge */}
                             {(() => {
-                              const userKey = (msg.channelId || msg.authorChannelId || msg.userId || msg.username || '').toLowerCase().trim();
-                              const rank = youtubeTop3Ranks.get(userKey) || (msg.youtubeRank && msg.youtubeRank >= 1 && msg.youtubeRank <= 3 ? msg.youtubeRank : null);
+                              const keys = [
+                                msg.channelId,
+                                msg.authorChannelId,
+                                msg.authorExternalChannelId,
+                                msg.userId,
+                                msg.username,
+                                msg.displayName
+                              ].filter(Boolean).map(k => String(k).toLowerCase().trim());
+
+                              let rank = (msg.youtubeRank && msg.youtubeRank >= 1 && msg.youtubeRank <= 3) ? msg.youtubeRank : null;
+                              if (!rank && Array.isArray(msg.badges)) {
+                                if (msg.badges.includes('rank_1')) rank = 1;
+                                else if (msg.badges.includes('rank_2')) rank = 2;
+                                else if (msg.badges.includes('rank_3')) rank = 3;
+                              }
+                              if (!rank) {
+                                for (const k of keys) {
+                                  const found = youtubeTop3Ranks.get(k);
+                                  if (found && found >= 1 && found <= 3) {
+                                    rank = found;
+                                    break;
+                                  }
+                                }
+                              }
                               if (!rank || rank < 1 || rank > 3) return null;
 
                               const rankBg = rank === 1 

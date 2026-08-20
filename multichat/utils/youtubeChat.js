@@ -1578,11 +1578,20 @@ export class YoutubeChatClient {
             tooltip.includes('leaderboard') || 
             tooltip.includes('rank') || 
             tooltip.includes('#') ||
-            iconType.includes('TOP_') || 
+            tooltip.includes('fan') ||
+            tooltip.includes('1st') ||
+            tooltip.includes('2nd') ||
+            tooltip.includes('3rd') ||
+            iconType.includes('TOP') || 
             iconType.includes('RANK') ||
-            iconType.includes('CROWN')
+            iconType.includes('CROWN') ||
+            iconType.includes('LEADERBOARD')
           ) {
-            const rankMatch = tooltip.match(/(?:#|rank\s*|top\s*(?:fan|contributor|giver)?\s*#?)(\d+)/i) || tooltip.match(/#([1-3])/);
+            const rankMatch = tooltip.match(/(?:#|rank\s*|top\s*(?:fan|contributor|giver|member)?\s*#?)(\d+)/i) || 
+                              tooltip.match(/#([1-3])/) ||
+                              (tooltip.includes('1st') || tooltip.includes('top 1') ? [, '1'] : null) ||
+                              (tooltip.includes('2nd') || tooltip.includes('top 2') ? [, '2'] : null) ||
+                              (tooltip.includes('3rd') || tooltip.includes('top 3') ? [, '3'] : null);
             if (rankMatch && rankMatch[1]) {
               const r = parseInt(rankMatch[1], 10);
               if (r >= 1 && r <= 3) {

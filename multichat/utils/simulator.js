@@ -147,6 +147,12 @@ export class ChatSimulator {
             badgeImages.member = 'https://yt3.ggpht.com/qLpx0c5tY4U2e18n2c27kC5vL1PzM3zK=s16-c-k';
           }
         }
+
+        // 15% chance to be Top 1, #2, #3 Contributor
+        if (Math.random() < 0.15) {
+          const r = Math.floor(Math.random() * 3) + 1;
+          badges.push(`rank_${r}`);
+        }
       } else if (platform === 'twitch') {
         const roles = ['broadcaster', 'moderator', 'vip', 'subscriber', 'bot'];
         const role = roles[Math.floor(Math.random() * roles.length)];
@@ -202,6 +208,7 @@ export class ChatSimulator {
       text: text,
       badges: badges,
       badgeImages: badgeImages,
+      youtubeRank: badges.find(b => typeof b === 'string' && b.startsWith('rank_')) ? parseInt(badges.find(b => typeof b === 'string' && b.startsWith('rank_')).replace('rank_', ''), 10) : undefined,
       monthsSubscribed: monthsSubscribed || undefined,
       giftedSubsCount: giftedSubsCount || undefined,
       rawTimestamp: Date.now(),

@@ -938,6 +938,37 @@ export default function OverlayView() {
                         </span>
                       );
                     }
+                    if (typeof badge === 'string' && badge.startsWith('rank_')) {
+                      const rankNum = badge.replace('rank_', '');
+                      const rankBg = rankNum === '1' ? '#4c1d95' : rankNum === '2' ? '#4338ca' : '#3b0764';
+                      return (
+                        <span 
+                          key={badge} 
+                          className={`youtube-rank-badge youtube-rank-${rankNum}`} 
+                          title={`Top Contributor #${rankNum}`}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                            backgroundColor: rankBg,
+                            color: '#ffffff',
+                            padding: '1px 6px',
+                            borderRadius: '9999px',
+                            fontSize: '11px',
+                            fontWeight: '700',
+                            lineHeight: '1',
+                            marginLeft: '4px',
+                            verticalAlign: 'middle',
+                            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.4)'
+                          }}
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '10px', height: '10px', display: 'block' }}>
+                            <path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14" />
+                          </svg>
+                          <span>#{rankNum}</span>
+                        </span>
+                      );
+                    }
                     const displayChar = 
                       badge === 'broadcaster' ? '👑' : null;
 
