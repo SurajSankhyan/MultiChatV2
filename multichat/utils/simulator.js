@@ -216,6 +216,36 @@ export class ChatSimulator {
       ? [1, 5, 10, 25, 50, 100, 200, 500][Math.floor(Math.random() * 8)]
       : 0;
 
+    let isGift = false;
+    let giftDetails = null;
+    const parts = [];
+
+    // 25% chance for YouTube to send a simulated Jewel Gift
+    if (platform === 'youtube' && Math.random() < 0.25) {
+      const mockGifts = [
+        { name: 'Samosa', jewels: '20', emoji: '🥟' },
+        { name: 'Hiding...', jewels: '10', emoji: '🙇' },
+        { name: 'Treat', jewels: '10', emoji: '🦴' },
+        { name: 'Boba', jewels: '50', emoji: '🧋' },
+        { name: 'Mic Drop', jewels: '100', emoji: '🎤' },
+        { name: 'Crown', jewels: '500', emoji: '👑' },
+        { name: 'Diamond', jewels: '1000', emoji: '💎' },
+        { name: 'Sports Car', jewels: '2500', emoji: '🏎️' }
+      ];
+      const selectedGift = mockGifts[Math.floor(Math.random() * mockGifts.length)];
+      isGift = true;
+      text = `sent ${selectedGift.name} ${selectedGift.emoji}`;
+      giftDetails = {
+        name: selectedGift.name,
+        jewels: selectedGift.jewels,
+        imageUrl: null
+      };
+      parts.push({
+        type: 'text',
+        content: `sent ${selectedGift.name} ${selectedGift.emoji}`
+      });
+    }
+
     const message = {
       id: Math.random().toString(36).substring(2, 11),
       platform: platform,
@@ -224,6 +254,9 @@ export class ChatSimulator {
       displayName: displayName,
       color: color,
       text: text,
+      parts: parts.length > 0 ? parts : [{ type: 'text', content: text }],
+      isGift: isGift,
+      giftDetails: giftDetails,
       badges: badges,
       badgeImages: badgeImages,
       youtubeRank: badges.find(b => typeof b === 'string' && b.startsWith('rank_')) ? parseInt(badges.find(b => typeof b === 'string' && b.startsWith('rank_')).replace('rank_', ''), 10) : undefined,
@@ -271,14 +304,29 @@ export class ChatSimulator {
 
     if (platform === 'youtube') {
       const rolls = Math.random();
-      if (rolls > 0.6) {
+      if (rolls > 0.7) {
+        // Community Gifted Memberships
+        const counts = [5, 10, 20, 50];
+        const count = counts[Math.floor(Math.random() * counts.length)];
+        eventType = 'subscription';
+        text = `gifted ${count} memberships to the community!`;
+        details = { 
+          tier: `Gifted ${count} Memberships`, 
+          isGift: true,
+          giftCount: count,
+          amount: `${count} Gifted Memberships`,
+          headerBg: '#0f9d58',
+          bodyBg: '#0b8043',
+          authorTextColor: '#ffffff'
+        };
+      } else if (rolls > 0.45) {
         // Super Chat
         const amounts = [1.99, 4.99, 9.99, 19.99, 49.99, 99.99];
         const amount = amounts[Math.floor(Math.random() * amounts.length)];
         eventType = 'donation';
         text = `sent a $${amount.toFixed(2)} Super Chat!`;
         details = { amount: `$${amount.toFixed(2)}`, type: 'Super Chat' };
-      } else if (rolls > 0.3) {
+      } else if (rolls > 0.2) {
         // Super Sticker
         const amounts = [2.00, 5.00, 10.00];
         const amount = amounts[Math.floor(Math.random() * amounts.length)];
@@ -290,10 +338,10 @@ export class ChatSimulator {
           stickerUrl: 'https://www.gstatic.com/youtube/img/stickers/celebration/party_popper.png'
         };
       } else {
-        // membership
+        // Direct individual membership purchase
         eventType = 'subscription';
         text = `joined the channel membership!`;
-        details = { tier: 'Member' };
+        details = { tier: 'Member', headerBg: '#0f9d58', bodyBg: '#0b8043', authorTextColor: '#ffffff' };
       }
     } else if (platform === 'kick') {
       const rolls = Math.random();

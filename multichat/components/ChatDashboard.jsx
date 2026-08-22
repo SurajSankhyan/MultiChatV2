@@ -942,12 +942,12 @@ export default function ChatDashboard({
         const normText = String(msg.text).trim();
         const existingIdx = (messagesRef.current || []).findIndex(m =>
           m.platform === msg.platform &&
-          (String(m.id || '').startsWith('opt_') || (m.platform === 'youtube' && String(m.text || '').trim() === normText)) &&
+          String(m.id || '').startsWith('opt_') &&
           String(m.text || '').trim() === normText &&
           (m.rawTimestamp || 0) >= Date.now() - 15000
         );
         if (existingIdx !== -1) {
-          // Replace the optimistic message in-place with official received message
+          // Replace the broadcaster's optimistic message in-place with official received message
           setMessages(prev => prev.map((m, idx) => {
             if (idx === existingIdx) {
               return {

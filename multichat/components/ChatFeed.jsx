@@ -378,8 +378,11 @@ const ChatMessageRow = React.memo(({
                   return null;
                 })}
               </div>
-              <span className="membership-tier" style={{ fontSize: '13px', fontWeight: 500, color: 'rgba(255, 255, 255, 0.8)' }}>
-                {msg.eventDetails?.tier || 'Member'}
+              <span className="membership-tier" style={{ fontSize: '13px', fontWeight: 600, color: 'rgba(255, 255, 255, 0.95)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                {(msg.eventDetails?.isGift || (msg.text && msg.text.toLowerCase().includes('gift'))) && (
+                  <span style={{ fontSize: '14px' }}>🎁</span>
+                )}
+                {msg.eventDetails?.tier || msg.text || 'Member'}
               </span>
             </div>
             <div className="membership-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative', marginLeft: 'auto' }} onClick={(e) => e.stopPropagation()}>
@@ -457,6 +460,51 @@ const ChatMessageRow = React.memo(({
               </div>
             </div>
           )}
+        </div>
+      );
+    } else if (msg.eventType === 'system' || msg.username === 'system' || msg.displayName === 'SYSTEM') {
+      element = (
+        <div 
+          key={msg.id} 
+          className={`system-event-row system-notification-row ${msg.platform}-system`}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '7px 12px',
+            margin: '4px 0',
+            backgroundColor: 'rgba(59, 130, 246, 0.08)',
+            border: '1px solid rgba(59, 130, 246, 0.22)',
+            borderRadius: '8px',
+            fontSize: '12px'
+          }}
+        >
+          {settings.showIcons && (
+            <span className="msg-platform-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <PlatformLogo platform={msg.platform} isShorts={msg.isShorts} size={14} />
+            </span>
+          )}
+          <span 
+            className="system-badge-tag"
+            style={{
+              fontSize: '10px',
+              fontWeight: 800,
+              letterSpacing: '0.6px',
+              padding: '1px 6px',
+              borderRadius: '4px',
+              backgroundColor: 'rgba(59, 130, 246, 0.25)',
+              color: '#93c5fd',
+              border: '1px solid rgba(59, 130, 246, 0.4)',
+              textTransform: 'uppercase',
+              userSelect: 'none',
+              flexShrink: 0
+            }}
+          >
+            SYSTEM
+          </span>
+          <span className="system-event-text" style={{ flex: 1, color: 'rgba(255, 255, 255, 0.88)', lineHeight: 1.4 }}>
+            {msg.text}
+          </span>
         </div>
       );
     } else {
@@ -631,20 +679,29 @@ const ChatMessageRow = React.memo(({
           )}
 
           <div className="msg-content-wrapper" style={{ minWidth: 0, flex: 1, wordBreak: 'break-word' }}>
-            {settings.showBadges && (
+            {/* Pre-username badges (Kick, Twitch, and other platforms) */}
+            {settings.showBadges && msg.platform !== 'youtube' && (
               <>
                 {msg.platform === 'kick' && sortKickBadges(msg.badges).map((badge, bIdx) => renderKickBadge(badge, msg))}
-                {msg.platform === 'youtube' && msg.badges && msg.badges.map((badge, bIdx) => renderYoutubeBadge(badge, msg))}
                 {msg.platform === 'twitch' && msg.badges && msg.badges.map((badge, bIdx) => renderTwitchBadge(badge, msg))}
-                {msg.platform !== 'kick' && msg.platform !== 'youtube' && msg.platform !== 'twitch' && msg.badges && msg.badges.map((badge, bIdx) => {
+                {msg.platform !== 'kick' && msg.platform !== 'twitch' && msg.badges && msg.badges.map((badge, bIdx) => {
                   let badgeEl = null;
                   if (badge === 'broadcaster') badgeEl = <span className="msg-badge broadcaster">OWNER</span>;
                   else if (badge === 'moderator') badgeEl = <span className="msg-badge moderator">MOD</span>;
                   else if (badge === 'subscriber') badgeEl = <DefaultSubscriberBadge />;
                   return renderBadgeWithTooltip(badgeEl, badge, `${msg.id}-${badge}-${bIdx}`);
                 })}
-                {renderUsernameWithTooltip(msg, '', { color: getUsernameColor(msg) })}
               </>
+            )}
+
+            {/* Username */}
+            {renderUsernameWithTooltip(msg, '', { color: getUsernameColor(msg) })}
+
+            {/* Post-username badges (YouTube native standard) */}
+            {settings.showBadges && msg.platform === 'youtube' && msg.badges && msg.badges.length > 0 && (
+              <span className="youtube-badges-wrapper">
+                {msg.badges.map((badge, bIdx) => renderYoutubeBadge(badge, msg))}
+              </span>
             )}
 
             {isHiddenOrDeleted ? (
@@ -671,6 +728,15 @@ const ChatMessageRow = React.memo(({
                       const rawC = typeof part === 'string' ? part : (typeof part?.content === 'string' ? part.content : (typeof part?.text === 'string' ? part.text : ''));
                       return <span key={index}>{rawC}</span>;
                     }) : String(msg.text || '')}
+                    {msg.giftDetails && msg.giftDetails.jewels && (
+                      <span className="youtube-jewels-badge" title={`${msg.giftDetails.jewels} Jewels`}>
+                        <svg className="jewel-icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M6 3h12l4 7-10 12L2 10l4-7z" fill="url(#jewelGradient-feed)" stroke="#ff74c8" strokeWidth="1.2" strokeLinejoin="round"/>
+                          <path d="M2 10h20M12 22L7.5 10M12 22l4.5-12M6 3l1.5 7M18 3l-1.5 7M12 3v7" stroke="#ffffff" strokeOpacity="0.5" strokeWidth="0.8"/>
+                        </svg>
+                        <span>{msg.giftDetails.jewels}</span>
+                      </span>
+                    )}
                   </span>
                 </>
               ) : (
@@ -763,6 +829,15 @@ const ChatMessageRow = React.memo(({
                     })
                   ) : (
                     <span>{String(msg.text || '')}</span>
+                  )}
+                  {msg.giftDetails && msg.giftDetails.jewels && (
+                    <span className="youtube-jewels-badge" title={`${msg.giftDetails.jewels} Jewels`}>
+                      <svg className="jewel-icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M6 3h12l4 7-10 12L2 10l4-7z" fill="url(#jewelGradient-feed)" stroke="#ff74c8" strokeWidth="1.2" strokeLinejoin="round"/>
+                        <path d="M2 10h20M12 22L7.5 10M12 22l4.5-12M6 3l1.5 7M18 3l-1.5 7M12 3v7" stroke="#ffffff" strokeOpacity="0.5" strokeWidth="0.8"/>
+                      </svg>
+                      <span>{msg.giftDetails.jewels}</span>
+                    </span>
                   )}
                 </span>
               </>
@@ -1930,19 +2005,16 @@ export default function ChatFeed({
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '4px',
+            gap: '3px',
             backgroundColor: rankBg,
             color: '#ffffff',
-            padding: '2px 8px 2px 7px',
+            padding: '1px 6px',
             borderRadius: '9999px',
-            fontSize: '12px',
+            fontSize: '11px',
             fontWeight: '800',
             lineHeight: '1',
-            verticalAlign: 'middle',
-            letterSpacing: '-0.2px',
             boxShadow: '0 1px 3px rgba(0, 0, 0, 0.4)',
             userSelect: 'none',
-            margin: '0 4px',
             flexShrink: 0
           }}
         >
@@ -1953,7 +2025,7 @@ export default function ChatFeed({
             strokeWidth="2" 
             strokeLinecap="round" 
             strokeLinejoin="round" 
-            style={{ width: '13px', height: '13px', display: 'block', flexShrink: 0 }}
+            style={{ width: '12px', height: '12px', display: 'block', flexShrink: 0 }}
           >
             <circle cx="3.5" cy="6" r="1.3" fill="#ffffff" stroke="none" />
             <circle cx="12" cy="3" r="1.3" fill="#ffffff" stroke="none" />
@@ -1970,17 +2042,17 @@ export default function ChatFeed({
     let badgeEl = null;
     if (badge === 'verified') {
       badgeEl = (
-        <span key={`${msg.id}-${badge}`} className="youtube-chatter-verified-badge" title="Verified">
-          <svg className="youtube-svg-element" viewBox="2 5 20 15" fill="#999999" style={{ width: 14, height: 14, display: 'inline-block', verticalAlign: 'middle' }}>
-            <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" />
+        <span key={`${msg.id}-${badge}`} className="youtube-chatter-badge youtube-chatter-verified-badge" title="Verified">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#999999" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="20 6 9 17 4 12" />
           </svg>
         </span>
       );
     } else if (badge === 'moderator') {
       badgeEl = (
-        <span key={`${msg.id}-${badge}`} className="youtube-chatter-moderator-badge" title="Moderator">
-          <svg className="youtube-svg-element" viewBox="3 1 18 22" fill="#5e84f1" style={{ width: 14, height: 14, display: 'inline-block', verticalAlign: 'middle' }}>
-            <path d="M3 4.998v9.857a6 6 0 003.365 5.39L12 23l5.635-2.755A6 6 0 0021 14.855V4.998a1 1 0 00-.656-.938L12 1 3.656 4.06A1 1 0 003 4.998Z" />
+        <span key={`${msg.id}-${badge}`} className="youtube-chatter-badge youtube-chatter-moderator-badge" title="Moderator">
+          <svg viewBox="0 0 24 24" fill="#5e84f1">
+            <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" />
           </svg>
         </span>
       );
@@ -1988,19 +2060,19 @@ export default function ChatFeed({
       const badgeImageUrl = msg.badgeImages && msg.badgeImages[badge];
       if (badgeImageUrl) {
         badgeEl = (
-          <img 
-            key={`${msg.id}-${badge}`} 
-            className="msg-badge-icon" 
-            src={badgeImageUrl} 
-            alt={badge === 'member' ? 'Member' : badge === 'subscriber' ? 'Member' : badge} 
-            title={badge === 'member' ? 'Member' : badge === 'subscriber' ? 'Member' : badge}
-            style={{ width: 16, height: 16, display: 'inline-block', verticalAlign: 'middle', margin: '0 2px' }}
-          />
+          <span key={`${msg.id}-${badge}`} className="youtube-chatter-badge" title={badge === 'member' ? 'Member' : badge === 'subscriber' ? 'Member' : badge}>
+            <img 
+              className="msg-badge-icon" 
+              src={badgeImageUrl} 
+              alt={badge === 'member' ? 'Member' : badge === 'subscriber' ? 'Member' : badge} 
+              style={{ width: '14px', height: '14px', objectFit: 'contain', display: 'block' }}
+            />
+          </span>
         );
       } else if (badge === 'subscriber' || badge === 'member') {
         badgeEl = (
-          <span key={`${msg.id}-${badge}`} style={{ display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle', marginRight: '4px' }} title={badge === 'member' ? 'Member' : 'Subscriber'}>
-            <DefaultSubscriberBadge size="1.1em" />
+          <span key={`${msg.id}-${badge}`} className="youtube-chatter-badge" title={badge === 'member' ? 'Member' : 'Subscriber'}>
+            <DefaultSubscriberBadge size="14px" />
           </span>
         );
       }
@@ -2142,6 +2214,12 @@ export default function ChatFeed({
           <clipPath id="KickBotBadgeClipPath">
             <rect width="32" height="32" fill="white" />
           </clipPath>
+
+          {/* YouTube Jewels Badge Gradient */}
+          <linearGradient id="jewelGradient-feed" x1="2" y1="3" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#FF4BB4" />
+            <stop offset="1" stopColor="#9B00E8" />
+          </linearGradient>
         </defs>
       </svg>
 
