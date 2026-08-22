@@ -28,7 +28,7 @@ import {
   Gift,
   Crown
 } from 'lucide-react';
-import ChatFeed from './ChatFeed';
+import ChatFeed, { checkIsMentioned } from './ChatFeed';
 import ChatInput from './ChatInput';
 import SpidermanPet from './SpidermanPet';
 import ChatterInsights from './ChatterInsights';
@@ -41,6 +41,18 @@ import { TwitchChatClient } from '../utils/twitchChat';
 import { KickChatClient } from '../utils/kickChat';
 import { YoutubeChatClient, calculateYoutubeTop3Ranks } from '../utils/youtubeChat';
 import { ChatSimulator } from '../utils/simulator';
+
+export const isBotMessage = (msg) => {
+  if (!msg) return false;
+  const nameLower = (msg.username || '').toLowerCase().replace(/^@+/, '').trim();
+  const displayLower = (msg.displayName || '').toLowerCase().replace(/^@+/, '').trim();
+  const knownBots = ['streamelements', 'nightbot', 'wizebot', 'fossabot', 'moobot', 'botrix', 'soundalerts', 'streamlabs', 'kbot', 'botrixoficial', 'botrixofficial', 'kickbot'];
+  if (knownBots.includes(nameLower) || knownBots.includes(displayLower)) return true;
+  if (nameLower.endsWith('bot') || displayLower.endsWith('bot')) return true;
+  if (Array.isArray(msg.badges) && (msg.badges.includes('bot') || msg.badges.includes('verified_bot'))) return true;
+  if (msg.userRole === 'bot') return true;
+  return false;
+};
 const isDefaultAvatar = (url) => {
   if (!url || typeof url !== 'string') return true;
   const lower = url.trim().toLowerCase();
@@ -545,11 +557,21 @@ export default function ChatDashboard({
   const [moderation, setModeration] = useState(() => {
     try {
       const storedDeleted = typeof window !== 'undefined' ? localStorage.getItem('prochat_deleted_msg_ids') : null;
+      const storedDeletedBy = typeof window !== 'undefined' ? localStorage.getItem('prochat_deleted_by_map') : null;
       const storedTimedOut = typeof window !== 'undefined' ? localStorage.getItem('prochat_timed_out_users') : null;
       const storedBanned = typeof window !== 'undefined' ? localStorage.getItem('prochat_banned_users') : null;
 
       const deletedSet = storedDeleted ? new Set(JSON.parse(storedDeleted)) : new Set();
       const bannedSet = storedBanned ? new Set(JSON.parse(storedBanned)) : new Set();
+      const deletedByMap = new Map();
+      if (storedDeletedBy) {
+        try {
+          const arr = JSON.parse(storedDeletedBy);
+          if (Array.isArray(arr)) {
+            arr.forEach(([id, actor]) => deletedByMap.set(id, actor));
+          }
+        } catch (e) {}
+      }
       
       const timedOutMap = new Map();
       if (storedTimedOut) {
@@ -563,13 +585,15 @@ export default function ChatDashboard({
       return {
         bannedUsers: bannedSet,
         timedOutUsers: timedOutMap,
-        deletedMessageIds: deletedSet
+        deletedMessageIds: deletedSet,
+        deletedByMap
       };
     } catch (e) {
       return {
         bannedUsers: new Set(),
         timedOutUsers: new Map(),
-        deletedMessageIds: new Set()
+        deletedMessageIds: new Set(),
+        deletedByMap: new Map()
       };
     }
   });
@@ -578,6 +602,7 @@ export default function ChatDashboard({
     try {
       if (typeof window !== 'undefined') {
         localStorage.setItem('prochat_deleted_msg_ids', JSON.stringify(Array.from(moderation.deletedMessageIds)));
+        localStorage.setItem('prochat_deleted_by_map', JSON.stringify(Array.from(moderation.deletedByMap ? moderation.deletedByMap.entries() : [])));
         localStorage.setItem('prochat_banned_users', JSON.stringify(Array.from(moderation.bannedUsers)));
         localStorage.setItem('prochat_timed_out_users', JSON.stringify(Array.from(moderation.timedOutUsers.entries())));
       }
@@ -642,8 +667,6 @@ export default function ChatDashboard({
   const [activeTab, setActiveTab] = useState('all');
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [isSidebarHidden, setIsSidebarHidden] = useState(false);
-  const [uptime, setUptime] = useState(null);
-  const [viewerCount, setViewerCount] = useState(19);
   const [streamStartTimes, setStreamStartTimes] = useState(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -656,6 +679,29 @@ export default function ChatDashboard({
     }
     return {};
   });
+
+  const [uptime, setUptime] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('prochat_cached_stream_start_times');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed && typeof parsed === 'object') {
+            const times = Object.values(parsed)
+              .map(t => parseStartTimeMs(t))
+              .filter(t => t !== null && t > 0 && t <= Date.now() + 60000);
+            if (times.length > 0) {
+              const earliest = Math.min(...times);
+              const diffSecs = Math.floor((Date.now() - earliest) / 1000);
+              return diffSecs >= 0 ? diffSecs : 0;
+            }
+          }
+        }
+      } catch (e) {}
+    }
+    return null;
+  });
+  const [viewerCount, setViewerCount] = useState(19);
 
   // Drag and Drop state for reordering channels
   const [draggedIndex, setDraggedIndex] = useState(null);
@@ -767,72 +813,110 @@ export default function ChatDashboard({
     let messageBuffer = [];
     let dripTimer = null;
 
-    // Drip messages one at a time for smooth rendering
-    const startDrip = () => {
-      if (dripTimer) return;
-      dripTimer = setInterval(() => {
-        if (messageBuffer.length === 0) {
+    const drainBuffer = () => {
+      if (messageBuffer.length === 0) {
+        if (dripTimer) {
           clearInterval(dripTimer);
           dripTimer = null;
-          return;
         }
-        
-        const msg = messageBuffer.shift();
-        if (msg) {
-          try {
-            setMessages(prev => {
-              if (prev.some(m => m.id === msg.id)) return prev;
-              const next = [...prev, msg];
-              return next.length > 500 ? next.slice(-500) : next;
-            });
+        return;
+      }
 
-            const cfg = settingsRef.current;
-            if (msg.isSystemEvent) {
-              if (cfg.enableAlertSound) {
-                playAlertSound(
-                  (cfg.alertSoundVolume !== undefined ? cfg.alertSoundVolume : 50) / 100,
-                  cfg.alertSoundType || 'bell'
-                );
-              }
-            } else {
-              const u = userRef.current;
-              const hasBroadcasterBadge = Array.isArray(msg.badges) && msg.badges.includes('broadcaster');
-              const isMe = (msg.username || '').toLowerCase() === (u?.username || '').toLowerCase() || hasBroadcasterBadge;
-              
-              if (!isMe) {
-                // Mention sound play checking
-                if (cfg.enableMentionSound) {
-                  const nameLower = (u?.username || 'streamer').toLowerCase();
-                  const rawTextStr = typeof msg.text === 'string' ? msg.text : String(msg.text || '');
-                  const msgLower = rawTextStr.toLowerCase();
-                  const isMentioned = msgLower.includes(`@${nameLower}`) || msgLower.includes(nameLower);
-                  if (isMentioned) {
-                    playMentionSound(
-                      (cfg.mentionSoundVolume !== undefined ? cfg.mentionSoundVolume : 50) / 100,
-                      cfg.mentionSoundType || 'bell'
-                    );
-                  }
-                }
+      // Adaptive batch size: if buffer is small, process 1-2 msgs; if flooded, process up to 50 msgs per tick
+      const batchSize = Math.min(messageBuffer.length, messageBuffer.length > 50 ? 50 : (messageBuffer.length > 20 ? 20 : (messageBuffer.length > 5 ? 5 : 1)));
+      const batch = messageBuffer.splice(0, batchSize);
 
-                // TTS speak checking
-                if (cfg.enableTts) {
-                  const rawTextStr = typeof msg.text === 'string' ? msg.text : String(msg.text || '');
-                  speakMessage(
-                    msg.displayName || msg.username || 'User',
-                    rawTextStr,
-                    (cfg.ttsVolume !== undefined ? cfg.ttsVolume : 50) / 100,
-                    cfg.ttsSpeed !== undefined ? cfg.ttsSpeed : 1.0,
-                    cfg.ttsReadUsernames !== false,
-                    cfg.ttsVoiceName
+      setMessages(prev => {
+        if (!batch || batch.length === 0) return prev;
+        const seen = new Set();
+        const startIdx = Math.max(0, prev.length - 200);
+        for (let i = startIdx; i < prev.length; i++) {
+          if (prev[i]?.id) seen.add(prev[i].id);
+        }
+        const toAdd = [];
+        for (let i = 0; i < batch.length; i++) {
+          const item = batch[i];
+          if (item && item.id) {
+            if (seen.has(item.id)) continue;
+            seen.add(item.id);
+          }
+          toAdd.push(item);
+        }
+        if (toAdd.length === 0) return prev;
+        return [...prev, ...toAdd];
+      });
+
+      // Process notifications / sounds / TTS for the batch
+      const cfg = settingsRef.current;
+      const u = userRef.current;
+      const nameLower = (u?.username || 'streamer').toLowerCase();
+
+      for (const msg of batch) {
+        try {
+          if (msg.isSystemEvent) {
+            if (cfg.enableAlertSound) {
+              playAlertSound(
+                (cfg.alertSoundVolume !== undefined ? cfg.alertSoundVolume : 50) / 100,
+                cfg.alertSoundType || 'bell'
+              );
+            }
+            if (cfg.enableSuperchatTts && (msg.eventType === 'donation' || msg.isSuperChat)) {
+              const amountStr = msg.eventDetails?.amount || '';
+              const textToSpeak = `${msg.displayName || msg.username || 'Someone'} sent ${amountStr}${msg.text ? ': ' + msg.text : ''}`;
+              speakMessage(
+                '',
+                textToSpeak,
+                (cfg.ttsVolume !== undefined ? cfg.ttsVolume : 50) / 100,
+                cfg.ttsSpeed !== undefined ? cfg.ttsSpeed : 1.0,
+                false,
+                cfg.ttsVoiceName
+              );
+            }
+          } else {
+            const hasBroadcasterBadge = Array.isArray(msg.badges) && msg.badges.includes('broadcaster');
+            const isMe = (msg.username || '').toLowerCase() === (u?.username || '').toLowerCase() || hasBroadcasterBadge;
+            const isBot = isBotMessage(msg);
+
+            if (!isMe) {
+              // Mention sound
+              if (cfg.enableMentionSound && (!isBot || !cfg.hideBotMessages)) {
+                const rawTextStr = typeof msg.text === 'string' ? msg.text : String(msg.text || '');
+                const msgLower = rawTextStr.toLowerCase();
+                const isMentioned = msgLower.includes(`@${nameLower}`) || msgLower.includes(nameLower);
+                if (isMentioned) {
+                  playMentionSound(
+                    (cfg.mentionSoundVolume !== undefined ? cfg.mentionSoundVolume : 50) / 100,
+                    cfg.mentionSoundType || 'bell'
                   );
                 }
               }
+
+              // TTS speak checking - respect hideBotMessages and ttsIgnoreBots
+              const shouldIgnoreBot = isBot && (cfg.hideBotMessages || cfg.ttsIgnoreBots !== false);
+              if (cfg.enableTts && !shouldIgnoreBot) {
+                const rawTextStr = typeof msg.text === 'string' ? msg.text : String(msg.text || '');
+                speakMessage(
+                  msg.displayName || msg.username || 'User',
+                  rawTextStr,
+                  (cfg.ttsVolume !== undefined ? cfg.ttsVolume : 50) / 100,
+                  cfg.ttsSpeed !== undefined ? cfg.ttsSpeed : 1.0,
+                  cfg.ttsReadUsernames !== false,
+                  cfg.ttsVoiceName
+                );
+              }
             }
-          } catch (dripErr) {
-            console.warn('[MultiChat] Drip notification check exception:', dripErr);
           }
+        } catch (err) {
+          console.warn('[MultiChat] Notification processing error:', err);
         }
-      }, 50); // 50ms per message = up to 20 messages/sec smooth rendering
+      }
+    };
+
+    // Drip / adaptive batch flush
+    const startDrip = () => {
+      if (dripTimer) return;
+      drainBuffer();
+      dripTimer = setInterval(drainBuffer, 40);
     };
 
     // Callback for incoming messages — never drops messages & deduplicates optimistic/sent messages
@@ -1020,18 +1104,7 @@ export default function ChatDashboard({
           return next;
         });
 
-        setStreamStartTimes(prev => {
-          const next = { ...prev };
-          delete next[ch];
-          delete next[rawClean];
-          delete next[atClean];
-          delete next[justClean];
-          delete next[lowerCh];
-          delete next[lowerRaw];
-          delete next[lowerAt];
-          localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next));
-          return next;
-        });
+        // Clear viewers and likes on offline/disconnect
         setStreamViewers(prev => {
           const next = { ...prev };
           delete next[ch];
@@ -1097,11 +1170,11 @@ export default function ChatDashboard({
           return msg;
         }));
       },
-      (msgId, authorChannelId) => {
+      (msgId, authorChannelId, deletedBy) => {
         if (msgId) {
-          handleDeleteMessage(msgId);
+          handleDeleteMessage(msgId, deletedBy);
         } else if (authorChannelId) {
-          handleDeleteUserMessages(authorChannelId);
+          handleDeleteUserMessages(authorChannelId, deletedBy);
         }
       }
     );
@@ -1601,18 +1674,15 @@ export default function ChatDashboard({
   };
 
   const getModeratorHandle = (msgObj) => {
-    const channelName = msgObj?.channel || '';
-    if (channelName && channelName !== 'global') {
-      return channelName.replace(/^@+/, '');
+    const verifiedCh = activeChannels.find(ch => ch.enabled && ch.verified && ch.platform === msgObj?.platform);
+    if (verifiedCh) {
+      return (verifiedCh.displayName || verifiedCh.name || '').replace(/^@+/, '');
     }
-    const ytChan = activeChannels.find(ch => ch.enabled && ch.platform === 'youtube');
-    if (ytChan && ytChan.name) {
-      return ytChan.name.replace(/^@+/, '');
+    const custom = user?.custom_handle || user?.ytCustomHandle || user?.channel_name || user?.ytChannelName || user?.username || user?.user_metadata?.custom_handle || user?.user_metadata?.full_name;
+    if (custom && custom !== 'Streamer' && !custom.toLowerCase().includes('404')) {
+      return custom.replace(/^@+/, '');
     }
-    if (user?.user_metadata?.custom_handle) {
-      return user.user_metadata.custom_handle.replace(/^@+/, '');
-    }
-    return 'username';
+    return '';
   };
 
   const formatDurationText = (sec) => {
@@ -1626,16 +1696,35 @@ export default function ChatDashboard({
   };
 
   // Moderation Handlers
-  const handleDeleteMessage = async (msgOrId) => {
+  const handleDeleteMessage = async (msgOrId, explicitDeletedBy = null) => {
     const msgId = typeof msgOrId === 'object' ? msgOrId.id : msgOrId;
     const msgObj = typeof msgOrId === 'object' 
       ? msgOrId 
       : messages.find(m => String(m.id) === String(msgId));
     
+    // Check if the channel is connected with the current account
+    const isChannelConnected = activeChannels.some(ch => 
+      ch.platform === msgObj?.platform && 
+      ch.verified && 
+      ch.enabled &&
+      (ch.name?.toLowerCase().replace(/^@+/, '') === (msgObj?.channel || '').toLowerCase().replace(/^@+/, '') ||
+       ch.id === msgObj?.channelId)
+    );
+
+    let modActor = explicitDeletedBy || (typeof msgOrId === 'object' && msgOrId?.deletedBy ? msgOrId.deletedBy : null);
+    if (!modActor && isChannelConnected) {
+      const handle = getModeratorHandle(msgObj);
+      if (handle) modActor = handle;
+    }
+
     setModeration(prev => {
       const next = new Set(prev.deletedMessageIds);
       next.add(msgId);
-      return { ...prev, deletedMessageIds: next };
+      const nextMap = new Map(prev.deletedByMap || []);
+      if (modActor) {
+        nextMap.set(msgId, modActor);
+      }
+      return { ...prev, deletedMessageIds: next, deletedByMap: nextMap };
     });
 
     const platform = msgObj?.platform || 'youtube';
@@ -1672,17 +1761,20 @@ export default function ChatDashboard({
     }
   };
 
-  const handleDeleteUserMessages = (authorChannelId) => {
+  const handleDeleteUserMessages = (authorChannelId, explicitDeletedBy = null) => {
     setMessages(prevMessages => {
-      const targetIds = prevMessages
-        .filter(msg => msg.platform === 'youtube' && msg.channelId === authorChannelId)
-        .map(msg => msg.id);
+      const targetMsgs = prevMessages.filter(msg => msg.platform === 'youtube' && msg.channelId === authorChannelId);
+      const targetIds = targetMsgs.map(msg => msg.id);
 
       if (targetIds.length > 0) {
         setModeration(prev => {
           const next = new Set(prev.deletedMessageIds);
-          targetIds.forEach(id => next.add(id));
-          return { ...prev, deletedMessageIds: next };
+          const nextMap = new Map(prev.deletedByMap || []);
+          targetIds.forEach(id => {
+            next.add(id);
+            if (explicitDeletedBy) nextMap.set(id, explicitDeletedBy);
+          });
+          return { ...prev, deletedMessageIds: next, deletedByMap: nextMap };
         });
       }
       return prevMessages;
@@ -2140,10 +2232,18 @@ export default function ChatDashboard({
     });
   }, []);
 
-  // Always exactly 200 messages in the DOM.
-  // In live mode the window slides forward with new messages.
-  // In history mode the window is frozen (new messages accumulate in unreadCount).
   const recentMessages = useMemo(() => {
+    if (activeTab === 'events') {
+      const events = messages.filter(m => m.isSystemEvent);
+      if (events.length <= 200) return events;
+      return events.slice(-200);
+    }
+    if (activeTab === 'mentions') {
+      const mentions = messages.filter(m => checkIsMentioned(m.text, user, activeChannels));
+      if (mentions.length <= 200) return mentions;
+      return mentions.slice(-200);
+    }
+
     if (windowEnd === null) {
       if (messages.length <= 200) return messages;
       return messages.slice(-200); // live: always newest 200
@@ -2151,7 +2251,7 @@ export default function ChatDashboard({
     const end = Math.min(windowEnd, messages.length);
     const start = Math.max(0, end - 200);
     return messages.slice(start, end);            // history: frozen 200-message window
-  }, [messages, windowEnd]);
+  }, [messages, windowEnd, activeTab, user, activeChannels]);
 
   // True when the visible window doesn't start at the very beginning of history
   const hasMore = windowEnd !== null ? windowEnd > 200 : messages.length > 200;

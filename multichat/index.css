@@ -1112,10 +1112,10 @@ body {
   gap: 8px;
   padding: 6px 24px 6px 12px;
   position: relative;
-  animation: slideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   line-height: 1.6;
   border-left: 2px solid transparent;
-  transition: all var(--transition-fast);
+  transition: background 0.15s ease, border-left-color 0.15s ease;
+  contain: layout style;
 }
 
 .chat-message-row.row-even {

@@ -1306,25 +1306,49 @@ export class YoutubeChatClient {
             const authorMarkDeleted = action.markChatItemsByAuthorAsDeletedAction;
             const authorRemoveDeleted = action.removeChatItemsByAuthorAction;
 
+            let deletedBy = null;
+            if (markDeleted && markDeleted.deletedStateMessageSnippet) {
+              const snippet = markDeleted.deletedStateMessageSnippet;
+              if (Array.isArray(snippet.runs)) {
+                for (const r of snippet.runs) {
+                  if (r && r.text) {
+                    const cleanText = r.text.trim();
+                    if (cleanText.startsWith('@')) {
+                      deletedBy = cleanText.replace(/^@+/, '');
+                      break;
+                    }
+                  }
+                }
+                if (!deletedBy) {
+                  const combined = snippet.runs.map(r => r.text || '').join('');
+                  const m = combined.match(/deleted by\s+@?([^\s.]+)/i);
+                  if (m && m[1]) deletedBy = m[1].replace(/^@+/, '').trim();
+                }
+              } else if (typeof snippet.simpleText === 'string') {
+                const m = snippet.simpleText.match(/deleted by\s+@?([^\s.]+)/i);
+                if (m && m[1]) deletedBy = m[1].replace(/^@+/, '').trim();
+              }
+            }
+
             if (markDeleted && markDeleted.targetItemId) {
               const targetId = markDeleted.targetItemId;
               if (this.onMessageDeleted) {
-                this.onMessageDeleted(targetId, null);
+                this.onMessageDeleted(targetId, null, deletedBy);
               }
             } else if (removeDeleted && removeDeleted.targetItemId) {
               const targetId = removeDeleted.targetItemId;
               if (this.onMessageDeleted) {
-                this.onMessageDeleted(targetId, null);
+                this.onMessageDeleted(targetId, null, null);
               }
             } else if (authorMarkDeleted && authorMarkDeleted.externalChannelId) {
               const authorId = authorMarkDeleted.externalChannelId;
               if (this.onMessageDeleted) {
-                this.onMessageDeleted(null, authorId);
+                this.onMessageDeleted(null, authorId, deletedBy);
               }
             } else if (authorRemoveDeleted && authorRemoveDeleted.externalChannelId) {
               const authorId = authorRemoveDeleted.externalChannelId;
               if (this.onMessageDeleted) {
-                this.onMessageDeleted(null, authorId);
+                this.onMessageDeleted(null, authorId, null);
               }
             }
           });

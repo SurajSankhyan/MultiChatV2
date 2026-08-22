@@ -22,13 +22,21 @@ export const EMOTE_MAP = {
   GigaChad: 'https://cdn.7tv.app/emote/6122d26fdf21c83a7c645b20/1x.webp'
 };
 
+const PARSE_CACHE = new Map();
+const MAX_PARSE_CACHE = 2000;
+
 /**
  * Parses a plain text message and replaces matching emote words with HTML img elements.
  * Returns an array of message parts (either strings or object representing emote image).
- * This makes it safe and easy to render in React.
+ * Memoized with an LRU cache for 0ms execution on repeated renders.
  */
 export function parseMessageContent(text) {
   if (!text) return [];
+  if (typeof text !== 'string') return [{ type: 'text', content: String(text) }];
+  
+  const cached = PARSE_CACHE.get(text);
+  if (cached) return cached;
+
   const words = text.split(' ');
   const parts = [];
 
@@ -52,6 +60,12 @@ export function parseMessageContent(text) {
       }
     }
   }
+
+  if (PARSE_CACHE.size >= MAX_PARSE_CACHE) {
+    const firstKey = PARSE_CACHE.keys().next().value;
+    PARSE_CACHE.delete(firstKey);
+  }
+  PARSE_CACHE.set(text, parts);
 
   return parts;
 }

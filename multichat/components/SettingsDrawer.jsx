@@ -1193,6 +1193,21 @@ export default function SettingsDrawer({
                     </label>
                   </div>
 
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: 14, color: '#d4d4d4' }}>Ignore Bot Messages (TTS)</span>
+                      <span style={{ fontSize: 11, color: '#71717a' }}>Skip reading Nightbot, StreamElements, BotRix, etc.</span>
+                    </div>
+                    <label className="switch">
+                      <input 
+                        type="checkbox" 
+                        checked={settings.ttsIgnoreBots !== false}
+                        onChange={(e) => updateSettings({ ttsIgnoreBots: e.target.checked })}
+                      />
+                      <span className="slider"></span>
+                    </label>
+                  </div>
+
                   <div className="setting-section">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                       <label style={{ fontSize: 13, fontWeight: 600, color: '#d4d4d4' }}>TTS Volume</label>

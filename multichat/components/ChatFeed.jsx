@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { parseMessageContent } from '../utils/emotes';
 import { ArrowDown, MessageSquare, MoreVertical, Volume2, User, ShieldAlert, Trash2, Star, ExternalLink, Clock, ShieldCheck, ShieldOff, ChevronRight } from 'lucide-react';
 import PlatformLogo, { DefaultSubscriberBadge, KickGiftedSubsBadge, TwitchDefaultSubscriberBadge } from './PlatformLogo';
-import { Tooltip, TooltipTrigger, TooltipContent } from './ui/interfaces-tooltip';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from './ui/interfaces-tooltip';
 import { getLiveTwitchBadgeUrl } from '../utils/twitchChat';
 import { calculateYoutubeTop3Ranks } from '../utils/youtubeChat';
 import { requestKickAvatar } from '../utils/kickAvatarResolver';
@@ -78,6 +78,52 @@ const getDefaultAvatar = (platform, username, id) => {
   return `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" rx="12" fill="%231a1a1a"/><circle cx="12" cy="8" r="3.5" fill="%23888888"/><path d="M12 14c-4 0-6 2-6 3v1h12v-1c0-1-2-3-6-3z" fill="%23888888"/></svg>`;
 };
 
+const resolveMessageAvatar = (msg, user) => {
+  if (msg._resolvedAvatar) return msg._resolvedAvatar;
+
+  const cleanUser = (msg.username || '').toLowerCase().replace(/^@+/, '').trim();
+  const cleanDisplay = (msg.displayName || '').toLowerCase().replace(/^@+/, '').trim();
+  const creatorUser = (user?.username || '').toLowerCase().replace(/^@+/, '').trim();
+  const creatorAvatar = user?.avatarUrl || (typeof user?.avatar === 'string' && user?.avatar.startsWith('http') ? user.avatar : null);
+  const isCreatorUser = Boolean(cleanUser && creatorUser && (cleanUser === creatorUser));
+
+  let avatarUrl = null;
+  if (msg.platform === 'kick') {
+    const cached = (cleanUser ? GLOBAL_AVATAR_CACHE.get(cleanUser) : null) || 
+                   (cleanDisplay ? GLOBAL_AVATAR_CACHE.get(cleanDisplay) : null) || 
+                   (isCreatorUser ? creatorAvatar : null) ||
+                   (cleanUser ? requestKickAvatar(cleanUser, msg.userId) : null);
+    const rawMsgAvatar = msg.avatarUrl || msg.avatar;
+    if (cached && typeof cached === 'string' && cached.length > 5 && !cached.includes('/kick-default-avatars/')) {
+      avatarUrl = proxifyAvatarUrl(cached);
+    } else if (rawMsgAvatar && typeof rawMsgAvatar === 'string' && rawMsgAvatar.startsWith('http') && !isDefaultAvatar(rawMsgAvatar) && !rawMsgAvatar.includes('default-avatar')) {
+      avatarUrl = proxifyAvatarUrl(rawMsgAvatar);
+    } else {
+      avatarUrl = getKickDefaultAvatarUrl(msg.username, msg.userId);
+    }
+  } else {
+    const rawMsgAvatar = msg.avatarUrl || msg.avatar;
+    let resolvedAvatar = rawMsgAvatar;
+    if (isDefaultAvatar(resolvedAvatar)) {
+      resolvedAvatar = (cleanUser ? GLOBAL_AVATAR_CACHE.get(cleanUser) : null) || 
+                       (cleanDisplay ? GLOBAL_AVATAR_CACHE.get(cleanDisplay) : null) || 
+                       (isCreatorUser ? creatorAvatar : null);
+    }
+    const isDefault = isDefaultAvatar(resolvedAvatar);
+    avatarUrl = isDefault ? getDefaultAvatar(msg.platform, msg.username, msg.userId) : proxifyAvatarUrl(resolvedAvatar);
+  }
+
+  msg._resolvedAvatar = avatarUrl;
+  return avatarUrl;
+};
+
+const resolveContentParts = (msg) => {
+  if (msg._contentParts) return msg._contentParts;
+  const parts = msg.parts && msg.parts.length > 0 ? msg.parts : parseMessageContent(msg.text);
+  msg._contentParts = parts;
+  return parts;
+};
+
 export const checkIsMentioned = (text, user, activeChannels = []) => {
   if (!text || typeof text !== 'string') return false;
   const textLower = text.toLowerCase();
@@ -110,6 +156,686 @@ export const checkIsMentioned = (text, user, activeChannels = []) => {
   }
   return false;
 };
+
+const getLevelColor = (level) => {
+  if (level < 10) return '#9e9e9e'; // Grey
+  if (level < 20) return '#FFEB3B'; // Vibrant Yellow (level 10-19)
+  if (level < 30) return '#ff4b9f'; // Pink (level 20-29)
+  if (level < 40) return '#00e5ff'; // Cyan (level 30-39)
+  if (level < 50) return '#ffaa00'; // Yellow/Orange (level 40-49)
+  if (level < 60) return '#ff4a4a'; // Red (level 50-59)
+  if (level < 70) return '#00e676'; // Bright Green (level 60-69)
+  if (level < 80) return '#b533ff'; // Purple (level 70-79)
+  return '#ff3366'; // Pink-Red (level >= 80)
+};
+
+// Official Kick badge display order (matches kick.com chat)
+const KICK_BADGE_ORDER = ['broadcaster', 'moderator', 'vip', 'og', 'verified', 'staff', 'sub_gifter', 'founder', 'subscriber', 'bot'];
+
+const sortKickBadges = (badgesList) => {
+  if (!Array.isArray(badgesList)) return [];
+  return [...badgesList].filter(b => typeof b === 'string').sort((a, b) => {
+    const aIsLevel = a.startsWith('level_');
+    const bIsLevel = b.startsWith('level_');
+    if (aIsLevel && !bIsLevel) return -1;
+    if (!aIsLevel && bIsLevel) return 1;
+    if (aIsLevel && bIsLevel) return 0;
+    const ai = KICK_BADGE_ORDER.indexOf(a);
+    const bi = KICK_BADGE_ORDER.indexOf(b);
+    if (ai === -1 && bi === -1) return 0;
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+};
+
+const ChatMessageRow = React.memo(({
+  msg,
+  idx,
+  isEven,
+  isInitialLoading,
+  isHiddenOrDeleted,
+  isRevealed,
+  modActor,
+  showSeparator,
+  settings,
+  user,
+  activeChannels,
+  selectedChatter,
+  show24HrMs,
+  onChatterClick,
+  onThreadClick,
+  onTimeoutUser,
+  onBanUser,
+  onUnbanUser,
+  onDeleteMessage,
+  onToggleModerator,
+  toggleRevealDeleted,
+  handleSpeakSuperchat,
+  handleSpeakMessage,
+  handleToggleMenu,
+  toggleTimestampFormat,
+  showAvatarForPlatform,
+  renderBadgeWithTooltip,
+  renderKickBadge,
+  renderYoutubeBadge,
+  renderTwitchBadge,
+  renderUsernameWithTooltip,
+  renderTimestampText,
+  wrapWithTooltip,
+  filterBlocklist,
+  getUsernameColor,
+  blockedUsers,
+  moderation
+}) => {
+  const avatarUrl = resolveMessageAvatar(msg, user);
+  const contentParts = resolveContentParts(msg);
+
+  let element = null;
+
+  if (msg.isSystemEvent) {
+    if (msg.platform === 'youtube' && msg.eventType === 'donation') {
+      const headerBg = msg.eventDetails?.headerBg || '#e62117';
+      const bodyBg = msg.eventDetails?.bodyBg || '#f44336';
+      const authorTextColor = msg.eventDetails?.authorTextColor || '#ffffff';
+      
+      element = (
+        <div key={msg.id} className="superchat-card" style={{ padding: 0, overflow: 'hidden' }}>
+          <div className="superchat-header-container" style={{ backgroundColor: headerBg, padding: '12px', display: 'flex', alignItems: 'center' }}>
+            <div className="superchat-container">
+              <div className="superchat-left">
+                {showAvatarForPlatform('youtube') && (
+                  <img 
+                    className="msg-avatar superchat-avatar" 
+                    src={avatarUrl} 
+                    alt={msg.displayName} 
+                    onError={(e) => {
+                      e.target.src = getDefaultAvatar(msg.platform, msg.username, msg.userId);
+                    }}
+                  />
+                )}
+              </div>
+              <div className="superchat-right">
+                <div className="superchat-header-row" style={{ color: authorTextColor }}>
+                  <div className="superchat-user-info">
+                    {renderUsernameWithTooltip(msg, 'superchat-username', { color: authorTextColor })}
+                    <span className="superchat-amount">{msg.eventDetails?.amount}</span>
+                    <button 
+                      className="superchat-speaker-btn"
+                      style={{ 
+                        color: authorTextColor, 
+                        background: 'none', 
+                        border: 'none', 
+                        padding: '0 4px', 
+                        cursor: 'pointer', 
+                        display: 'inline-flex', 
+                        alignItems: 'center', 
+                        opacity: 0.8,
+                        transition: 'opacity 0.15s'
+                      }}
+                      title="Speak Superchat"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSpeakSuperchat(msg);
+                      }}
+                    >
+                      <Volume2 size={15} style={{ verticalAlign: 'middle' }} />
+                    </button>
+                  </div>
+                  <div className="superchat-actions" style={{ position: 'relative' }} onClick={(e) => e.stopPropagation()}>
+                    {settings.showIcons && (
+                      <span className="superchat-platform">
+                        <PlatformLogo platform={msg.platform} isShorts={msg.isShorts} size={14} />
+                      </span>
+                    )}
+                    <button 
+                      className="superchat-more-btn" 
+                      style={{ color: authorTextColor }} 
+                      title="More options"
+                      onClick={(e) => handleToggleMenu(e, msg)}
+                    >
+                      <MoreVertical size={16} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          {(msg.text || msg.eventDetails?.stickerUrl) && (
+            <div className="superchat-body" style={{ backgroundColor: bodyBg, color: '#000000', padding: '12px 12px 12px 64px' }}>
+              {msg.eventDetails?.stickerUrl && (
+                <img 
+                  className="superchat-sticker" 
+                  src={msg.eventDetails.stickerUrl} 
+                  alt="Super Sticker" 
+                  style={{ width: '72px', height: '72px', objectFit: 'contain', marginTop: '4px' }}
+                />
+              )}
+              {msg.text && (
+                <div className="superchat-text" style={{ color: '#000000' }}>
+                  {contentParts.map((part, index) => {
+                    if (part.type === 'emote') {
+                      return (
+                        <img 
+                          key={index} 
+                          className="chat-emote" 
+                          src={part.url} 
+                          alt={part.name} 
+                          style={{ width: '1.2em', height: '1.2em', verticalAlign: 'middle', margin: '0 2px', objectFit: 'contain', display: 'inline-block' }}
+                        />
+                      );
+                    }
+                    return <span key={index}>{part.content}</span>;
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    } else if (msg.platform === 'youtube' && msg.eventType === 'subscription') {
+      const headerBg = msg.eventDetails?.headerBg || '#0f9d58';
+      const bodyBg = msg.eventDetails?.bodyBg || '#0b8043';
+      const authorTextColor = msg.eventDetails?.authorTextColor || '#ffffff';
+      const hasUserMessage = msg.eventDetails?.hasUserMessage;
+      
+      element = (
+        <div key={msg.id} className="membership-card">
+          <div 
+            className="membership-header" 
+            style={{ 
+              backgroundColor: headerBg, 
+              color: authorTextColor,
+              borderRadius: hasUserMessage ? '8px 8px 0 0' : '8px'
+            }}
+          >
+            {showAvatarForPlatform('youtube') && (
+              <img 
+                className="msg-avatar" 
+                src={avatarUrl} 
+                alt={msg.displayName} 
+                style={{ width: '36px', height: '36px', borderRadius: '50%' }}
+              />
+            )}
+            <div className="membership-meta">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                {renderUsernameWithTooltip(msg, '', { color: '#ffffff', fontWeight: 700 })}
+                {msg.badges && msg.badges.map(badge => {
+                  const badgeImageUrl = msg.badgeImages && msg.badgeImages[badge];
+                  if (badgeImageUrl) {
+                    return (
+                      <img 
+                        key={badge} 
+                        className="msg-badge-icon" 
+                        src={badgeImageUrl} 
+                        alt={badge} 
+                        title={badge} 
+                        style={{ width: '16px', height: '16px', display: 'inline-block', verticalAlign: 'middle', margin: 0 }}
+                      />
+                    );
+                  }
+                  return null;
+                })}
+              </div>
+              <span className="membership-tier" style={{ fontSize: '13px', fontWeight: 500, color: 'rgba(255, 255, 255, 0.8)' }}>
+                {msg.eventDetails?.tier || 'Member'}
+              </span>
+            </div>
+            <div className="membership-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative', marginLeft: 'auto' }} onClick={(e) => e.stopPropagation()}>
+              {settings.showIcons && (
+                <span className="membership-platform" style={{ display: 'inline-flex', alignItems: 'center' }}>
+                  <PlatformLogo platform={msg.platform} isShorts={msg.isShorts} size={15} />
+                </span>
+              )}
+              <Tooltip delayDuration={150}>
+                <TooltipTrigger asChild>
+                  <button 
+                    type="button" 
+                    className="message-actions-menu-btn"
+                    style={{ 
+                      color: authorTextColor,
+                      backgroundColor: 'rgba(255, 255, 255, 0.06)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      width: '26px',
+                      height: '26px',
+                      borderRadius: '6px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      padding: 0
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSpeakSuperchat({
+                        ...msg,
+                        text: `${msg.displayName} joined. ${msg.eventDetails?.tier || ''}`
+                      });
+                    }}
+                  >
+                    <Volume2 size={15} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" align="center">
+                  Read Aloud
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip delayDuration={150}>
+                <TooltipTrigger asChild>
+                  <button 
+                    type="button" 
+                    className="message-actions-menu-btn"
+                    style={{ 
+                      color: authorTextColor,
+                      backgroundColor: 'rgba(255, 255, 255, 0.06)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      width: '26px',
+                      height: '26px',
+                      borderRadius: '6px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      padding: 0
+                    }}
+                    onClick={(e) => handleToggleMenu(e, msg)}
+                  >
+                    <MoreVertical size={15} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" align="center">
+                  Moderation & Insights
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
+          {hasUserMessage && (
+            <div className="membership-body" style={{ backgroundColor: bodyBg, borderRadius: '0 0 8px 8px' }}>
+              <div className="membership-text" style={{ paddingLeft: '48px' }}>
+                {msg.text || 'Welcome to the channel!'}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    } else {
+      element = (
+        <div 
+          key={msg.id} 
+          className={`system-event-row ${msg.platform}-${msg.eventType}`}
+        >
+          <div className="event-header">
+            {settings.showIcons && <span className="msg-platform-icon"><PlatformLogo platform={msg.platform} isShorts={msg.isShorts} size={14} /></span>}
+            {msg.platform !== 'kick' && showAvatarForPlatform(msg.platform) && (
+              <img className="msg-avatar smaller" src={avatarUrl} alt={msg.displayName} />
+            )}
+            {renderUsernameWithTooltip(msg, '', { color: getUsernameColor(msg) })}
+            <span className="event-text-label">{msg.text}</span>
+          </div>
+          {msg.eventDetails && msg.eventDetails.amount && (
+            <div className="event-details">{msg.eventDetails.amount}</div>
+          )}
+          {msg.eventDetails && msg.eventDetails.gift && (
+            <div className="event-details">Sent {msg.eventDetails.gift}</div>
+          )}
+        </div>
+      );
+    }
+  } else {
+    const rowClass = `chat-message-row${settings.alternatingBackgrounds ? (isEven ? ' row-even' : ' row-odd') : ''} ${msg.repliedTo ? 'has-reply-thread' : ''}`;
+
+    element = (
+      <div 
+        key={msg.id} 
+        className={rowClass}
+      >
+        {/* 1. Placeholder for grid */}
+        {msg.repliedTo && (settings.showTimestamps || settings.showIcons) && (
+          <div className="reply-empty-placeholder" />
+        )}
+
+        {/* 2. Reply Thread Header */}
+        {msg.repliedTo && (
+          <div className="chat-reply-thread-header" onClick={() => onThreadClick && onThreadClick(msg)}>
+            <svg className="reply-thread-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '11px', height: '11px', marginRight: '4px', display: 'inline-block' }}>
+              <polyline points="9 17 4 12 9 7" />
+              <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+            </svg>
+            <span className="reply-thread-text">
+              Replying to {renderUsernameWithTooltip(msg.repliedTo, 'reply-thread-user')}: <span className="reply-thread-body">{msg.repliedTo.text}</span>
+            </span>
+          </div>
+        )}
+
+        {/* 3. Left Metadata (Timestamp & Platform Icon) */}
+        {(settings.showTimestamps || settings.showIcons) && (
+          <div className="chat-message-meta-left" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '4px', flexShrink: 0, height: '1.5em' }}>
+            {settings.showTimestamps && (
+              <Tooltip delayDuration={150}>
+                <TooltipTrigger asChild>
+                  <span 
+                    className="msg-timestamp"
+                    onClick={toggleTimestampFormat}
+                    style={{ cursor: 'pointer', userSelect: 'none' }}
+                  >
+                    {renderTimestampText(msg)}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top" align="center">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <PlatformLogo platform={msg.platform} isShorts={msg.isShorts} size={12} />
+                    <span>{renderTimestampText(msg)}</span>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {settings.showIcons && wrapWithTooltip(
+              <span className="msg-platform-icon">
+                <PlatformLogo platform={msg.platform} isShorts={msg.isShorts} size="0.9em" />
+              </span>,
+              msg.platform,
+              `platform-${msg.id}`
+            )}
+            {settings.showQuickModActions && (
+              <span className="quick-moderation-actions">
+                <button 
+                  className="quick-moderation-button quick-timeout-message-button" 
+                  type="button" 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTimeoutUser && onTimeoutUser(msg, 600);
+                  }}
+                  title="Timeout (10m)"
+                >
+                  <svg className="quick-moderation-action-svg" xmlns="http://www.w3.org/2000/svg" viewBox="2 2 20 20" fill="none">
+                    <path d="M12 7V12L14.5 13.5M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"></path>
+                  </svg>
+                </button>
+                <button 
+                  className="quick-moderation-button quick-ban-message-button" 
+                  type="button" 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const cleanUser = (msg.username || msg.displayName || msg.author || '').toLowerCase().replace(/^@+/, '').trim();
+                    const isUserBanned = (moderation?.bannedUsers instanceof Set && moderation.bannedUsers.has(cleanUser)) ||
+                                         (blockedUsers instanceof Set && blockedUsers.has(cleanUser));
+                    if (isUserBanned) {
+                      onUnbanUser && onUnbanUser(msg);
+                    } else {
+                      onBanUser && onBanUser(msg);
+                    }
+                  }}
+                  title={(() => {
+                    const cleanUser = (msg.username || msg.displayName || msg.author || '').toLowerCase().replace(/^@+/, '').trim();
+                    const isUserBanned = (moderation?.bannedUsers instanceof Set && moderation.bannedUsers.has(cleanUser)) ||
+                                         (blockedUsers instanceof Set && blockedUsers.has(cleanUser));
+                    return isUserBanned ? "Unhide User" : "Hide User";
+                  })()}
+                >
+                  <svg className="quick-moderation-action-svg" xmlns="http://www.w3.org/2000/svg" viewBox="5 5 22 22" fill="currentColor">
+                    <path d="M16 5C9.935 5 5 9.934 5 16c0 6.067 4.935 11 11 11s11-4.933 11-11c0-6.066-4.935-11-11-11zm0 2.75c1.777 0 3.427.569 4.775 1.53L9.279 20.778A8.214 8.214 0 0 1 7.75 16c0-4.549 3.701-8.25 8.25-8.25zm0 16.5a8.2 8.2 0 0 1-4.775-1.53l11.494-11.497A8.205 8.205 0 0 1 24.25 16c0 4.547-3.701 8.25-8.25 8.25z"></path>
+                  </svg>
+                </button>
+                <button 
+                  className="quick-moderation-button quick-delete-message-button" 
+                  type="button" 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteMessage && onDeleteMessage(msg);
+                  }}
+                  title="Delete Message"
+                >
+                  <svg className="quick-moderation-action-svg" xmlns="http://www.w3.org/2000/svg" viewBox="2 2 20 20" fill="none">
+                    <path d="M10 11V17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"></path>
+                    <path d="M14 11V17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"></path>
+                    <path d="M4 7H20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"></path>
+                    <path d="M6 7H12H18V18C18 19.6569 16.6569 21 15 21H9C7.34315 21 6 19.6569 6 18V7Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"></path>
+                    <path d="M9 5C9 3.89543 9.89543 3 11 3H13C14.1046 3 15 3.89543 15 5V7H9V5Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"></path>
+                  </svg>
+                </button>
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* 4. Main message row */}
+        <div className="chat-message-main-row" style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: '4px', width: '100%', paddingRight: '68px', boxSizing: 'border-box' }}>
+          {showAvatarForPlatform(msg.platform) && (
+            <img 
+              className="msg-avatar" 
+              src={avatarUrl} 
+              alt={msg.displayName || msg.username} 
+              onError={(e) => {
+                const errCount = parseInt(e.target.dataset.errorCount || '0') + 1;
+                e.target.dataset.errorCount = errCount;
+                if (errCount === 1) {
+                  const rawUrl = msg.avatarUrl || msg.avatar;
+                  if (rawUrl && typeof rawUrl === 'string' && rawUrl.startsWith('http') && !rawUrl.includes('images.weserv.nl')) {
+                    e.target.src = rawUrl;
+                    return;
+                  }
+                }
+                if (msg.platform === 'kick') {
+                  const defaultKickUrl = getKickDefaultAvatarUrl(msg.username, msg.userId);
+                  if (errCount === 2) {
+                    e.target.src = proxifyAvatarUrl(defaultKickUrl);
+                  } else {
+                    e.target.src = defaultKickUrl;
+                  }
+                } else {
+                  e.target.src = getDefaultAvatar(msg.platform, msg.username, msg.userId);
+                }
+              }}
+            />
+          )}
+
+          <div className="msg-content-wrapper" style={{ minWidth: 0, flex: 1, wordBreak: 'break-word' }}>
+            {settings.showBadges && (
+              <>
+                {msg.platform === 'kick' && sortKickBadges(msg.badges).map((badge, bIdx) => renderKickBadge(badge, msg))}
+                {msg.platform === 'youtube' && msg.badges && msg.badges.map((badge, bIdx) => renderYoutubeBadge(badge, msg))}
+                {msg.platform === 'twitch' && msg.badges && msg.badges.map((badge, bIdx) => renderTwitchBadge(badge, msg))}
+                {msg.platform !== 'kick' && msg.platform !== 'youtube' && msg.platform !== 'twitch' && msg.badges && msg.badges.map((badge, bIdx) => {
+                  let badgeEl = null;
+                  if (badge === 'broadcaster') badgeEl = <span className="msg-badge broadcaster">OWNER</span>;
+                  else if (badge === 'moderator') badgeEl = <span className="msg-badge moderator">MOD</span>;
+                  else if (badge === 'subscriber') badgeEl = <DefaultSubscriberBadge />;
+                  return renderBadgeWithTooltip(badgeEl, badge, `${msg.id}-${badge}-${bIdx}`);
+                })}
+                {renderUsernameWithTooltip(msg, '', { color: getUsernameColor(msg) })}
+              </>
+            )}
+
+            {isHiddenOrDeleted ? (
+              isRevealed ? (
+                <>
+                  <span className="msg-separator-space"> </span>
+                  <span 
+                    className="msg-text is-deleted-revealed" 
+                    onClick={(e) => { e.stopPropagation(); toggleRevealDeleted(msg.id); }}
+                    title="Click to hide and show deleted placeholder"
+                    style={{ cursor: 'pointer', opacity: 0.85, textDecoration: 'line-through', color: '#ef4444' }}
+                  >
+                    {contentParts && contentParts.length > 0 ? contentParts.map((part, index) => {
+                      if (part && part.type === 'emote' && part.url) {
+                        return (
+                          <img 
+                            key={index}
+                            className="chat-emote" 
+                            src={part.url} 
+                            alt={part.name || 'emote'} 
+                          />
+                        );
+                      }
+                      const rawC = typeof part === 'string' ? part : (typeof part?.content === 'string' ? part.content : (typeof part?.text === 'string' ? part.text : ''));
+                      return <span key={index}>{rawC}</span>;
+                    }) : String(msg.text || '')}
+                  </span>
+                </>
+              ) : (
+                <span className="msg-deleted-text-container" style={{ marginLeft: '6px', fontSize: '13px', color: '#a1a1aa' }}>
+                  <span>{modActor ? `Message deleted by @${modActor.replace(/^@+/, '')}. ` : 'Message deleted. '}</span>
+                  <button 
+                    type="button" 
+                    onClick={(e) => { e.stopPropagation(); toggleRevealDeleted(msg.id); }}
+                    style={{ 
+                      background: 'none', 
+                      border: 'none', 
+                      color: '#3b82f6', 
+                      textDecoration: 'underline', 
+                      cursor: 'pointer', 
+                      fontSize: '12px',
+                      padding: 0,
+                      fontWeight: 600
+                    }}
+                  >
+                    View deleted message
+                  </button>
+                </span>
+              )
+            ) : (
+              <>
+                <span className="msg-separator-space"> </span>
+                <span className="msg-text">
+                  {contentParts && contentParts.length > 0 ? (
+                    contentParts.map((part, index) => {
+                      if (!part) return null;
+                      if (part.type === 'emote' && part.url) {
+                        return (
+                          <Tooltip key={index} delayDuration={150}>
+                            <TooltipTrigger asChild>
+                              <img 
+                                className="chat-emote" 
+                                src={part.url} 
+                                alt={part.name || 'emote'} 
+                              />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" align="center">
+                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                                <img 
+                                  src={part.url} 
+                                  alt={part.name || 'emote'} 
+                                  style={{ width: '48px', height: '48px', objectFit: 'contain' }}
+                                />
+                                <span style={{ fontWeight: 600 }}>:{part.name || 'emote'}:</span>
+                                <span style={{ fontSize: '10px', textTransform: 'uppercase', opacity: 0.6 }}>{msg.platform}</span>
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        );
+                      }
+                      const rawContent = typeof part === 'string'
+                        ? part
+                        : (typeof part?.content === 'string'
+                            ? part.content
+                            : (typeof part?.text === 'string' ? part.text : ''));
+
+                      if (rawContent) {
+                        const words = rawContent.split(/(\s+)/);
+                        return (
+                          <span key={index}>
+                            {words.map((word, wIdx) => {
+                              if (word && word.startsWith('@') && word.length > 1) {
+                                const match = word.match(/^(@[^\s.,!?:;]+)(.*)$/);
+                                if (match) {
+                                  const handle = match[1];
+                                  const punct = match[2];
+                                  const isOwnerTag = checkIsMentioned(handle, user, activeChannels);
+                                  if (isOwnerTag) {
+                                    return (
+                                      <React.Fragment key={wIdx}>
+                                        <span className="chat-mention-tag owner-mention">
+                                          {handle}
+                                        </span>
+                                        {punct}
+                                      </React.Fragment>
+                                    );
+                                  }
+                                }
+                              }
+                              return word;
+                            })}
+                          </span>
+                        );
+                      }
+                      return null;
+                    })
+                  ) : (
+                    <span>{String(msg.text || '')}</span>
+                  )}
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div 
+          className="msg-actions-wrapper"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="msg-hover-actions">
+            <Tooltip delayDuration={150}>
+              <TooltipTrigger asChild>
+                <button 
+                  className="msg-hover-action-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleSpeakMessage(msg);
+                  }}
+                >
+                  <Volume2 size={15} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" align="center">
+                Read Aloud
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip delayDuration={150}>
+              <TooltipTrigger asChild>
+                <button 
+                  className="msg-hover-action-btn" 
+                  onClick={(e) => handleToggleMenu(e, msg)} 
+                >
+                  &#8942;
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" align="center">
+                Moderation & Insights
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <React.Fragment key={msg?.id || idx}>
+      {showSeparator && (
+        <div className="new-messages-separator">
+          <span className="new-messages-separator-text">New Messages</span>
+        </div>
+      )}
+      {element}
+    </React.Fragment>
+  );
+}, (prev, next) => {
+  return (
+    prev.msg === next.msg &&
+    prev.isEven === next.isEven &&
+    prev.isHiddenOrDeleted === next.isHiddenOrDeleted &&
+    prev.isRevealed === next.isRevealed &&
+    prev.modActor === next.modActor &&
+    prev.showSeparator === next.showSeparator &&
+    prev.settings === next.settings &&
+    prev.show24HrMs === next.show24HrMs &&
+    prev.selectedChatter === next.selectedChatter &&
+    prev.user === next.user &&
+    prev.isInitialLoading === next.isInitialLoading
+  );
+});
 
 export default function ChatFeed({ 
   messages, 
@@ -1189,6 +1915,138 @@ export default function ChatFeed({
     return null;
   };
 
+  const renderYoutubeBadge = (badge, msg) => {
+    if (!badge) return null;
+    if (badge === 'broadcaster') return null;
+    if (typeof badge === 'string' && badge.startsWith('rank_')) {
+      const rankNum = parseInt(badge.split('_')[1]) || 1;
+      const rankBg = '#3b00bb';
+      const badgeEl = (
+        <span 
+          key={`${msg.id}-yt-rank-${rankNum}`}
+          className={`youtube-rank-badge youtube-rank-${rankNum}`}
+          title={`Top Contributor #${rankNum}`}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '4px',
+            backgroundColor: rankBg,
+            color: '#ffffff',
+            padding: '2px 8px 2px 7px',
+            borderRadius: '9999px',
+            fontSize: '12px',
+            fontWeight: '800',
+            lineHeight: '1',
+            verticalAlign: 'middle',
+            letterSpacing: '-0.2px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.4)',
+            userSelect: 'none',
+            margin: '0 4px',
+            flexShrink: 0
+          }}
+        >
+          <svg 
+            viewBox="0 0 24 24" 
+            fill="none" 
+            stroke="#ffffff" 
+            strokeWidth="2" 
+            strokeLinecap="round" 
+            strokeLinejoin="round" 
+            style={{ width: '13px', height: '13px', display: 'block', flexShrink: 0 }}
+          >
+            <circle cx="3.5" cy="6" r="1.3" fill="#ffffff" stroke="none" />
+            <circle cx="12" cy="3" r="1.3" fill="#ffffff" stroke="none" />
+            <circle cx="20.5" cy="6" r="1.3" fill="#ffffff" stroke="none" />
+            <path d="M3.5 7.5 L5.5 16 H18.5 L20.5 7.5 L15 12 L12 4.5 L9 12 Z" />
+            <line x1="4.5" y1="19" x2="19.5" y2="19" strokeWidth="2.2" strokeLinecap="round" />
+          </svg>
+          <span>#{rankNum}</span>
+        </span>
+      );
+      return renderBadgeWithTooltip(badgeEl, badge, `${msg.id}-${badge}`);
+    }
+
+    let badgeEl = null;
+    if (badge === 'verified') {
+      badgeEl = (
+        <span key={`${msg.id}-${badge}`} className="youtube-chatter-verified-badge" title="Verified">
+          <svg className="youtube-svg-element" viewBox="2 5 20 15" fill="#999999" style={{ width: 14, height: 14, display: 'inline-block', verticalAlign: 'middle' }}>
+            <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" />
+          </svg>
+        </span>
+      );
+    } else if (badge === 'moderator') {
+      badgeEl = (
+        <span key={`${msg.id}-${badge}`} className="youtube-chatter-moderator-badge" title="Moderator">
+          <svg className="youtube-svg-element" viewBox="3 1 18 22" fill="#5e84f1" style={{ width: 14, height: 14, display: 'inline-block', verticalAlign: 'middle' }}>
+            <path d="M3 4.998v9.857a6 6 0 003.365 5.39L12 23l5.635-2.755A6 6 0 0021 14.855V4.998a1 1 0 00-.656-.938L12 1 3.656 4.06A1 1 0 003 4.998Z" />
+          </svg>
+        </span>
+      );
+    } else {
+      const badgeImageUrl = msg.badgeImages && msg.badgeImages[badge];
+      if (badgeImageUrl) {
+        badgeEl = (
+          <img 
+            key={`${msg.id}-${badge}`} 
+            className="msg-badge-icon" 
+            src={badgeImageUrl} 
+            alt={badge === 'member' ? 'Member' : badge === 'subscriber' ? 'Member' : badge} 
+            title={badge === 'member' ? 'Member' : badge === 'subscriber' ? 'Member' : badge}
+            style={{ width: 16, height: 16, display: 'inline-block', verticalAlign: 'middle', margin: '0 2px' }}
+          />
+        );
+      } else if (badge === 'subscriber' || badge === 'member') {
+        badgeEl = (
+          <span key={`${msg.id}-${badge}`} style={{ display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle', marginRight: '4px' }} title={badge === 'member' ? 'Member' : 'Subscriber'}>
+            <DefaultSubscriberBadge size="1.1em" />
+          </span>
+        );
+      }
+    }
+    return renderBadgeWithTooltip(badgeEl, badge, `${msg.id}-${badge}`);
+  };
+
+  const renderTwitchBadge = (badge, msg) => {
+    if (!badge) return null;
+    let badgeEl = null;
+    const badgeImageUrl = (msg.badgeImages && msg.badgeImages[badge]) || 
+                          (msg.badgeVersions && getLiveTwitchBadgeUrl(msg.channel, badge, msg.badgeVersions[badge]));
+    if (badgeImageUrl) {
+      badgeEl = (
+        <img 
+          key={`${msg.id}-${badge}`} 
+          className="msg-badge-icon" 
+          src={badgeImageUrl} 
+          alt={badge} 
+          title={badge}
+          style={{ width: 16, height: 16, display: 'inline-block', verticalAlign: 'middle', marginRight: 4 }}
+        />
+      );
+    } else if (badge === 'subscriber' || badge === 'member') {
+      badgeEl = (
+        <span key={`${msg.id}-${badge}`} style={{ display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle', marginRight: '4px' }} title="Subscriber">
+          <TwitchDefaultSubscriberBadge size="1.1em" />
+        </span>
+      );
+    } else {
+      const displayChar = 
+        badge === 'broadcaster' ? '👑' : 
+        badge === 'moderator' ? '🔧' :
+        badge === 'vip' ? '💎' : null;
+
+      if (displayChar) {
+        badgeEl = (
+          <span key={`${msg.id}-${badge}`} className={`msg-badge ${badge} platform-twitch`}>
+            {displayChar}
+          </span>
+        );
+      }
+    }
+    return renderBadgeWithTooltip(badgeEl, badge, `${msg.id}-${badge}`);
+  };
+
   return (
     <div className="chat-feed-panel">
       {/* Shared SVG gradients for Kick badges */}
@@ -1300,7 +2158,8 @@ export default function ChatFeed({
           fontFamily: settings.fontFamily === 'inherit' ? 'inherit' : settings.fontFamily || 'inherit'
         }}
       >
-        <div ref={innerRef} style={{ display: 'flex', flexDirection: 'column', gap: 'inherit', width: '100%' }}>
+        <TooltipProvider delayDuration={150}>
+          <div ref={innerRef} style={{ display: 'flex', flexDirection: 'column', gap: 'inherit', width: '100%' }}>
           {tabFilteredMessages.length === 0 ? (
             <div className="empty-feed-container">
               <div className="empty-feed-icon-box">
@@ -1326,877 +2185,89 @@ export default function ChatFeed({
               </div>
             </div>
           ) : (
-            (() => {
-              const msgElements = tabFilteredMessages.map((msg, idx) => {
-                const cleanUser = (msg.username || '').toLowerCase().replace(/^@+/, '').trim();
-                const cleanDisplay = (msg.displayName || '').toLowerCase().replace(/^@+/, '').trim();
-                const cleanChannel = (msg.channel || '').toLowerCase().replace(/^@+/, '').trim();
-                const creatorUser = (user?.username || '').toLowerCase().replace(/^@+/, '').trim();
-                const creatorAvatar = user?.avatarUrl || (typeof user?.avatar === 'string' && user?.avatar.startsWith('http') ? user.avatar : null);
-                const isCreatorUser = Boolean(cleanUser && creatorUser && (cleanUser === creatorUser));
+            tabFilteredMessages.map((msg, idx) => {
+              const cleanMsgUser = (msg.username || '').replace(/^@+/, '').trim().toLowerCase();
+              const cleanMsgDisplay = (msg.displayName || '').replace(/^@+/, '').trim().toLowerCase();
+              const msgChanId = msg.channelId || msg.userId || '';
 
-                let avatarUrl = null;
-                if (msg.platform === 'kick') {
-                  const cached = (cleanUser ? GLOBAL_AVATAR_CACHE.get(cleanUser) : null) || 
-                                 (cleanDisplay ? GLOBAL_AVATAR_CACHE.get(cleanDisplay) : null) || 
-                                 (isCreatorUser ? creatorAvatar : null) ||
-                                 (cleanUser ? requestKickAvatar(cleanUser, msg.userId) : null);
-                  const rawMsgAvatar = msg.avatarUrl || msg.avatar;
-                  if (cached && typeof cached === 'string' && cached.length > 5 && !cached.includes('/kick-default-avatars/')) {
-                    avatarUrl = proxifyAvatarUrl(cached);
-                  } else if (rawMsgAvatar && typeof rawMsgAvatar === 'string' && rawMsgAvatar.startsWith('http') && !isDefaultAvatar(rawMsgAvatar) && !rawMsgAvatar.includes('default-avatar')) {
-                    avatarUrl = proxifyAvatarUrl(rawMsgAvatar);
-                  } else {
-                    avatarUrl = getKickDefaultAvatarUrl(msg.username, msg.userId);
-                  }
-                } else {
-                  const rawMsgAvatar = msg.avatarUrl || msg.avatar;
-                  let resolvedAvatar = rawMsgAvatar;
-                  if (isDefaultAvatar(resolvedAvatar)) {
-                    resolvedAvatar = (cleanUser ? GLOBAL_AVATAR_CACHE.get(cleanUser) : null) || 
-                                     (cleanDisplay ? GLOBAL_AVATAR_CACHE.get(cleanDisplay) : null) || 
-                                     (isCreatorUser ? creatorAvatar : null);
-                  }
-                  const isDefault = isDefaultAvatar(resolvedAvatar);
-                  avatarUrl = isDefault ? getDefaultAvatar(msg.platform, msg.username, msg.userId) : proxifyAvatarUrl(resolvedAvatar);
+              const isDeleted = (moderation?.deletedMessageIds instanceof Set) 
+                ? moderation.deletedMessageIds.has(msg.id) 
+                : (Array.isArray(moderation?.deletedMessageIds) ? moderation.deletedMessageIds.includes(msg.id) : false);
+
+              const checkTimedOut = (key) => {
+                if (!key || !moderation?.timedOutUsers) return false;
+                if (moderation.timedOutUsers instanceof Map) {
+                  const exp = moderation.timedOutUsers.get(key);
+                  return !!exp && exp > Date.now();
                 }
+                if (typeof moderation.timedOutUsers === 'object') {
+                  const exp = moderation.timedOutUsers[key];
+                  return !!exp && exp > Date.now();
+                }
+                return false;
+              };
 
-            // Render Special Donation/Subscription Alerts
-            if (msg.isSystemEvent) {
-              if (msg.platform === 'youtube' && msg.eventType === 'donation') {
-                const headerBg = msg.eventDetails?.headerBg || '#e62117';
-                const bodyBg = msg.eventDetails?.bodyBg || '#f44336';
-                const authorTextColor = msg.eventDetails?.authorTextColor || '#ffffff';
-                const contentTextColor = msg.eventDetails?.contentTextColor || '#ffffff';
-                
-                return (
-                  <div key={msg.id} className="superchat-card" style={{ padding: 0, overflow: 'hidden' }}>
-                    <div className="superchat-header-container" style={{ backgroundColor: headerBg, padding: '12px', display: 'flex', alignItems: 'center' }}>
-                      <div className="superchat-container">
-                        <div className="superchat-left">
-                          {showAvatarForPlatform('youtube') && (
-                            <img 
-                              className="msg-avatar superchat-avatar" 
-                              src={avatarUrl} 
-                              alt={msg.displayName} 
-                              onError={(e) => {
-                                e.target.src = getDefaultAvatar(msg.platform, msg.username, msg.userId);
-                              }}
-                            />
-                          )}
-                        </div>
-                        <div className="superchat-right">
-                          <div className="superchat-header-row" style={{ color: authorTextColor }}>
-                            <div className="superchat-user-info">
-                              {renderUsernameWithTooltip(msg, 'superchat-username', { color: authorTextColor })}
-                              <span className="superchat-amount">{msg.eventDetails?.amount}</span>
-                              <button 
-                                className="superchat-speaker-btn"
-                                style={{ 
-                                  color: authorTextColor, 
-                                  background: 'none', 
-                                  border: 'none', 
-                                  padding: '0 4px', 
-                                  cursor: 'pointer', 
-                                  display: 'inline-flex', 
-                                  alignItems: 'center', 
-                                  opacity: 0.8,
-                                  transition: 'opacity 0.15s'
-                                }}
-                                title="Speak Superchat"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleSpeakSuperchat(msg);
-                                }}
-                              >
-                                <Volume2 size={15} style={{ verticalAlign: 'middle' }} />
-                              </button>
-                            </div>
-                            <div className="superchat-actions" style={{ position: 'relative' }} onClick={(e) => e.stopPropagation()}>
-                              {settings.showIcons && (
-                                <span className="superchat-platform">
-                                  <PlatformLogo platform={msg.platform} isShorts={msg.isShorts} size={14} />
-                                </span>
-                              )}
-                              <button 
-                                className="superchat-more-btn" 
-                                style={{ color: authorTextColor }} 
-                                title="More options"
-                                onClick={(e) => handleToggleMenu(e, msg)}
-                              >
-                                <MoreVertical size={16} />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {(msg.text || msg.eventDetails?.stickerUrl) && (
-                      <div className="superchat-body" style={{ backgroundColor: bodyBg, color: '#000000', padding: '12px 12px 12px 64px' }}>
-                        {msg.eventDetails?.stickerUrl && (
-                          <img 
-                            className="superchat-sticker" 
-                            src={msg.eventDetails.stickerUrl} 
-                            alt="Super Sticker" 
-                            style={{ width: '72px', height: '72px', objectFit: 'contain', marginTop: '4px' }}
-                          />
-                        )}
-                        {msg.text && (
-                          <div className="superchat-text" style={{ color: '#000000' }}>
-                            {(msg.parts || parseMessageContent(msg.text)).map((part, index) => {
-                              if (part.type === 'emote') {
-                                return (
-                                  <img 
-                                    key={index} 
-                                    className="chat-emote" 
-                                    src={part.url} 
-                                    alt={part.name} 
-                                    style={{ width: '1.2em', height: '1.2em', verticalAlign: 'middle', margin: '0 2px', objectFit: 'contain', display: 'inline-block' }}
-                                  />
-                                );
-                              }
-                              return <span key={index}>{part.content}</span>;
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              }
+              const isUserTimedOut = checkTimedOut(cleanMsgUser) || checkTimedOut(cleanMsgDisplay) || checkTimedOut(msgChanId);
 
-              if (msg.platform === 'youtube' && msg.eventType === 'subscription') {
-                const headerBg = msg.eventDetails?.headerBg || '#0f9d58';
-                const bodyBg = msg.eventDetails?.bodyBg || '#0b8043';
-                const authorTextColor = msg.eventDetails?.authorTextColor || '#ffffff';
-                const hasUserMessage = msg.eventDetails?.hasUserMessage;
-                
-                return (
-                  <div key={`${msg.id || 'msg'}-${idx}`} className="membership-card">
-                    <div 
-                      className="membership-header" 
-                      style={{ 
-                        backgroundColor: headerBg, 
-                        color: authorTextColor,
-                        borderRadius: hasUserMessage ? '8px 8px 0 0' : '8px'
-                      }}
-                    >
-                      {showAvatarForPlatform('youtube') && (
-                        <img 
-                          className="msg-avatar" 
-                          src={avatarUrl} 
-                          alt={msg.displayName} 
-                          style={{ width: '36px', height: '36px', borderRadius: '50%' }}
-                        />
-                      )}
-                      <div className="membership-meta">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                          {renderUsernameWithTooltip(msg, '', { color: '#ffffff', fontWeight: 700 })}
-                          {/* Render badges if any */}
-                          {msg.badges && msg.badges.map(badge => {
-                            const badgeImageUrl = msg.badgeImages && msg.badgeImages[badge];
-                            if (badgeImageUrl) {
-                              return (
-                                <img 
-                                  key={badge} 
-                                  className="msg-badge-icon" 
-                                  src={badgeImageUrl} 
-                                  alt={badge} 
-                                  title={badge} 
-                                  style={{ width: '16px', height: '16px', display: 'inline-block', verticalAlign: 'middle', margin: 0 }}
-                                />
-                              );
-                            }
-                            return null;
-                          })}
-                        </div>
-                        <span className="membership-tier" style={{ fontSize: '13px', fontWeight: 500, color: 'rgba(255, 255, 255, 0.8)' }}>
-                          {msg.eventDetails?.tier || 'Member'}
-                        </span>
-                      </div>
-                      <div className="membership-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative', marginLeft: 'auto' }} onClick={(e) => e.stopPropagation()}>
-                        {settings.showIcons && (
-                          <span className="membership-platform" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                            <PlatformLogo platform={msg.platform} isShorts={msg.isShorts} size={15} />
-                          </span>
-                        )}
-                        <Tooltip delayDuration={150}>
-                          <TooltipTrigger asChild>
-                            <button 
-                              type="button" 
-                              className="message-actions-menu-btn"
-                              style={{ 
-                                color: authorTextColor,
-                                backgroundColor: 'rgba(255, 255, 255, 0.06)',
-                                border: '1px solid rgba(255, 255, 255, 0.08)',
-                                width: '26px',
-                                height: '26px',
-                                borderRadius: '6px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                cursor: 'pointer',
-                                padding: 0
-                              }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleSpeakSuperchat({
-                                  ...msg,
-                                  text: `${msg.displayName} joined. ${msg.eventDetails?.tier || ''}`
-                                });
-                              }}
-                            >
-                              <Volume2 size={15} />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" align="center">
-                            Read Aloud
-                          </TooltipContent>
-                        </Tooltip>
-                        <Tooltip delayDuration={150}>
-                          <TooltipTrigger asChild>
-                            <button 
-                              type="button" 
-                              className="message-actions-menu-btn"
-                              style={{ 
-                                color: authorTextColor,
-                                backgroundColor: 'rgba(255, 255, 255, 0.06)',
-                                border: '1px solid rgba(255, 255, 255, 0.08)',
-                                width: '26px',
-                                height: '26px',
-                                borderRadius: '6px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                cursor: 'pointer',
-                                padding: 0
-                              }}
-                              onClick={(e) => handleToggleMenu(e, msg)}
-                            >
-                              <MoreVertical size={15} />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" align="center">
-                            Moderation & Insights
-                          </TooltipContent>
-                        </Tooltip>
-                      </div>
-                    </div>
-                    {hasUserMessage && (
-                      <div className="membership-body" style={{ backgroundColor: bodyBg, borderRadius: '0 0 8px 8px' }}>
-                        <div className="membership-text" style={{ paddingLeft: '48px' }}>
-                          {msg.text || 'Welcome to the channel!'}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              }
+              const isUserBanned = Boolean((cleanMsgUser || cleanMsgDisplay || msgChanId) && moderation?.bannedUsers && (
+                moderation.bannedUsers instanceof Set 
+                  ? (moderation.bannedUsers.has(cleanMsgUser) || moderation.bannedUsers.has(cleanMsgDisplay) || moderation.bannedUsers.has(msgChanId))
+                  : (Array.isArray(moderation?.bannedUsers) ? (moderation.bannedUsers.includes(cleanMsgUser) || moderation.bannedUsers.includes(cleanMsgDisplay) || moderation.bannedUsers.includes(msgChanId)) : false)
+              ));
 
-              const shouldAnimate = idx >= tabFilteredMessages.length - 5;
+              const isHiddenOrDeleted = isDeleted || isUserTimedOut || isUserBanned;
+              const modActor = msg.deletedBy || (moderation?.deletedByMap ? (moderation.deletedByMap instanceof Map ? moderation.deletedByMap.get(msg.id) : moderation.deletedByMap[msg.id]) : null);
+              const isRevealed = revealedDeletedIds.has(msg.id);
+              const showSeparator = firstNewMessageId && String(msg.id) === String(firstNewMessageId);
+              const isEven = msg._isEven !== undefined 
+                ? msg._isEven 
+                : (msg._isEven = (typeof msg.id === 'number' ? msg.id % 2 === 0 : (msg.rawTimestamp ? Math.floor(msg.rawTimestamp / 1000) % 2 === 0 : idx % 2 === 0)));
+
               return (
-                <div 
-                  key={`${msg.id || 'msg'}-${idx}`} 
-                  className={`system-event-row ${msg.platform}-${msg.eventType}`}
-                  style={{ animation: (isInitialLoading || !shouldAnimate) ? 'none' : undefined }}
-                >
-                  <div className="event-header">
-                    {settings.showIcons && <span className="msg-platform-icon"><PlatformLogo platform={msg.platform} isShorts={msg.isShorts} size={14} /></span>}
-                    {msg.platform !== 'kick' && showAvatarForPlatform(msg.platform) && (
-                      <img className="msg-avatar smaller" src={avatarUrl} alt={msg.displayName} />
-                    )}
-                    {renderUsernameWithTooltip(msg, '', { color: getUsernameColor(msg) })}
-                    <span className="event-text-label">{msg.text}</span>
-                  </div>
-                  {msg.eventDetails && msg.eventDetails.amount && (
-                    <div className="event-details">{msg.eventDetails.amount}</div>
-                  )}
-                  {msg.eventDetails && msg.eventDetails.gift && (
-                    <div className="event-details">Sent {msg.eventDetails.gift}</div>
-                  )}
-                </div>
+                <ChatMessageRow
+                  key={msg?.id || `msg-${idx}`}
+                  msg={msg}
+                  idx={idx}
+                  isEven={isEven}
+                  isInitialLoading={isInitialLoading}
+                  isHiddenOrDeleted={isHiddenOrDeleted}
+                  isRevealed={isRevealed}
+                  modActor={modActor}
+                  showSeparator={showSeparator}
+                  settings={settings}
+                  user={user}
+                  activeChannels={activeChannels}
+                  selectedChatter={selectedChatter}
+                  show24HrMs={show24HrMs}
+                  onChatterClick={onChatterClick}
+                  onThreadClick={onThreadClick}
+                  onTimeoutUser={onTimeoutUser}
+                  onBanUser={onBanUser}
+                  onUnbanUser={onUnbanUser}
+                  onDeleteMessage={onDeleteMessage}
+                  onToggleModerator={onToggleModerator}
+                  toggleRevealDeleted={toggleRevealDeleted}
+                  handleSpeakSuperchat={handleSpeakSuperchat}
+                  handleSpeakMessage={handleSpeakMessage}
+                  handleToggleMenu={handleToggleMenu}
+                  toggleTimestampFormat={toggleTimestampFormat}
+                  showAvatarForPlatform={showAvatarForPlatform}
+                  renderBadgeWithTooltip={renderBadgeWithTooltip}
+                  renderKickBadge={renderKickBadge}
+                  renderYoutubeBadge={renderYoutubeBadge}
+                  renderTwitchBadge={renderTwitchBadge}
+                  renderUsernameWithTooltip={renderUsernameWithTooltip}
+                  renderTimestampText={renderTimestampText}
+                  wrapWithTooltip={wrapWithTooltip}
+                  filterBlocklist={filterBlocklist}
+                  getUsernameColor={getUsernameColor}
+                  blockedUsers={blockedUsers}
+                />
               );
-            }
-
-            // Parse text with emotes and blocklist
-            const filteredText = filterBlocklist(msg.text);
-            const contentParts = msg.parts || parseMessageContent(filteredText);
-            const cleanMsgUser = (msg.username || '').replace(/^@+/, '').trim().toLowerCase();
-            const cleanMsgDisplay = (msg.displayName || '').replace(/^@+/, '').trim().toLowerCase();
-            const msgChanId = msg.channelId || msg.userId || '';
-
-            const checkTimedOut = (key) => {
-              if (!key || !moderation?.timedOutUsers) return false;
-              if (moderation.timedOutUsers instanceof Map) {
-                const exp = moderation.timedOutUsers.get(key);
-                return !!exp && exp > Date.now();
-              }
-              if (typeof moderation.timedOutUsers === 'object') {
-                const exp = moderation.timedOutUsers[key];
-                return !!exp && exp > Date.now();
-              }
-              return false;
-            };
-
-            const isDeleted = (moderation?.deletedMessageIds instanceof Set) 
-              ? moderation.deletedMessageIds.has(msg.id) 
-              : (Array.isArray(moderation?.deletedMessageIds) ? moderation.deletedMessageIds.includes(msg.id) : false);
-
-            const isUserTimedOut = checkTimedOut(cleanMsgUser) || checkTimedOut(cleanMsgDisplay) || checkTimedOut(msgChanId);
-
-            const isUserBanned = Boolean((cleanMsgUser || cleanMsgDisplay || msgChanId) && moderation?.bannedUsers && (
-              moderation.bannedUsers instanceof Set 
-                ? (moderation.bannedUsers.has(cleanMsgUser) || moderation.bannedUsers.has(cleanMsgDisplay) || moderation.bannedUsers.has(msgChanId))
-                : (Array.isArray(moderation?.bannedUsers) ? (moderation.bannedUsers.includes(cleanMsgUser) || moderation.bannedUsers.includes(cleanMsgDisplay) || moderation.bannedUsers.includes(msgChanId)) : false)
-            ));
-
-            const isHiddenOrDeleted = isDeleted || isUserTimedOut || isUserBanned;
-            const modHandle = (user?.user_metadata?.custom_handle || user?.user_metadata?.full_name || 'duplicatebunnysank9').replace(/^@+/, '');
-
-            const isEven = idx % 2 === 0;
-            const rowClass = `chat-message-row${settings.alternatingBackgrounds ? (isEven ? ' row-even' : ' row-odd') : ''} ${msg.repliedTo ? 'has-reply-thread' : ''}`;
-
-            const shouldAnimate = idx >= tabFilteredMessages.length - 5;
-            return (
-              <div 
-                key={`${msg.id || 'msg'}-${idx}`} 
-                className={rowClass}
-                style={{ animation: (isInitialLoading || !shouldAnimate) ? 'none' : undefined }}
-              >
-                {/* 1. Placeholder for grid (only rendered when there is a reply and metadata is visible) */}
-                {msg.repliedTo && (settings.showTimestamps || settings.showIcons) && (
-                  <div className="reply-empty-placeholder" />
-                )}
-
-                {/* 2. Reply Thread Header (only rendered when there is a reply) */}
-                {msg.repliedTo && (
-                  <div className="chat-reply-thread-header" onClick={() => onThreadClick && onThreadClick(msg)}>
-                    <svg className="reply-thread-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: '11px', height: '11px', marginRight: '4px', display: 'inline-block' }}>
-                      <polyline points="9 17 4 12 9 7" />
-                      <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
-                    </svg>
-                    <span className="reply-thread-text">
-                      Replying to {renderUsernameWithTooltip(msg.repliedTo, 'reply-thread-user')}: <span className="reply-thread-body">{msg.repliedTo.text}</span>
-                    </span>
-                  </div>
-                )}
-
-                {/* 3. Left Metadata (Timestamp & Platform Icon) */}
-                {(settings.showTimestamps || settings.showIcons) && (
-                  <div className="chat-message-meta-left" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '4px', flexShrink: 0, height: '1.5em' }}>
-                    {settings.showTimestamps && (
-                      <Tooltip delayDuration={150}>
-                        <TooltipTrigger asChild>
-                          <span 
-                            className="msg-timestamp"
-                            onClick={toggleTimestampFormat}
-                            style={{ cursor: 'pointer', userSelect: 'none' }}
-                          >
-                            {renderTimestampText(msg)}
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" align="center">
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <PlatformLogo platform={msg.platform} isShorts={msg.isShorts} size={12} />
-                            <span>{renderTimestampText(msg)}</span>
-                          </div>
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
-                    {settings.showIcons && wrapWithTooltip(
-                      <span className="msg-platform-icon">
-                        <PlatformLogo platform={msg.platform} isShorts={msg.isShorts} size="0.9em" />
-                      </span>,
-                      msg.platform,
-                      `platform-${msg.id}`
-                    )}
-                    {settings.showQuickModActions && (
-                      <span className="quick-moderation-actions">
-                        <button 
-                          className="quick-moderation-button quick-timeout-message-button" 
-                          type="button" 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onTimeoutUser && onTimeoutUser(msg, 600);
-                          }}
-                          title="Timeout (10m)"
-                        >
-                          <svg className="quick-moderation-action-svg" xmlns="http://www.w3.org/2000/svg" viewBox="2 2 20 20" fill="none">
-                            <path d="M12 7V12L14.5 13.5M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"></path>
-                          </svg>
-                        </button>
-                        <button 
-                          className="quick-moderation-button quick-ban-message-button" 
-                          type="button" 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const cleanUser = (msg.username || msg.displayName || msg.author || '').toLowerCase().replace(/^@+/, '').trim();
-                            const isUserBanned = (moderation?.bannedUsers instanceof Set && moderation.bannedUsers.has(cleanUser)) ||
-                                                 (blockedUsers instanceof Set && blockedUsers.has(cleanUser));
-                            if (isUserBanned) {
-                              onUnbanUser && onUnbanUser(msg);
-                            } else {
-                              onBanUser && onBanUser(msg);
-                            }
-                          }}
-                          title={(() => {
-                            const cleanUser = (msg.username || msg.displayName || msg.author || '').toLowerCase().replace(/^@+/, '').trim();
-                            const isUserBanned = (moderation?.bannedUsers instanceof Set && moderation.bannedUsers.has(cleanUser)) ||
-                                                 (blockedUsers instanceof Set && blockedUsers.has(cleanUser));
-                            return isUserBanned ? "Unhide User" : "Hide User";
-                          })()}
-                        >
-                          <svg className="quick-moderation-action-svg" xmlns="http://www.w3.org/2000/svg" viewBox="5 5 22 22" fill="currentColor">
-                            <path d="M16 5C9.935 5 5 9.934 5 16c0 6.067 4.935 11 11 11s11-4.933 11-11c0-6.066-4.935-11-11-11zm0 2.75c1.777 0 3.427.569 4.775 1.53L9.279 20.778A8.214 8.214 0 0 1 7.75 16c0-4.549 3.701-8.25 8.25-8.25zm0 16.5a8.2 8.2 0 0 1-4.775-1.53l11.494-11.497A8.205 8.205 0 0 1 24.25 16c0 4.547-3.701 8.25-8.25 8.25z"></path>
-                          </svg>
-                        </button>
-                        <button 
-                          className="quick-moderation-button quick-delete-message-button" 
-                          type="button" 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onDeleteMessage && onDeleteMessage(msg);
-                          }}
-                          title="Delete Message"
-                        >
-                          <svg className="quick-moderation-action-svg" xmlns="http://www.w3.org/2000/svg" viewBox="2 2 20 20" fill="none">
-                            <path d="M10 11V17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"></path>
-                            <path d="M14 11V17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"></path>
-                            <path d="M4 7H20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"></path>
-                            <path d="M6 7H12H18V18C18 19.6569 16.6569 21 15 21H9C7.34315 21 6 19.6569 6 18V7Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"></path>
-                            <path d="M9 5C9 3.89543 9.89543 3 11 3H13C14.1046 3 15 3.89543 15 5V7H9V5Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"></path>
-                          </svg>
-                        </button>
-                      </span>
-                    )}
-                  </div>
-                )}
-
-                {/* 4. Main message row */}
-                <div className="chat-message-main-row" style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: '4px', width: '100%', paddingRight: '68px', boxSizing: 'border-box' }}>
-                  {showAvatarForPlatform(msg.platform) && (
-                    <img 
-                      className="msg-avatar" 
-                      src={avatarUrl} 
-                      alt={msg.displayName || msg.username} 
-                      onError={(e) => {
-                        const errCount = parseInt(e.target.dataset.errorCount || '0') + 1;
-                        e.target.dataset.errorCount = errCount;
-                        if (errCount === 1) {
-                          const rawUrl = msg.avatarUrl || msg.avatar;
-                          if (rawUrl && typeof rawUrl === 'string' && rawUrl.startsWith('http') && !rawUrl.includes('images.weserv.nl')) {
-                            e.target.src = rawUrl;
-                            return;
-                          }
-                        }
-                        if (msg.platform === 'kick') {
-                          const defaultKickUrl = getKickDefaultAvatarUrl(msg.username, msg.userId);
-                          if (errCount === 2) {
-                            e.target.src = proxifyAvatarUrl(defaultKickUrl);
-                          } else {
-                            e.target.src = defaultKickUrl;
-                          }
-                          return;
-                        }
-                        e.target.src = getDefaultAvatar(msg.platform, msg.username, msg.userId);
-                      }}
-                    />
-                  )}
-
-                  <div className="message-body-inline" style={{ flex: 1, minWidth: 0, wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
-                    {msg.platform === 'youtube' ? (
-                      <span className="youtube-chatter-badges-wrapper" style={{ display: 'inline', marginRight: '4px' }}>
-                        {/* Wrap username in owner background container if YouTube broadcaster */}
-                        {msg.badges && msg.badges.includes('broadcaster') ? (
-                          <span className="chatter-container youtube-owner-chatter-background" style={{ marginRight: 0 }}>
-                            {renderUsernameWithTooltip(msg, '', { color: '#0d0d0d', marginRight: 0, paddingRight: 0 })}
-                          </span>
-                        ) : msg.badges && msg.badges.includes('verified') && !msg.badges.includes('moderator') ? (
-                          <span className="chatter-container youtube-verified-chatter-background" style={{ marginRight: 0 }}>
-                            {renderUsernameWithTooltip(msg, '', { color: '#ffffff', marginRight: 0, paddingRight: 0 })}
-                          </span>
-                        ) : (
-                          renderUsernameWithTooltip(msg, '', { color: getUsernameColor(msg), marginRight: 0, paddingRight: 0 })
-                        )}
-
-                        {/* For YouTube: badges after username with a clean 5px gap */}
-                        {settings.showBadges && (
-                          <span className="youtube-chatter-badges-list" style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', marginLeft: '5px', verticalAlign: 'middle' }}>
-                            {msg.badges && msg.badges.map((badge, idx) => {
-                              if (badge === 'broadcaster' || (typeof badge === 'string' && badge.startsWith('rank_'))) {
-                                return null;
-                              }
-                              let badgeEl = null;
-                              // Check if it's the verified badge
-                              if (badge === 'verified') {
-                                  badgeEl = (
-                                    <span key={`${msg.id}-${badge}-${idx}`} className="youtube-chatter-verified-badge" title="Verified">
-                                      <svg className="youtube-svg-element" viewBox="2 5 20 15" fill="#999999" style={{ width: '100%', height: '100%', display: 'block' }}>
-                                        <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" />
-                                      </svg>
-                                    </span>
-                                  );
-                              } else if (badge === 'moderator') {
-                                  badgeEl = (
-                                    <span key={`${msg.id}-${badge}-${idx}`} className="youtube-chatter-moderator-badge" title="Moderator">
-                                      <svg className="youtube-svg-element" viewBox="3 1 18 22" fill="#5e84f1" style={{ width: '100%', height: '100%', display: 'block' }}>
-                                        <path d="M3 4.998v9.857a6 6 0 003.365 5.39L12 23l5.635-2.755A6 6 0 0021 14.855V4.998a1 1 0 00-.656-.938L12 1 3.656 4.06A1 1 0 003 4.998Z" />
-                                      </svg>
-                                    </span>
-                                  );
-                              } else {
-                                  const badgeImageUrl = (msg.badgeImages && msg.badgeImages[badge]) || 
-                                                        (msg.platform === 'twitch' && msg.badgeVersions && getLiveTwitchBadgeUrl(msg.channel, badge, msg.badgeVersions[badge]));
-                                  if (badgeImageUrl) {
-                                    badgeEl = (
-                                      <img 
-                                        key={`${msg.id}-${badge}-${idx}`} 
-                                        className="msg-badge-icon" 
-                                        src={badgeImageUrl} 
-                                        alt={badge === 'member' ? 'Member' : badge === 'subscriber' ? 'Member' : badge} 
-                                        title={badge === 'member' ? 'Member' : badge === 'subscriber' ? 'Member' : badge}
-                                        style={{ marginLeft: 0, marginRight: 0 }}
-                                      />
-                                    );
-                                  } else if (badge === 'subscriber' || badge === 'member') {
-                                    badgeEl = (
-                                      <span key={`${msg.id}-${badge}-${idx}`} style={{ display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle', marginRight: '4px' }} title={badge === 'member' ? 'Member' : 'Subscriber'}>
-                                        <DefaultSubscriberBadge size="1.1em" />
-                                      </span>
-                                    );
-                                  } else {
-                                    const displayChar = badge === 'broadcaster' ? '👑' : null;
-                                    if (displayChar) {
-                                      badgeEl = (
-                                        <span key={`${msg.id}-${badge}-${idx}`} className={`msg-badge ${badge} platform-${msg.platform}`} style={{ marginLeft: 0, marginRight: 0, verticalAlign: 'middle' }}>
-                                          {displayChar}
-                                        </span>
-                                      );
-                                    }
-                                  }
-                              }
-                              return renderBadgeWithTooltip(badgeEl, badge, `${msg.id}-${badge}-${idx}`);
-                            })}
-
-                            {/* YouTube Top 1, #2, #3 Contributor Crown Pill Badge */}
-                            {(() => {
-                              const keys = [
-                                msg.channelId,
-                                msg.authorChannelId,
-                                msg.authorExternalChannelId,
-                                msg.userId,
-                                msg.username,
-                                msg.displayName
-                              ].filter(Boolean).map(k => String(k).toLowerCase().trim());
-
-                              let rank = (typeof msg.youtubeRank === 'number' && msg.youtubeRank >= 1 && msg.youtubeRank <= 3) ? msg.youtubeRank : null;
-
-                              if (!rank && Array.isArray(msg.badges)) {
-                                if (msg.badges.includes('rank_1')) rank = 1;
-                                else if (msg.badges.includes('rank_2')) rank = 2;
-                                else if (msg.badges.includes('rank_3')) rank = 3;
-                              }
-
-                              if (!rank && youtubeTop3Ranks) {
-                                for (const k of keys) {
-                                  const found = youtubeTop3Ranks.get(k);
-                                  if (found && found >= 1 && found <= 3) {
-                                    rank = found;
-                                    break;
-                                  }
-                                }
-                              }
-
-                              if (!rank || rank < 1 || rank > 3) return null;
-
-                              const rankBg = '#3b00bb';
-
-                              return renderBadgeWithTooltip(
-                                <span 
-                                  key={`${msg.id}-yt-rank-${rank}`}
-                                  className={`youtube-rank-badge youtube-rank-${rank}`}
-                                  title={`Top Contributor #${rank}`}
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: '4px',
-                                    backgroundColor: rankBg,
-                                    color: '#ffffff',
-                                    padding: '2px 8px 2px 7px',
-                                    borderRadius: '9999px',
-                                    fontSize: '12px',
-                                    fontWeight: '800',
-                                    lineHeight: '1',
-                                    verticalAlign: 'middle',
-                                    letterSpacing: '-0.2px',
-                                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.4)',
-                                    userSelect: 'none',
-                                    margin: '0 4px',
-                                    flexShrink: 0
-                                  }}
-                                >
-                                  <svg 
-                                    viewBox="0 0 24 24" 
-                                    fill="none" 
-                                    stroke="#ffffff" 
-                                    strokeWidth="2" 
-                                    strokeLinecap="round" 
-                                    strokeLinejoin="round" 
-                                    style={{ width: '13px', height: '13px', display: 'block', flexShrink: 0 }}
-                                  >
-                                    <circle cx="3.5" cy="6" r="1.3" fill="#ffffff" stroke="none" />
-                                    <circle cx="12" cy="3" r="1.3" fill="#ffffff" stroke="none" />
-                                    <circle cx="20.5" cy="6" r="1.3" fill="#ffffff" stroke="none" />
-                                    <path d="M3.5 7.5 L5.5 16 H18.5 L20.5 7.5 L15 12 L12 4.5 L9 12 Z" />
-                                    <line x1="4.5" y1="19" x2="19.5" y2="19" strokeWidth="2.2" strokeLinecap="round" />
-                                  </svg>
-                                  <span>#{rank}</span>
-                                </span>,
-                                `yt-rank-${rank}`,
-                                `${msg.id}-yt-rank-${rank}`
-                              );
-                            })()}
-                          </span>
-                        )}
-                      </span>
-                    ) : (
-                      <>
-                        {/* For Twitch/Kick: badges before username */}
-                        {msg.platform !== 'youtube' && settings.showBadges && msg.badges && (msg.platform === 'kick' ? sortKickBadges(msg.badges) : msg.badges).map((badge, idx) => {
-                          let badgeEl = null;
-                          if (msg.platform === 'kick') {
-                            badgeEl = renderKickBadge(badge, msg);
-                          } else {
-                            const badgeImageUrl = (msg.badgeImages && msg.badgeImages[badge]) || 
-                                                  (msg.platform === 'twitch' && msg.badgeVersions && getLiveTwitchBadgeUrl(msg.channel, badge, msg.badgeVersions[badge]));
-                            if (badgeImageUrl) {
-                              badgeEl = (
-                                <img 
-                                  key={`${msg.id}-${badge}-${idx}`} 
-                                  className="msg-badge-icon" 
-                                  src={badgeImageUrl} 
-                                  alt={badge} 
-                                  title={badge}
-                                />
-                              );
-                            } else if (badge === 'subscriber' || badge === 'member') {
-                              badgeEl = (
-                                <span key={`${msg.id}-${badge}-${idx}`} style={{ display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle', marginRight: '4px' }} title={badge === 'member' ? 'Member' : 'Subscriber'}>
-                                  {msg.platform === 'twitch' ? (
-                                    <TwitchDefaultSubscriberBadge size="1.1em" />
-                                  ) : (
-                                    <DefaultSubscriberBadge size="1.1em" />
-                                  )}
-                                </span>
-                              );
-                            } else {
-                              const displayChar = 
-                                badge === 'broadcaster' ? '👑' : 
-                                badge === 'moderator' ? '🔧' :
-                                badge === 'vip' ? '💎' : null;
-
-                              if (displayChar) {
-                                badgeEl = (
-                                  <span key={`${msg.id}-${badge}-${idx}`} className={`msg-badge ${badge} platform-${msg.platform}`}>
-                                    {displayChar}
-                                  </span>
-                                );
-                              }
-                            }
-                          }
-                          return renderBadgeWithTooltip(badgeEl, badge, `${msg.id}-${badge}-${idx}`);
-                        })}
-
-                        {renderUsernameWithTooltip(msg, '', { color: getUsernameColor(msg) })}
-                      </>
-                    )}
-                    
-                    {isHiddenOrDeleted ? (
-                      revealedDeletedIds.has(msg.id) ? (
-                        <>
-                          <span className="msg-separator-space"> </span>
-                          <span 
-                            className="msg-text is-deleted-revealed" 
-                            onClick={(e) => { e.stopPropagation(); toggleRevealDeleted(msg.id); }}
-                            title="Click to hide and show deleted placeholder"
-                            style={{ cursor: 'pointer', opacity: 0.85, textDecoration: 'line-through', color: '#ef4444' }}
-                          >
-                            {contentParts && contentParts.length > 0 ? contentParts.map((part, index) => {
-                              if (part && part.type === 'emote' && part.url) {
-                                return (
-                                  <img 
-                                    key={index}
-                                    className="chat-emote" 
-                                    src={part.url} 
-                                    alt={part.name || 'emote'} 
-                                  />
-                                );
-                              }
-                              const rawC = typeof part === 'string' ? part : (typeof part?.content === 'string' ? part.content : (typeof part?.text === 'string' ? part.text : ''));
-                              return <span key={index}>{rawC}</span>;
-                            }) : String(msg.text || '')}
-                          </span>
-                        </>
-                      ) : (
-                        <span className="msg-deleted-text-container" style={{ marginLeft: '6px', fontSize: '13px', color: '#a1a1aa' }}>
-                          <span>Message deleted by @{modHandle}. </span>
-                          <button 
-                            type="button" 
-                            onClick={(e) => { e.stopPropagation(); toggleRevealDeleted(msg.id); }}
-                            style={{ 
-                              background: 'none', 
-                              border: 'none', 
-                              color: '#3b82f6', 
-                              textDecoration: 'underline', 
-                              cursor: 'pointer', 
-                              fontSize: '12px',
-                              padding: 0,
-                              fontWeight: 600
-                            }}
-                          >
-                            View deleted message
-                          </button>
-                        </span>
-                      )
-                    ) : (
-                      <>
-                        <span className="msg-separator-space"> </span>
-                        <span className="msg-text">
-                          {contentParts && contentParts.length > 0 ? (
-                            contentParts.map((part, index) => {
-                              if (!part) return null;
-                              if (part.type === 'emote' && part.url) {
-                                return (
-                                  <Tooltip key={index} delayDuration={150}>
-                                    <TooltipTrigger asChild>
-                                      <img 
-                                        className="chat-emote" 
-                                        src={part.url} 
-                                        alt={part.name || 'emote'} 
-                                      />
-                                    </TooltipTrigger>
-                                    <TooltipContent side="top" align="center">
-                                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                                        <img 
-                                          src={part.url} 
-                                          alt={part.name || 'emote'} 
-                                          style={{ width: '48px', height: '48px', objectFit: 'contain' }}
-                                        />
-                                        <span style={{ fontWeight: 600 }}>:{part.name || 'emote'}:</span>
-                                        <span style={{ fontSize: '10px', textTransform: 'uppercase', opacity: 0.6 }}>{msg.platform}</span>
-                                      </div>
-                                    </TooltipContent>
-                                  </Tooltip>
-                                );
-                              }
-                              const rawContent = typeof part === 'string'
-                                ? part
-                                : (typeof part?.content === 'string'
-                                    ? part.content
-                                    : (typeof part?.text === 'string' ? part.text : ''));
-
-                              if (rawContent) {
-                                const words = rawContent.split(/(\s+)/);
-                                return (
-                                  <span key={index}>
-                                    {words.map((word, wIdx) => {
-                                      if (word && word.startsWith('@') && word.length > 1) {
-                                        const match = word.match(/^(@[^\s.,!?:;]+)(.*)$/);
-                                        if (match) {
-                                          const handle = match[1];
-                                          const punct = match[2];
-                                          const isOwnerTag = checkIsMentioned(handle, user, activeChannels);
-                                          if (isOwnerTag) {
-                                            return (
-                                              <React.Fragment key={wIdx}>
-                                                <span className="chat-mention-tag owner-mention">
-                                                  {handle}
-                                                </span>
-                                                {punct}
-                                              </React.Fragment>
-                                            );
-                                          }
-                                        }
-                                      }
-                                      return word;
-                                    })}
-                                  </span>
-                                );
-                              }
-                              return null;
-                            })
-                          ) : (
-                            <span>{String(msg.text || '')}</span>
-                          )}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                <div 
-                  className="msg-actions-wrapper"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="msg-hover-actions">
-                    {/* Speaker (TTS) Button */}
-                    <Tooltip delayDuration={150}>
-                      <TooltipTrigger asChild>
-                        <button 
-                          className="msg-hover-action-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSpeakMessage(msg);
-                          }}
-                        >
-                          <Volume2 size={15} />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" align="center">
-                        Read Aloud
-                      </TooltipContent>
-                    </Tooltip>
-
-                    {/* Ellipsis Menu Button */}
-                    <Tooltip delayDuration={150}>
-                      <TooltipTrigger asChild>
-                        <button 
-                          className="msg-hover-action-btn" 
-                          onClick={(e) => handleToggleMenu(e, msg)} 
-                        >
-                          &#8942;
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" align="center">
-                        Moderation & Insights
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                </div>
-              </div>
-            );
-          });
-
-          return msgElements.map((element, idx) => {
-            if (!element) return null;
-            const msg = tabFilteredMessages[idx];
-            const showSeparator = firstNewMessageId && String(msg.id) === String(firstNewMessageId);
-            return (
-              <React.Fragment key={msg?.id ? `${msg.id}-${idx}` : `msg-${idx}`}>
-                {showSeparator && (
-                  <div className="new-messages-separator">
-                    <span className="new-messages-separator-text">New Messages</span>
-                  </div>
-                )}
-                {element}
-              </React.Fragment>
-            );
-          });
-        })()
-      )}
-        </div>
+            })
+          )}
+          </div>
+        </TooltipProvider>
       </div>
 
       {!isLocked && unreadCount > 0 && (

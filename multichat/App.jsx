@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ChatDashboard from './components/ChatDashboard';
 import OverlayView from './components/OverlayView';
+import { TooltipProvider } from './components/ui/interfaces-tooltip';
 
 const DEFAULT_SETTINGS = {
   theme: 'default',
@@ -23,6 +24,7 @@ const DEFAULT_SETTINGS = {
   overlayFadeTime: 10,
   enableTts: false,
   enableSuperchatTts: false,
+  ttsIgnoreBots: true,
   ttsVolume: 50,
   ttsSpeed: 1.0,
   ttsReadUsernames: true,
@@ -95,12 +97,26 @@ export default function App({ logout }) {
   const [messages, setMessagesRaw] = useState(() => {
     if (typeof window !== 'undefined') {
       try {
-        const cached = localStorage.getItem('prochat_cached_chat_messages');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            return parsed.slice(-200);
+        const cachedChats = localStorage.getItem('prochat_cached_chat_messages');
+        const cachedEvents = localStorage.getItem('prochat_cached_events');
+        const parsedChats = cachedChats ? JSON.parse(cachedChats) : [];
+        const parsedEvents = cachedEvents ? JSON.parse(cachedEvents) : [];
+
+        const combined = [];
+        const seenIds = new Set();
+
+        // Combine events and regular messages, deduplicating by message ID
+        [...(Array.isArray(parsedEvents) ? parsedEvents : []), ...(Array.isArray(parsedChats) ? parsedChats : [])].forEach(m => {
+          if (m && m.id) {
+            if (seenIds.has(m.id)) return;
+            seenIds.add(m.id);
           }
+          combined.push(m);
+        });
+
+        combined.sort((a, b) => (a.rawTimestamp || 0) - (b.rawTimestamp || 0));
+        if (combined.length > 0) {
+          return combined;
         }
       } catch (e) {}
     }
@@ -108,34 +124,52 @@ export default function App({ logout }) {
   });
 
   useEffect(() => {
-    if (messages.length > 0) {
-      try {
-        const toCache = messages.filter(m => !m.isSystemEvent).slice(-200);
-        localStorage.setItem('prochat_cached_chat_messages', JSON.stringify(toCache));
-      } catch (e) {}
-    } else {
-      try {
+    if (typeof window === 'undefined') return;
+    try {
+      const regularChats = messages.filter(m => !m.isSystemEvent).slice(-300);
+      const systemEvents = messages.filter(m => m.isSystemEvent).slice(-500);
+
+      if (regularChats.length > 0) {
+        localStorage.setItem('prochat_cached_chat_messages', JSON.stringify(regularChats));
+      } else {
         localStorage.removeItem('prochat_cached_chat_messages');
-      } catch (e) {}
-    }
+      }
+
+      if (systemEvents.length > 0) {
+        localStorage.setItem('prochat_cached_events', JSON.stringify(systemEvents));
+      }
+    } catch (e) {}
   }, [messages]);
 
   const setMessages = React.useCallback((update) => {
     setMessagesRaw(prev => {
       const rawNext = typeof update === 'function' ? update(prev) : update;
+      if (!Array.isArray(rawNext)) return rawNext;
+      if (rawNext === prev) return prev;
+
       const seenIds = new Set();
       const next = [];
-      if (Array.isArray(rawNext)) {
-        for (const item of rawNext) {
-          if (item && item.id) {
-            if (seenIds.has(item.id)) continue;
-            seenIds.add(item.id);
-          }
-          next.push(item);
+      for (let i = 0; i < rawNext.length; i++) {
+        const item = rawNext[i];
+        if (item && item.id) {
+          if (seenIds.has(item.id)) continue;
+          seenIds.add(item.id);
         }
+        next.push(item);
       }
-      if (next.length > 2000) {
-        return next.slice(-2000);
+      // Prune regular messages to keep DOM and memory light, but PRESERVE all system events (up to 500)
+      if (next.length > 800) {
+        const events = [];
+        const regular = [];
+        for (let i = 0; i < next.length; i++) {
+          const m = next[i];
+          if (m.isSystemEvent) events.push(m);
+          else regular.push(m);
+        }
+        const slicedEvents = events.length > 500 ? events.slice(-500) : events;
+        const slicedRegular = regular.length > 400 ? regular.slice(-400) : regular;
+        const merged = [...slicedEvents, ...slicedRegular].sort((a, b) => (a.rawTimestamp || 0) - (b.rawTimestamp || 0));
+        return merged;
       }
       return next;
     });
@@ -795,7 +829,9 @@ export default function App({ logout }) {
 
   return (
     <DashboardErrorBoundary>
-      {renderPage()}
+      <TooltipProvider delayDuration={150}>
+        {renderPage()}
+      </TooltipProvider>
     </DashboardErrorBoundary>
   );
 }
