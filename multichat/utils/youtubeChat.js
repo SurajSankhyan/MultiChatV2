@@ -841,31 +841,36 @@ export class YoutubeChatClient {
 
     let continuationToken = null;
 
-    // When preferredMode is 'live', explicitly prioritize Live Chat (All messages) over Top Chat
+    // 1. Check if subMenuItem specifically has Live chat vs Top chat
     if (preferredMode === 'live') {
-      // 1. Look for subMenuItem with "Live chat" or title without "Top"
-      const liveChatSubMenuMatch = html.match(/"title"\s*:\s*"(?:Live chat|All messages|Live)"[^}]*"continuation"\s*:\s*\{\s*"reloadContinuationData"\s*:\s*\{\s*"continuation"\s*:\s*"([^"]+)"/i) ||
-                                   html.match(/"title"\s*:\s*"(?:Live chat|All messages|Live)"[^}]*"continuation"\s*:\s*"([^"]+)"/i);
-      if (liveChatSubMenuMatch && liveChatSubMenuMatch[1]) {
-        continuationToken = liveChatSubMenuMatch[1];
+      const liveChatMatch = html.match(/"(?:Live chat|All messages|Live)"[^}]*"continuation"\s*:\s*\{\s*"reloadContinuationData"\s*:\s*\{\s*"continuation"\s*:\s*"([^"]+)"/i) ||
+                            html.match(/"title"[^}]*"(?:Live chat|All messages|Live)"[\s\S]{1,500}?"continuation"\s*:\s*"([^"]+)"/i);
+      if (liveChatMatch && liveChatMatch[1]) {
+        continuationToken = liveChatMatch[1];
       }
-
-      // 2. Look for second reloadContinuationData in sortFilterSubMenu (second item in YouTube is always Live chat)
-      if (!continuationToken) {
-        const allReloadMatches = Array.from(html.matchAll(/"reloadContinuationData"\s*:\s*\{\s*"continuation"\s*:\s*"([^"]+)"/g));
-        if (allReloadMatches.length > 1 && allReloadMatches[1]?.[1]) {
-          continuationToken = allReloadMatches[1][1];
-        }
+    } else if (preferredMode === 'top') {
+      const topChatMatch = html.match(/"(?:Top chat|Top)"[^}]*"continuation"\s*:\s*\{\s*"reloadContinuationData"\s*:\s*\{\s*"continuation"\s*:\s*"([^"]+)"/i) ||
+                           html.match(/"title"[^}]*"(?:Top chat|Top)"[\s\S]{1,500}?"continuation"\s*:\s*"([^"]+)"/i);
+      if (topChatMatch && topChatMatch[1]) {
+        continuationToken = topChatMatch[1];
       }
     }
 
+    // 2. Specific liveChatRenderer continuation
+    if (!continuationToken) {
+      const liveChatRendererMatch = html.match(/"liveChatRenderer"\s*:\s*\{[\s\S]{1,500}?"continuation"\s*:\s*"([^"]+)"/) ||
+                                    html.match(/"liveChatContinuation"\s*:\s*\{[\s\S]{1,500}?"continuation"\s*:\s*"([^"]+)"/);
+      if (liveChatRendererMatch && liveChatRendererMatch[1]) {
+        continuationToken = liveChatRendererMatch[1];
+      }
+    }
+
+    // 3. Fallback contMatchers (specifically targeting liveChat / timedContinuation / reloadContinuation)
     if (!continuationToken) {
       const contMatchers = [
-        /"reloadContinuationData"\s*:\s*\{\s*"continuation"\s*:\s*"([^"]+)"/,
         /"timedContinuationData"\s*:\s*\{\s*"continuation"\s*:\s*"([^"]+)"/,
-        /"continuationData":\s*\{\s*"continuation"\s*:\s*"([^"]+)"/,
-        /"liveChatRenderer"[^}]*"continuation":"([^"]+)"/,
-        /"continuation":"([^"]+)"/
+        /"reloadContinuationData"\s*:\s*\{\s*"continuation"\s*:\s*"([^"]+)"/,
+        /"continuationData":\s*\{\s*"continuation"\s*:\s*"([^"]+)"/
       ];
       for (const regex of contMatchers) {
         const match = html.match(regex);
@@ -982,25 +987,34 @@ export class YoutubeChatClient {
 
       console.log(`YouTube client: resolved video ID: ${videoId}`);
 
-      // Extract Innertube API parameters directly from pageHtml if present
-      let { apiKey, clientVersion, continuationToken, liveChatId } = this.extractInnertubeParams(pageHtml, chatMode);
+      let apiKey = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
+      let clientVersion = '2.20240404.01.00';
+      let continuationToken = null;
+      let liveChatId = null;
 
-      // If tokens weren't in main page HTML or chatMode is specific, fetch live chat page directly (1 fast request)
-      if (!apiKey || !continuationToken) {
-        try {
-          const chatPageUrl = `https://www.youtube.com/live_chat?v=${videoId}`;
-          console.log(`YouTube client: fetching live chat page for tokens: ${chatPageUrl}`);
-          const chatHtml = await this.fetchWithProxyFallback(chatPageUrl);
-          if (chatHtml) {
-            const chatParams = this.extractInnertubeParams(chatHtml, chatMode);
-            if (!apiKey && chatParams.apiKey) apiKey = chatParams.apiKey;
-            if (!continuationToken && chatParams.continuationToken) continuationToken = chatParams.continuationToken;
-            if (!clientVersion && chatParams.clientVersion) clientVersion = chatParams.clientVersion;
-            if (!liveChatId && chatParams.liveChatId) liveChatId = chatParams.liveChatId;
-          }
-        } catch (e) {
-          console.warn("YouTube client: live_chat fetch error:", e.message);
+      // Always fetch the live_chat page to guarantee official live chat continuation tokens
+      try {
+        const chatPageUrl = `https://www.youtube.com/live_chat?v=${videoId}`;
+        console.log(`YouTube client: fetching live chat page for tokens: ${chatPageUrl}`);
+        const chatHtml = await this.fetchWithProxyFallback(chatPageUrl);
+        if (chatHtml) {
+          const chatParams = this.extractInnertubeParams(chatHtml, chatMode);
+          if (chatParams.apiKey) apiKey = chatParams.apiKey;
+          if (chatParams.continuationToken) continuationToken = chatParams.continuationToken;
+          if (chatParams.clientVersion) clientVersion = chatParams.clientVersion;
+          if (chatParams.liveChatId) liveChatId = chatParams.liveChatId;
         }
+      } catch (e) {
+        console.warn("YouTube client: live_chat fetch error:", e.message);
+      }
+
+      // If tokens weren't in live_chat page, fallback to pageHtml params
+      if (!continuationToken && pageHtml) {
+        const fallbackParams = this.extractInnertubeParams(pageHtml, chatMode);
+        if (!apiKey && fallbackParams.apiKey) apiKey = fallbackParams.apiKey;
+        if (!continuationToken && fallbackParams.continuationToken) continuationToken = fallbackParams.continuationToken;
+        if (!clientVersion && fallbackParams.clientVersion) clientVersion = fallbackParams.clientVersion;
+        if (!liveChatId && fallbackParams.liveChatId) liveChatId = fallbackParams.liveChatId;
       }
 
       if (!apiKey) {
@@ -1434,6 +1448,22 @@ export class YoutubeChatClient {
 
       if (nextToken) {
         poll.continuationToken = nextToken;
+        poll.retryCount = 0;
+      } else if (poll.videoId) {
+        poll.retryCount = (poll.retryCount || 0) + 1;
+        if (poll.retryCount >= 2) {
+          try {
+            const chatPageUrl = `https://www.youtube.com/live_chat?v=${poll.videoId}`;
+            const chatHtml = await this.fetchWithProxyFallback(chatPageUrl);
+            if (chatHtml) {
+              const chatParams = this.extractInnertubeParams(chatHtml, poll.chatMode);
+              if (chatParams.continuationToken) {
+                poll.continuationToken = chatParams.continuationToken;
+                poll.retryCount = 0;
+              }
+            }
+          } catch (err) {}
+        }
       }
 
     } catch (e) {
