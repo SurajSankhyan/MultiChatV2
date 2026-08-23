@@ -906,47 +906,42 @@ export class YoutubeChatClient {
       }
     }
 
-    let continuationToken = null;
+    let liveChatToken = null;
+    let topChatToken = null;
 
-    // 1. Check if subMenuItem specifically has Live chat vs Top chat
-    if (preferredMode === 'live') {
-      const liveChatMatch = html.match(/"(?:Live chat|All messages|Live)"[^}]*"continuation"\s*:\s*\{\s*"reloadContinuationData"\s*:\s*\{\s*"continuation"\s*:\s*"([^"]+)"/i) ||
-                            html.match(/"title"[^}]*"(?:Live chat|All messages|Live)"[\s\S]{1,500}?"continuation"\s*:\s*"([^"]+)"/i);
-      if (liveChatMatch && liveChatMatch[1]) {
-        continuationToken = liveChatMatch[1];
-      }
-    } else if (preferredMode === 'top') {
-      const topChatMatch = html.match(/"(?:Top chat|Top)"[^}]*"continuation"\s*:\s*\{\s*"reloadContinuationData"\s*:\s*\{\s*"continuation"\s*:\s*"([^"]+)"/i) ||
-                           html.match(/"title"[^}]*"(?:Top chat|Top)"[\s\S]{1,500}?"continuation"\s*:\s*"([^"]+)"/i);
-      if (topChatMatch && topChatMatch[1]) {
-        continuationToken = topChatMatch[1];
+    // 1. Direct Regex match for Live chat / All messages vs Top chat in subMenu
+    const liveMatch = html.match(/"title"\s*:\s*"(?:Live chat|All messages|Live)"[\s\S]{1,500}?"continuation"\s*:\s*"([^"]+)"/i) ||
+                      html.match(/"(?:Live chat|All messages|Live)"[^}]*"continuation"\s*:\s*\{\s*"reloadContinuationData"\s*:\s*\{\s*"continuation"\s*:\s*"([^"]+)"/i);
+    if (liveMatch && liveMatch[1]) liveChatToken = liveMatch[1];
+
+    const topMatch = html.match(/"title"\s*:\s*"(?:Top chat|Top)"[\s\S]{1,500}?"continuation"\s*:\s*"([^"]+)"/i) ||
+                     html.match(/"(?:Top chat|Top)"[^}]*"continuation"\s*:\s*\{\s*"reloadContinuationData"\s*:\s*\{\s*"continuation"\s*:\s*"([^"]+)"/i);
+    if (topMatch && topMatch[1]) topChatToken = topMatch[1];
+
+    // 2. If subMenu tokens not found by title, parse all reloadContinuationData occurrences in live_chat HTML
+    if (!liveChatToken || !topChatToken) {
+      const allReloadMatches = Array.from(html.matchAll(/"reloadContinuationData"\s*:\s*\{\s*"continuation"\s*:\s*"([^"]+)"/g)).map(m => m[1]);
+      if (allReloadMatches.length >= 3) {
+        topChatToken = topChatToken || allReloadMatches[1];
+        liveChatToken = liveChatToken || allReloadMatches[2];
+      } else if (allReloadMatches.length >= 2) {
+        topChatToken = topChatToken || allReloadMatches[0];
+        liveChatToken = liveChatToken || allReloadMatches[1];
+      } else if (allReloadMatches.length === 1) {
+        liveChatToken = liveChatToken || allReloadMatches[0];
       }
     }
 
-    // 2. Specific liveChatRenderer continuation
-    if (!continuationToken) {
-      const liveChatRendererMatch = html.match(/"liveChatRenderer"\s*:\s*\{[\s\S]{1,500}?"continuation"\s*:\s*"([^"]+)"/) ||
-                                    html.match(/"liveChatContinuation"\s*:\s*\{[\s\S]{1,500}?"continuation"\s*:\s*"([^"]+)"/);
-      if (liveChatRendererMatch && liveChatRendererMatch[1]) {
-        continuationToken = liveChatRendererMatch[1];
+    // 3. Fallback generic continuation
+    if (!liveChatToken && !topChatToken) {
+      const contRegex = /"continuation"\s*:\s*"([^"]+)"/g;
+      const allContMatches = Array.from(html.matchAll(contRegex)).map(m => m[1]);
+      if (allContMatches.length > 0) {
+        liveChatToken = allContMatches[allContMatches.length - 1];
       }
     }
 
-    // 3. Fallback contMatchers (specifically targeting liveChat / timedContinuation / reloadContinuation)
-    if (!continuationToken) {
-      const contMatchers = [
-        /"timedContinuationData"\s*:\s*\{\s*"continuation"\s*:\s*"([^"]+)"/,
-        /"reloadContinuationData"\s*:\s*\{\s*"continuation"\s*:\s*"([^"]+)"/,
-        /"continuationData":\s*\{\s*"continuation"\s*:\s*"([^"]+)"/
-      ];
-      for (const regex of contMatchers) {
-        const match = html.match(regex);
-        if (match && match[1]) {
-          continuationToken = match[1];
-          break;
-        }
-      }
-    }
+    const continuationToken = (preferredMode === 'top' && topChatToken) ? topChatToken : (liveChatToken || topChatToken);
 
     let liveChatId = null;
     const lcMatch = html.match(/"activeLiveChatId"\s*:\s*"([^"]+)"/) || html.match(/"liveChatId"\s*:\s*"([^"]+)"/);
@@ -954,7 +949,7 @@ export class YoutubeChatClient {
       liveChatId = lcMatch[1];
     }
 
-    return { apiKey, clientVersion, continuationToken, liveChatId };
+    return { apiKey: apiKey || 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8', clientVersion, continuationToken, liveChatId };
   }
 
   async join(channelName, chatMode = 'live') {
@@ -1059,43 +1054,39 @@ export class YoutubeChatClient {
       let continuationToken = null;
       let liveChatId = null;
 
-      // 1. Prioritize direct InnerTube Next API (100% reliable, zero scraping, zero consent blocks)
+      // 1. Fetch live_chat page HTML (guarantees official live chat continuation tokens for get_live_chat)
       try {
-        console.log(`YouTube client: requesting live chat tokens via /next for ${videoId}...`);
-        const nextTokens = await this.fetchLiveChatTokensViaNext(videoId, chatMode);
-        if (nextTokens && nextTokens.continuationToken) {
-          continuationToken = nextTokens.continuationToken;
-          console.log(`YouTube client: obtained official continuation token via /next for ${videoId}`);
+        const chatPageUrl = `https://www.youtube.com/live_chat?v=${videoId}`;
+        console.log(`YouTube client: fetching live chat page for tokens: ${chatPageUrl}`);
+        const chatHtml = await this.fetchWithProxyFallback(chatPageUrl);
+        if (chatHtml) {
+          const chatParams = this.extractInnertubeParams(chatHtml, chatMode);
+          if (chatParams.apiKey) apiKey = chatParams.apiKey;
+          if (chatParams.continuationToken) continuationToken = chatParams.continuationToken;
+          if (chatParams.clientVersion) clientVersion = chatParams.clientVersion;
+          if (chatParams.liveChatId) liveChatId = chatParams.liveChatId;
         }
       } catch (e) {
-        console.warn("YouTube client: /next token fetch error:", e.message);
+        console.warn("YouTube client: live_chat fetch error:", e.message);
       }
 
-      // 2. Fallback to live_chat page HTML if /next didn't provide token
-      if (!continuationToken) {
-        try {
-          const chatPageUrl = `https://www.youtube.com/live_chat?v=${videoId}`;
-          console.log(`YouTube client: fetching live chat page for tokens: ${chatPageUrl}`);
-          const chatHtml = await this.fetchWithProxyFallback(chatPageUrl);
-          if (chatHtml) {
-            const chatParams = this.extractInnertubeParams(chatHtml, chatMode);
-            if (chatParams.apiKey) apiKey = chatParams.apiKey;
-            if (chatParams.continuationToken) continuationToken = chatParams.continuationToken;
-            if (chatParams.clientVersion) clientVersion = chatParams.clientVersion;
-            if (chatParams.liveChatId) liveChatId = chatParams.liveChatId;
-          }
-        } catch (e) {
-          console.warn("YouTube client: live_chat fetch error:", e.message);
-        }
-      }
-
-      // 3. Fallback to pageHtml params if still needed
+      // 2. Fallback to pageHtml params if not found in live_chat page
       if (!continuationToken && pageHtml) {
         const fallbackParams = this.extractInnertubeParams(pageHtml, chatMode);
         if (!apiKey && fallbackParams.apiKey) apiKey = fallbackParams.apiKey;
         if (!continuationToken && fallbackParams.continuationToken) continuationToken = fallbackParams.continuationToken;
         if (!clientVersion && fallbackParams.clientVersion) clientVersion = fallbackParams.clientVersion;
         if (!liveChatId && fallbackParams.liveChatId) liveChatId = fallbackParams.liveChatId;
+      }
+
+      // 3. Fallback to InnerTube Next API if needed
+      if (!continuationToken) {
+        try {
+          const nextTokens = await this.fetchLiveChatTokensViaNext(videoId, chatMode);
+          if (nextTokens && nextTokens.continuationToken) {
+            continuationToken = nextTokens.continuationToken;
+          }
+        } catch (e) {}
       }
 
       if (!apiKey) {
@@ -1628,6 +1619,9 @@ export class YoutubeChatClient {
           type: 'text',
           content: text
         });
+      } else if (item.giftMessageViewModel) {
+        renderer = item.giftMessageViewModel;
+        eventType = 'gift';
       } else if (item.liveChatPaidGiftRenderer || item.liveChatGiftRenderer || item.liveChatGiftPurchaseRenderer || item.liveChatJewelsGiftRenderer) {
         renderer = item.liveChatPaidGiftRenderer || item.liveChatGiftRenderer || item.liveChatGiftPurchaseRenderer || item.liveChatJewelsGiftRenderer;
         eventType = 'gift';
@@ -1768,8 +1762,11 @@ export class YoutubeChatClient {
         }
       });
 
-      // If no text in runs, check simpleText fields
-      if (!text && renderer.message?.simpleText) {
+      // If no text in runs, check content / simpleText fields
+      if (!text && renderer.text?.content) {
+        text = renderer.text.content;
+        parts.push({ type: 'text', content: text });
+      } else if (!text && renderer.message?.simpleText) {
         text = renderer.message.simpleText;
         parts.push({ type: 'text', content: text });
       } else if (!text && renderer.headerText?.simpleText) {
@@ -1787,6 +1784,7 @@ export class YoutubeChatClient {
                          renderer.gift?.thumbnails || 
                          renderer.giftThumbnail?.thumbnails || 
                          renderer.giftImage?.thumbnails || 
+                         renderer.giftImage?.sources || 
                          renderer.image?.thumbnails || [];
       let giftImageUrl = giftThumbs.length > 0 ? normalizeUrl(giftThumbs[giftThumbs.length - 1]?.url || giftThumbs[0]?.url) : null;
 
@@ -1848,7 +1846,7 @@ export class YoutubeChatClient {
 
       const authorChannelId = renderer.authorExternalChannelId || null;
       const hasExplicitAuthor = !!renderer.authorName || !!renderer.header?.liveChatSponsorshipsHeaderRenderer?.authorName;
-      let rawHandle = renderer.authorName?.simpleText || (renderer.authorName?.runs?.map(r => r.text).join('')) || renderer.header?.liveChatSponsorshipsHeaderRenderer?.authorName?.simpleText;
+      let rawHandle = renderer.authorName?.content || renderer.authorName?.simpleText || (renderer.authorName?.runs?.map(r => r.text).join('')) || renderer.header?.liveChatSponsorshipsHeaderRenderer?.authorName?.simpleText;
 
       const isSystemText = /Subscribers-only mode|Members-only mode|Slow mode|Welcome to live chat|Community Guidelines|pinned a message|mode is (on|off)/i.test(text || '');
 
@@ -2005,7 +2003,7 @@ export class YoutubeChatClient {
 
       const color = this.getRandomColor(username);
       // Use highest-quality thumbnail (last in array is largest)
-      const photoThumbnails = renderer.authorPhoto?.thumbnails;
+      const photoThumbnails = renderer.authorPhoto?.thumbnails || renderer.authorAvatar?.avatarViewModel?.image?.sources;
       let avatar = photoThumbnails && photoThumbnails.length > 0 
         ? normalizeUrl(photoThumbnails[photoThumbnails.length - 1].url) 
         : null;
