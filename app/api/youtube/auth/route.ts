@@ -1,8 +1,20 @@
 import { NextResponse } from 'next/server';
 
-export async function GET() {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const redirectUri = 'http://localhost:5000/api/youtube/callback';
+function getCanonicalOrigin(request: Request): string {
+  const forwardedHost = request.headers.get('x-forwarded-host') || request.headers.get('host');
+  const forwardedProto = request.headers.get('x-forwarded-proto') || 'https';
+  if (forwardedHost) {
+    const host = forwardedHost.split(',')[0].trim();
+    return `${forwardedProto}://${host}`;
+  }
+  const url = new URL(request.url);
+  return url.origin;
+}
+
+export async function GET(request: Request) {
+  const clientId = process.env.GOOGLE_CLIENT_ID || '';
+  const canonicalOrigin = getCanonicalOrigin(request);
+  const redirectUri = process.env.YOUTUBE_REDIRECT_URI || `${canonicalOrigin}/api/youtube/callback`;
   
   if (!clientId) {
     return NextResponse.json(

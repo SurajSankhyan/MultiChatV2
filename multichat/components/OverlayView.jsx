@@ -522,8 +522,8 @@ export default function OverlayView() {
     };
 
     if (platform === 'youtube') {
-      if (msg.badges && msg.badges.includes('broadcaster')) {
-        return '#ffffff';
+      if ((msg.badges && (msg.badges.includes('broadcaster') || msg.badges.includes('owner'))) || msg.isOwner || msg.isBroadcaster) {
+        return '#0f0f0f';
       }
       if (msg.badges && msg.badges.includes('moderator')) {
         return '#5e84f1';
@@ -876,22 +876,32 @@ export default function OverlayView() {
                     );
                   })}
 
-                  <span 
-                    className="msg-username" 
-                    style={{ 
-                      color: getUsernameColor(msg),
-                      textShadow: getTextShadowStyle(overlayTextOutline, overlayTextShadow),
-                      marginRight: '4px'
-                    }}
-                  >
-                    {getFormattedName(msg)}
-                  </span>
+                  {(() => {
+                    const isYtOwner = msg.platform === 'youtube' && ((msg.badges && (msg.badges.includes('broadcaster') || msg.badges.includes('owner'))) || msg.isOwner || msg.isBroadcaster);
+                    return (
+                      <span 
+                        className={`msg-username${isYtOwner ? ' youtube-owner-pill' : ''}`}
+                        style={{ 
+                          color: isYtOwner ? '#0f0f0f' : getUsernameColor(msg),
+                          backgroundColor: isYtOwner ? '#ffd600' : 'transparent',
+                          fontWeight: isYtOwner ? 700 : 'inherit',
+                          padding: isYtOwner ? '1px 6px' : '0',
+                          borderRadius: isYtOwner ? '4px' : '0',
+                          display: isYtOwner ? 'inline-block' : 'inline',
+                          textShadow: isYtOwner ? 'none' : getTextShadowStyle(overlayTextOutline, overlayTextShadow),
+                          marginRight: '4px'
+                        }}
+                      >
+                        {getFormattedName(msg)}
+                      </span>
+                    );
+                  })()}
 
                   {/* For YouTube: badges after username */}
                   {msg.platform === 'youtube' && showBadges && (
                     <>
                       {msg.badges && msg.badges.map(badge => {
-                        if (badge === 'broadcaster' || (typeof badge === 'string' && badge.startsWith('rank_'))) {
+                        if (badge === 'broadcaster' || badge === 'owner' || (typeof badge === 'string' && badge.startsWith('rank_'))) {
                           return null;
                         }
                         if (badge === 'verified') {

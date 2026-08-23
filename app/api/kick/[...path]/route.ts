@@ -9,11 +9,13 @@ const execFilePromise = util.promisify(execFile);
 const kickApiCache = new Map<string, { data: any; expiresAt: number }>();
 const CACHE_TTL_MS = 25000; // 25 seconds
 
+const curlBin = process.platform === 'win32' ? 'curl.exe' : 'curl';
+
 async function fetchWithCurl(url: string) {
   try {
-    const { stdout } = await execFilePromise('curl.exe', [
+    const { stdout } = await execFilePromise(curlBin, [
       '-s', '-L', url,
-      '-H', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/122.0.0.0',
+      '-H', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
       '-H', 'Accept: application/json',
       '-H', 'Accept-Language: en-US,en;q=0.9',
       '-H', 'Referer: https://kick.com/',

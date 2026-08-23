@@ -110,6 +110,9 @@ export default function ThreadModal({
 
   // Helper to get username color
   const getUsernameColor = (msg) => {
+    if (msg.platform === 'youtube' && ((msg.badges && (msg.badges.includes('broadcaster') || msg.badges.includes('owner'))) || msg.isOwner || msg.isBroadcaster)) {
+      return '#0f0f0f';
+    }
     if (msg.color) return msg.color;
     // Default colors based on platform
     if (msg.platform === 'twitch') return '#9146FF';
@@ -123,7 +126,7 @@ export default function ThreadModal({
     let name = '';
     const currentSettings = settings || {};
     
-    // Kick Chat ONLY: always show Channel Name without @ names
+    // Kick Chat or showChannelName: show Channel Name without @ names
     if (msg.platform === 'kick' || currentSettings.showChannelName) {
       name = msg.displayName || msg.username || '';
       name = name.replace(/^@+/, '');
@@ -143,8 +146,21 @@ export default function ThreadModal({
     if (!logMsg) return null;
     const formattedName = getFormattedName(logMsg);
     const currentSettings = settings || {};
+    const isYtOwner = logMsg.platform === 'youtube' && ((logMsg.badges && (logMsg.badges.includes('broadcaster') || logMsg.badges.includes('owner'))) || logMsg.isOwner || logMsg.isBroadcaster);
+
+    const ytOwnerStyles = isYtOwner ? {
+      backgroundColor: '#ffd600',
+      color: '#0f0f0f',
+      fontWeight: 700,
+      padding: '1px 6px',
+      borderRadius: '4px',
+      display: 'inline-block',
+      lineHeight: '1.3',
+      letterSpacing: '0.1px',
+      marginRight: '6px'
+    } : {};
     
-    const tooltipText = currentSettings.showChannelName 
+    const tooltipText = (currentSettings.showChannelName || isYtOwner)
       ? `@${logMsg.username.replace(/^@+/, '')}` 
       : (logMsg.displayName || logMsg.username).replace(/^@+/, '');
 
@@ -152,8 +168,8 @@ export default function ThreadModal({
       <Tooltip delayDuration={150}>
         <TooltipTrigger asChild>
           <span 
-            className="thread-modal-username" 
-            style={{ cursor: 'pointer', ...style }}
+            className={`thread-modal-username${isYtOwner ? ' youtube-owner-pill' : ''}`}
+            style={{ cursor: 'pointer', ...style, ...ytOwnerStyles }}
           >
             {formattedName}:
           </span>
@@ -480,7 +496,7 @@ export default function ThreadModal({
   };
 
   const renderBadge = (badge, msg) => {
-    if (msg.platform === 'youtube' && (badge === 'broadcaster' || (typeof badge === 'string' && badge.startsWith('rank_')))) {
+    if (msg.platform === 'youtube' && (badge === 'broadcaster' || badge === 'owner' || (typeof badge === 'string' && badge.startsWith('rank_')))) {
       return null;
     }
 

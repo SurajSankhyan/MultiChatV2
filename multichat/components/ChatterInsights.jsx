@@ -494,7 +494,7 @@ export default function ChatterInsights({
   };
 
   const renderBadge = (badge) => {
-    if (chatter.platform === 'youtube' && badge === 'broadcaster') {
+    if (chatter.platform === 'youtube' && (badge === 'broadcaster' || badge === 'owner')) {
       return null;
     }
 

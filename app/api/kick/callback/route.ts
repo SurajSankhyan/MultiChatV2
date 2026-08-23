@@ -16,19 +16,11 @@ function getCanonicalOrigin(request: Request): string {
   const forwardedHost = request.headers.get('x-forwarded-host') || request.headers.get('host');
   const forwardedProto = request.headers.get('x-forwarded-proto') || 'https';
   if (forwardedHost) {
-    let host = forwardedHost.split(',')[0].trim();
-    if (host.includes('--')) {
-      host = host.split('--')[1];
-    }
+    const host = forwardedHost.split(',')[0].trim();
     return `${forwardedProto}://${host}`;
   }
 
   const url = new URL(request.url);
-  let host = url.host;
-  if (host.includes('--')) {
-    host = host.split('--')[1];
-    return `${url.protocol}//${host}`;
-  }
   return url.origin;
 }
 
@@ -76,8 +68,8 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${canonicalOrigin}/dashboard#kick_error=No_code_provided`);
   }
 
-  const clientId = process.env.KICK_CLIENT_ID || '01KZGGD32S5919AGF28KSKKT1J';
-  const clientSecret = process.env.KICK_CLIENT_SECRET || 'fb569011d2a1d96acd782fd08bdf472fcfaeebd46efe6876d1fd073ead084d89';
+  const clientId = process.env.KICK_CLIENT_ID || '';
+  const clientSecret = process.env.KICK_CLIENT_SECRET || '';
   const redirectUri = process.env.KICK_REDIRECT_URI || `${canonicalOrigin}/api/kick/callback`;
 
   try {

@@ -420,15 +420,9 @@ export default function ChatDashboard({
     if (!ch) return '';
     const cleanName = ch.name.toLowerCase().replace(/^@+/, '').trim();
 
-    // 1. Check resolvedStreamerNames map
-    const resolved = resolvedStreamerNames[cleanName];
-    if (resolved && !resolved.toLowerCase().includes('404') && !resolved.toLowerCase().includes('not found') && resolved.toLowerCase() !== 'youtube') {
-      return resolved.replace(/^@+/, '');
-    }
-
-    // 2. Check logged-in user account title
+    // 1. Prioritize logged-in user verified channel title for user's own channel
     if (user) {
-      const channelTitle = user?.channel_name || user?.ytChannelName || (user?.username && !user?.username?.startsWith('@') ? user?.username : null);
+      const channelTitle = user?.channel_name || user?.ytChannelName || (user?.username && !user?.username?.startsWith('@') && user?.username !== 'Streamer' ? user?.username : null);
       const userHandles = [
         user?.custom_handle,
         user?.ytCustomHandle,
@@ -436,9 +430,15 @@ export default function ChatDashboard({
         user?.email?.split('@')[0]
       ].filter(Boolean).map(h => h.toLowerCase().replace(/^@+/, '').trim());
 
-      if (channelTitle && channelTitle !== '@user' && userHandles.includes(cleanName)) {
+      if (channelTitle && channelTitle !== '@user' && !channelTitle.toLowerCase().includes('404') && userHandles.includes(cleanName)) {
         return channelTitle.replace(/^@+/, '');
       }
+    }
+
+    // 2. Check resolvedStreamerNames map
+    const resolved = resolvedStreamerNames[cleanName];
+    if (resolved && !resolved.toLowerCase().includes('404') && !resolved.toLowerCase().includes('not found') && resolved.toLowerCase() !== 'youtube') {
+      return resolved.replace(/^@+/, '');
     }
 
     // 3. Fallback to ch.displayName
@@ -615,6 +615,8 @@ export default function ChatDashboard({
     kick: 'disconnected'
   });
 
+  const [clientsInitialized, setClientsInitialized] = useState(false);
+
   const [youtubeShortsChannels, setYoutubeShortsChannels] = useState(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -635,12 +637,47 @@ export default function ChatDashboard({
   const simulatorRef = useRef(null);
 
   const handleAddChannel = async (platform, name) => {
-    const cleanName = name.toLowerCase().replace('@', '').trim();
-    if (activeChannels.some(ch => ch.platform === platform && ch.name.toLowerCase().replace('@', '') === cleanName)) {
+    let input = (name || '').trim();
+    if (!input) return;
+    let cleanName = input;
+
+    if (platform === 'youtube') {
+      if (input.includes('youtube.com/') || input.includes('youtu.be/')) {
+        try {
+          const u = new URL(input.startsWith('http') ? input : `https://${input}`);
+          if (u.searchParams.has('v')) {
+            cleanName = u.searchParams.get('v');
+          } else if (u.pathname.startsWith('/@')) {
+            cleanName = u.pathname.split('/')[1];
+          } else if (u.pathname.startsWith('/channel/')) {
+            cleanName = u.pathname.split('/')[2];
+          } else if (u.pathname.startsWith('/live/')) {
+            cleanName = u.pathname.split('/')[2];
+          } else if (u.pathname.startsWith('/shorts/')) {
+            cleanName = u.pathname.split('/')[2];
+          }
+        } catch (e) {}
+      }
+      if (!cleanName.startsWith('@') && !cleanName.startsWith('UC') && !/^[a-zA-Z0-9_-]{11}$/.test(cleanName)) {
+        cleanName = `@${cleanName.replace(/^@+/, '')}`;
+      }
+    } else if (platform === 'kick') {
+      if (input.includes('kick.com/')) {
+        cleanName = input.split('kick.com/')[1].split('/')[0].split('?')[0];
+      }
+      cleanName = cleanName.toLowerCase().replace(/^@+/, '').trim();
+    } else if (platform === 'twitch') {
+      if (input.includes('twitch.tv/')) {
+        cleanName = input.split('twitch.tv/')[1].split('/')[0].split('?')[0];
+      }
+      cleanName = cleanName.toLowerCase().replace(/^@+/, '').replace(/^#+/, '').trim();
+    }
+
+    const checkKey = cleanName.toLowerCase().replace(/^@+/, '').trim();
+    if (activeChannels.some(ch => ch.platform === platform && ch.name.toLowerCase().replace(/^@+/, '').trim() === checkKey)) {
       throw new Error('Channel already added');
     }
-    const finalName = platform === 'kick' ? cleanName : name.trim();
-    addChannel(platform, finalName);
+    addChannel(platform, cleanName);
   };
 
   const parseStartTimeMs = (val) => {
@@ -969,9 +1006,17 @@ export default function ChatDashboard({
     // Callback for connection status updates
     const handleStatusUpdate = (ch, status, metadata) => {
       if (metadata && metadata.displayName) {
+        const rawClean = ch.replace(/^@+/, '').trim();
+        const atClean = `@${rawClean}`;
+        const lowerRaw = rawClean.toLowerCase();
+        const lowerAt = atClean.toLowerCase();
         setResolvedStreamerNames(prev => ({
           ...prev,
-          [ch]: metadata.displayName
+          [ch]: metadata.displayName,
+          [rawClean]: metadata.displayName,
+          [atClean]: metadata.displayName,
+          [lowerRaw]: metadata.displayName,
+          [lowerAt]: metadata.displayName
         }));
       }
       if (ch === 'all') {
@@ -1182,6 +1227,8 @@ export default function ChatDashboard({
     // Initialize Simulator
     simulatorRef.current = new ChatSimulator(handleNewMessage);
 
+    setClientsInitialized(true);
+
     return () => {
       messageBuffer = [];
       if (dripTimer) clearInterval(dripTimer);
@@ -1190,6 +1237,7 @@ export default function ChatDashboard({
       if (youtubeClientRef.current) youtubeClientRef.current.disconnect();
       if (simulatorRef.current) simulatorRef.current.stop();
       if (window.ttsManager) window.ttsManager.cancel();
+      setClientsInitialized(false);
     };
   }, []);
 
@@ -1402,15 +1450,22 @@ export default function ChatDashboard({
       }
     }
 
-    // 5. Clean up removed channels from cached viewers, start times, likes, and statuses
-    const currentEnabledKeys = new Set(
-      enabledChannels.map(ch => ch.name.toLowerCase().replace(/^@+/, '').trim())
-    );
+    const currentEnabledKeys = new Set();
+    enabledChannels.forEach(ch => {
+      const raw = (ch.name || '').toLowerCase().trim();
+      const clean = raw.replace(/^@+/, '').trim();
+      currentEnabledKeys.add(raw);
+      currentEnabledKeys.add(clean);
+      currentEnabledKeys.add(`@${clean}`);
+      currentEnabledKeys.add(ch.name);
+    });
+
     setPlatformStatuses(prev => {
       let changed = false;
       const next = { ...prev };
       Object.keys(next).forEach(k => {
-        if (k !== 'youtube' && k !== 'kick' && k !== 'twitch' && !currentEnabledKeys.has(k)) {
+        const cleanK = k.toLowerCase().replace(/^@+/, '').trim();
+        if (k !== 'youtube' && k !== 'kick' && k !== 'twitch' && !currentEnabledKeys.has(cleanK) && !currentEnabledKeys.has(k)) {
           delete next[k];
           changed = true;
         }
@@ -1454,7 +1509,7 @@ export default function ChatDashboard({
       return changed ? next : prev;
     });
 
-  }, [activeChannels, modeDemo, settings.youtubeChatMode]);
+  }, [activeChannels, modeDemo, settings.youtubeChatMode, clientsInitialized]);
 
 
 

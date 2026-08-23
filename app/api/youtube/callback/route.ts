@@ -2,7 +2,19 @@ import { NextResponse } from 'next/server';
 import { asSupabase } from '@/lib/supabase';
 import { innertubeCache } from '@/lib/innertubeSession';
 
+function getCanonicalOrigin(request: Request): string {
+  const forwardedHost = request.headers.get('x-forwarded-host') || request.headers.get('host');
+  const forwardedProto = request.headers.get('x-forwarded-proto') || 'https';
+  if (forwardedHost) {
+    const host = forwardedHost.split(',')[0].trim();
+    return `${forwardedProto}://${host}`;
+  }
+  const url = new URL(request.url);
+  return url.origin;
+}
+
 export async function GET(request: Request) {
+  const canonicalOrigin = getCanonicalOrigin(request);
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
   const error = searchParams.get('error');
@@ -13,9 +25,9 @@ export async function GET(request: Request) {
   }
 
   try {
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const redirectUri = 'http://localhost:5000/api/youtube/callback';
+    const clientId = process.env.GOOGLE_CLIENT_ID || '';
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
+    const redirectUri = process.env.YOUTUBE_REDIRECT_URI || `${canonicalOrigin}/api/youtube/callback`;
 
     if (!clientId || !clientSecret) {
       throw new Error('Missing Google OAuth credentials in environment variables.');

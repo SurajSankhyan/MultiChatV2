@@ -533,12 +533,7 @@ export function UnifiedAuth({ initialToggled = false }: UnifiedAuthProps) {
 
   const getCleanOrigin = () => {
     if (typeof window === 'undefined') return '';
-    let origin = window.location.origin;
-    if (origin.includes('--')) {
-      const parts = origin.split('--');
-      origin = `${window.location.protocol}//${parts[1]}`;
-    }
-    return origin;
+    return window.location.origin;
   };
 
   // Google OAuth Login

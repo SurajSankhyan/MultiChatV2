@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { parseMessageContent } from '../utils/emotes';
-import { ArrowDown, MessageSquare, MoreVertical, Volume2, User, ShieldAlert, Trash2, Star, ExternalLink, Clock, ShieldCheck, ShieldOff, ChevronRight } from 'lucide-react';
+import { ArrowDown, MessageSquare, MoreVertical, Volume2, User, ShieldAlert, Trash2, Star, ExternalLink, Clock, ShieldCheck, ShieldOff, ChevronRight, Crown } from 'lucide-react';
 import PlatformLogo, { DefaultSubscriberBadge, KickGiftedSubsBadge, TwitchDefaultSubscriberBadge } from './PlatformLogo';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from './ui/interfaces-tooltip';
 import { getLiveTwitchBadgeUrl } from '../utils/twitchChat';
@@ -938,12 +938,21 @@ export default function ChatFeed({
   onConnectChannel,
   onExploreEvents,
   user = { username: 'Streamer' },
-  activeChannels = []
+  activeChannels = [],
+  resolvedStreamerNames = {}
 }) {
   const feedRef = useRef(null);
 
   // Continuously populate global avatar & display name cache for creator and active channels
   useEffect(() => {
+    if (resolvedStreamerNames && typeof resolvedStreamerNames === 'object') {
+      Object.entries(resolvedStreamerNames).forEach(([k, v]) => {
+        if (v && isValidChannelDisplayName(v)) {
+          const cleanK = k.toLowerCase().replace(/^@+/, '').trim();
+          if (cleanK) GLOBAL_DISPLAY_NAME_CACHE.set(cleanK, v.replace(/^@+/, ''));
+        }
+      });
+    }
     if (user) {
       const creatorAvatar = user?.avatarUrl || (typeof user?.avatar === 'string' && user?.avatar.startsWith('http') ? user.avatar : null);
       if (creatorAvatar) {
@@ -1555,9 +1564,9 @@ export default function ChatFeed({
 
     // ── YouTube: match YouTube Live Chat colors exactly ──
     if (platform === 'youtube') {
-      // Owner / Broadcaster → YouTube channel owner color
-      if (msg.badges && msg.badges.includes('broadcaster')) {
-        return '#ffffff';
+      // Owner / Broadcaster → YouTube channel owner chip text is black on yellow pill
+      if ((msg.badges && (msg.badges.includes('broadcaster') || msg.badges.includes('owner'))) || msg.isOwner || msg.isBroadcaster) {
+        return '#0f0f0f';
       }
       // Moderator → YouTube blue wrench color
       if (msg.badges && msg.badges.includes('moderator')) {
@@ -1583,16 +1592,79 @@ export default function ChatFeed({
     return msg.color || '#ffffff';
   };
 
+  const isValidChannelDisplayName = (str) => {
+    if (!str || typeof str !== 'string') return false;
+    const clean = str.trim();
+    if (!clean || clean.toLowerCase() === 'youtube' || clean.toLowerCase().includes('404') || clean.toLowerCase().includes('not found')) return false;
+    if (clean.includes('#') || clean.includes('🔴') || clean.includes('|') || clean.length > 50) return false;
+    return true;
+  };
+
+  const resolveChatterDisplayName = (msg) => {
+    if (!msg) return '';
+    const cleanUserKey = (msg.username || '').toLowerCase().replace(/^@+/, '').trim();
+    
+    // 1. If this message is from the logged-in user, use their verified user channel title
+    if (user) {
+      const loggedInHandles = [
+        user?.custom_handle,
+        user?.ytCustomHandle,
+        user?.username,
+        user?.email?.split('@')[0]
+      ].filter(Boolean).map(h => h.toLowerCase().replace(/^@+/, '').trim());
+
+      if (loggedInHandles.includes(cleanUserKey)) {
+        const userTitle = user?.channel_name || user?.ytChannelName || (user?.username && !user?.username?.startsWith('@') && user?.username !== 'Streamer' ? user?.username : null);
+        if (userTitle && isValidChannelDisplayName(userTitle)) {
+          return userTitle.replace(/^@+/, '');
+        }
+      }
+    }
+
+    // 2. Check resolvedStreamerNames prop from parent dashboard
+    if (resolvedStreamerNames && typeof resolvedStreamerNames === 'object') {
+      const fromMap = resolvedStreamerNames[cleanUserKey] || resolvedStreamerNames[`@${cleanUserKey}`] || resolvedStreamerNames[msg.username];
+      if (fromMap && isValidChannelDisplayName(fromMap)) {
+        return fromMap.replace(/^@+/, '');
+      }
+    }
+
+    // 3. Check active channels list displayName (e.g. if Melodic Gaming was added as a channel)
+    if (Array.isArray(activeChannels)) {
+      const matchedCh = activeChannels.find(ch => {
+        const chClean = (ch.name || '').toLowerCase().replace(/^@+/, '').trim();
+        return chClean === cleanUserKey;
+      });
+      if (matchedCh && matchedCh.displayName && isValidChannelDisplayName(matchedCh.displayName)) {
+        return matchedCh.displayName.replace(/^@+/, '');
+      }
+    }
+
+    // 4. Check GLOBAL_DISPLAY_NAME_CACHE
+    const cached = GLOBAL_DISPLAY_NAME_CACHE.get(cleanUserKey);
+    if (cached && isValidChannelDisplayName(cached)) {
+      return cached.replace(/^@+/, '');
+    }
+
+    // 4. Check msg.displayName from payload
+    if (msg.displayName && !msg.displayName.startsWith('@') && msg.displayName !== msg.username && isValidChannelDisplayName(msg.displayName)) {
+      return msg.displayName.replace(/^@+/, '');
+    }
+
+    return '';
+  };
+
   const getFormattedName = (msg) => {
     if (!msg) return '';
     let name = '';
-    
-    // Kick Chat ONLY: always show Channel Name without @ names
+
+    const resolvedDisplay = resolveChatterDisplayName(msg);
+
+    // Kick Chat or settings.showChannelName: show Channel Name / Display Name without @
     if (msg.platform === 'kick' || settings.showChannelName) {
-      name = msg.displayName || msg.username || '';
-      name = name.replace(/^@+/, '');
+      name = resolvedDisplay || (msg.username || '').replace(/^@+/, '');
     } else {
-      const rawUser = msg.username || msg.displayName || '';
+      const rawUser = msg.username || '';
       name = `@${rawUser.replace(/^@+/, '')}`;
     }
     
@@ -1605,7 +1677,21 @@ export default function ChatFeed({
 
   const renderUsernameWithTooltip = (msg, classNameSuffix = '', extraStyles = {}, children = null) => {
     const isSelected = selectedChatter && (msg?.username || '').toLowerCase() === (selectedChatter?.username || '').toLowerCase();
-    const finalClassName = `msg-username${isSelected ? ' selected-username-highlight' : ''}${classNameSuffix ? ' ' + classNameSuffix : ''}`;
+    const isYtOwner = msg?.platform === 'youtube' && ((msg.badges && (msg.badges.includes('broadcaster') || msg.badges.includes('owner'))) || msg.isOwner || msg.isBroadcaster);
+
+    const ytOwnerStyles = isYtOwner ? {
+      backgroundColor: '#ffd600',
+      color: '#0f0f0f',
+      fontWeight: 700,
+      padding: '1px 6px',
+      borderRadius: '4px',
+      display: 'inline-block',
+      lineHeight: '1.3',
+      verticalAlign: 'baseline',
+      letterSpacing: '0.1px'
+    } : {};
+
+    const finalClassName = `msg-username${isYtOwner ? ' youtube-owner-pill' : ''}${isSelected ? ' selected-username-highlight' : ''}${classNameSuffix ? ' ' + classNameSuffix : ''}`;
     const nameText = children || getFormattedName(msg);
     
     // For Kick Chat ONLY: disable hover tooltip popup when hovering over channel name
@@ -1613,7 +1699,7 @@ export default function ChatFeed({
       return (
         <span 
           className={finalClassName}
-          style={{ cursor: 'pointer', ...extraStyles }}
+          style={{ cursor: 'pointer', ...ytOwnerStyles, ...extraStyles }}
           onClick={() => onChatterClick(msg)}
         >
           {nameText}
@@ -1621,22 +1707,22 @@ export default function ChatFeed({
       );
     }
 
-    const cleanUserKey = (msg.username || '').toLowerCase().replace(/^@+/, '');
-    const cachedDisplayName = GLOBAL_DISPLAY_NAME_CACHE.get(cleanUserKey) || user?.ytChannelName;
-    const resolvedDisplayName = (msg.displayName && !msg.displayName.startsWith('@') && msg.displayName !== msg.username)
-      ? msg.displayName
-      : (cachedDisplayName || msg.displayName || msg.username);
+    const resolvedDisplay = resolveChatterDisplayName(msg);
+    const cleanHandle = (msg.username || '').replace(/^@+/, '');
 
+    // Tooltip logic:
+    // If showChannelName is ON (channel display name shown in chat line): tooltip shows handle "@handle"
+    // If showChannelName is OFF (handle shown in chat line): tooltip shows resolved channel name or "@handle"
     const tooltipText = settings.showChannelName
-      ? `@${msg.username.replace(/^@+/, '')}`
-      : resolvedDisplayName.replace(/^@+/, '');
+      ? `@${cleanHandle}`
+      : (resolvedDisplay || `@${cleanHandle}`);
       
     return (
       <Tooltip delayDuration={150}>
         <TooltipTrigger asChild>
           <span 
             className={finalClassName}
-            style={{ cursor: 'pointer', ...extraStyles }}
+            style={{ cursor: 'pointer', ...ytOwnerStyles, ...extraStyles }}
             onClick={() => onChatterClick(msg)}
           >
             {nameText}
@@ -1992,7 +2078,7 @@ export default function ChatFeed({
 
   const renderYoutubeBadge = (badge, msg) => {
     if (!badge) return null;
-    if (badge === 'broadcaster') return null;
+    if (badge === 'broadcaster' || badge === 'owner') return null;
     if (typeof badge === 'string' && badge.startsWith('rank_')) {
       const rankNum = parseInt(badge.split('_')[1]) || 1;
       const rankBg = '#3b00bb';

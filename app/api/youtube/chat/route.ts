@@ -178,7 +178,8 @@ export async function POST(request: Request) {
 
     // Direct InnerTube Engine Dispatch (100% Pure InnerTube Engine)
     try {
-      const innertubeUrl = `${request.url.split('/api/')[0]}/api/youtube/innertube`;
+      const urlObj = new URL(request.url);
+      const innertubeUrl = `${urlObj.origin}/api/youtube/innertube`;
       const innertubeRes = await fetch(innertubeUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

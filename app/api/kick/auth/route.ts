@@ -14,26 +14,18 @@ function getCanonicalOrigin(request: Request): string {
   const forwardedHost = request.headers.get('x-forwarded-host') || request.headers.get('host');
   const forwardedProto = request.headers.get('x-forwarded-proto') || 'https';
   if (forwardedHost) {
-    let host = forwardedHost.split(',')[0].trim();
-    if (host.includes('--')) {
-      host = host.split('--')[1];
-    }
+    const host = forwardedHost.split(',')[0].trim();
     return `${forwardedProto}://${host}`;
   }
 
   const url = new URL(request.url);
-  let host = url.host;
-  if (host.includes('--')) {
-    host = host.split('--')[1];
-    return `${url.protocol}//${host}`;
-  }
   return url.origin;
 }
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const canonicalOrigin = getCanonicalOrigin(request);
-  const clientId = process.env.KICK_CLIENT_ID || '01KZGGD32S5919AGF28KSKKT1J';
+  const clientId = process.env.KICK_CLIENT_ID || '';
   const redirectUri = process.env.KICK_REDIRECT_URI || url.searchParams.get('redirect_uri') || `${canonicalOrigin}/api/kick/callback`;
 
   const queryUserId = url.searchParams.get('user_id') || '';
@@ -41,8 +33,8 @@ export async function GET(request: Request) {
 
   const cookieStore = await cookies();
   const supabaseServer = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://bwwdzkhtnaepamsfivds.supabase.co',
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ3d2R6a2h0bmFlcGFtc2ZpdmRzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI4MzUxNjMsImV4cCI6MjA5ODQxMTE2M30.60vipeZzzdplww-8fuRD_LYvQ-2oawfNm-kx2ur3So0',
     {
       cookies: {
         get(name: string) { return cookieStore.get(name)?.value; },
