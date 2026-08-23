@@ -45,9 +45,8 @@ export class YoutubeChatClient {
     this.onMessageDeleted = onMessageDeletedCallback;
     this.activePolls = new Map(); // channelName -> { intervalId, videoId, apiKey, continuationToken }
     
-    // Rotating public CORS proxies as fallback
+    // Rotating public CORS proxies as fallback (excluding localhost-only corsproxy.io)
     this.proxies = [
-      (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
       (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
       (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
     ];
@@ -1237,53 +1236,33 @@ export class YoutubeChatClient {
         continuation: poll.continuationToken
       };
 
-      // 1. Try local proxy first for the POST request
-      let response;
-      try {
-        const localEndpoint = `/ytproxy/get_chat?key=${poll.apiKey}`;
-        response = await fetch(localEndpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(payload)
-        });
-        if (!response.ok) {
-          throw new Error(`Local proxy responded with status ${response.status}`);
-        }
-      } catch (err) {
-        // 1b. Fallback to secondary query proxy
+      // 1. Try local proxy endpoints in sequence
+      let response = null;
+      const proxyEndpoints = [
+        `/ytproxy/get_chat?key=${encodeURIComponent(poll.apiKey)}`,
+        `/api/youtube/proxy?url=${encodeURIComponent(endpoint)}`,
+        `/ytproxy/youtubei/v1/live_chat/get_live_chat?key=${encodeURIComponent(poll.apiKey)}`
+      ];
+
+      for (const pUrl of proxyEndpoints) {
         try {
-          const queryEndpoint = `/api/youtube/proxy?url=${encodeURIComponent(endpoint)}`;
-          response = await fetch(queryEndpoint, {
+          const res = await fetch(pUrl, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
             },
             body: JSON.stringify(payload)
           });
-          if (!response.ok) {
-            throw new Error(`Query proxy responded with status ${response.status}`);
+          if (res.ok) {
+            response = res;
+            break;
           }
-        } catch (err2) {
-          // 2. Fall back to public CORS proxy
-          try {
-            const publicProxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(endpoint)}`;
-            response = await fetch(publicProxyUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(payload)
-            });
-            if (!response.ok) {
-              throw new Error(`Public proxy responded with status ${response.status}`);
-            }
-          } catch (e3) {
-            poll.retryCount = (poll.retryCount || 0) + 1;
-            return;
-          }
-        }
+        } catch (e) {}
+      }
+
+      if (!response) {
+        poll.retryCount = (poll.retryCount || 0) + 1;
+        return;
       }
 
       const data = await response.json();

@@ -1,5 +1,21 @@
 import { NextResponse } from 'next/server';
 
+const DEFAULT_INNERTUBE_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+  'Cache-Control': 'no-store, max-age=0'
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: corsHeaders
+  });
+}
+
 export async function GET(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
   const { searchParams } = new URL(request.url);
   const { path } = await params;
@@ -29,15 +45,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
       status: res.status,
       headers: { 
         'Content-Type': res.headers.get('Content-Type') || 'text/html; charset=utf-8',
-        'Cache-Control': 'no-store, max-age=0'
+        ...corsHeaders
       }
     });
   } catch (err: any) {
-    return new NextResponse(err.message, { status: 500 });
+    return new NextResponse(err.message, { 
+      status: 500,
+      headers: corsHeaders
+    });
   }
 }
-
-const DEFAULT_INNERTUBE_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
 
 export async function POST(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
   const { searchParams } = new URL(request.url);
@@ -60,6 +77,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ pat
   headers.set('sec-ch-ua-platform', '"Windows"');
   headers.set('Referer', 'https://www.youtube.com/');
   headers.set('Origin', 'https://www.youtube.com');
+  headers.set('X-YouTube-Client-Name', '1');
+  headers.set('X-YouTube-Client-Version', '2.20240404.01.00');
+  headers.set('X-Origin', 'https://www.youtube.com');
+  headers.set('Sec-Fetch-Mode', 'cors');
+  headers.set('Sec-Fetch-Site', 'same-origin');
   headers.set('Content-Type', 'application/json');
   headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
 
@@ -83,9 +105,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ pat
     const data = await res.json();
     return NextResponse.json(data, {
       status: res.status,
-      headers: { 'Cache-Control': 'no-store, max-age=0' }
+      headers: corsHeaders
     });
   } catch (err: any) {
-    return new NextResponse(err.message, { status: 500 });
+    return new NextResponse(err.message, { 
+      status: 500,
+      headers: corsHeaders
+    });
   }
 }

@@ -1,17 +1,33 @@
 import { NextResponse } from 'next/server';
 
+const DEFAULT_INNERTUBE_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+  'Cache-Control': 'no-store, max-age=0'
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: corsHeaders
+  });
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const targetUrl = searchParams.get('url');
   
   if (!targetUrl || (!targetUrl.startsWith('https://www.youtube.com') && !targetUrl.startsWith('https://m.youtube.com') && !targetUrl.startsWith('https://youtube.com'))) {
-    return new NextResponse('Invalid target URL', { status: 400 });
+    return new NextResponse('Invalid target URL', { status: 400, headers: corsHeaders });
   }
 
   const isMobile = targetUrl.startsWith('https://m.youtube.com');
   const userAgent = isMobile 
     ? 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1'
-    : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+    : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36';
 
   const headers = new Headers();
   headers.set('User-Agent', userAgent);
@@ -27,22 +43,20 @@ export async function GET(request: Request) {
       status: res.status,
       headers: {
         'Content-Type': res.headers.get('Content-Type') || 'text/html; charset=utf-8',
-        'Cache-Control': 'no-store, max-age=0'
+        ...corsHeaders
       }
     });
   } catch (err: any) {
-    return new NextResponse(err.message, { status: 500 });
+    return new NextResponse(err.message, { status: 500, headers: corsHeaders });
   }
 }
-
-const DEFAULT_INNERTUBE_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
 
 export async function POST(request: Request) {
   const { searchParams } = new URL(request.url);
   let targetUrl = searchParams.get('url');
 
   if (!targetUrl || (!targetUrl.startsWith('https://www.youtube.com') && !targetUrl.startsWith('https://m.youtube.com') && !targetUrl.startsWith('https://youtube.com'))) {
-    return new NextResponse('Invalid target URL', { status: 400 });
+    return new NextResponse('Invalid target URL', { status: 400, headers: corsHeaders });
   }
 
   if (targetUrl.includes('youtubei/v1') && !targetUrl.includes('key=')) {
@@ -51,10 +65,15 @@ export async function POST(request: Request) {
 
   const headers = new Headers();
   headers.set('Content-Type', 'application/json');
-  headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36');
+  headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36');
   headers.set('Accept-Language', 'en-US,en;q=0.9');
   headers.set('Referer', 'https://www.youtube.com/');
   headers.set('Origin', 'https://www.youtube.com');
+  headers.set('X-YouTube-Client-Name', '1');
+  headers.set('X-YouTube-Client-Version', '2.20240404.01.00');
+  headers.set('X-Origin', 'https://www.youtube.com');
+  headers.set('Sec-Fetch-Mode', 'cors');
+  headers.set('Sec-Fetch-Site', 'same-origin');
   headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
 
   try {
@@ -77,11 +96,9 @@ export async function POST(request: Request) {
     const data = await res.json();
     return NextResponse.json(data, {
       status: res.status,
-      headers: {
-        'Cache-Control': 'no-store, max-age=0'
-      }
+      headers: corsHeaders
     });
   } catch (err: any) {
-    return new NextResponse(err.message, { status: 500 });
+    return new NextResponse(err.message, { status: 500, headers: corsHeaders });
   }
 }

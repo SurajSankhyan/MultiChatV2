@@ -1,7 +1,4 @@
-/ytproxy/chat*       https://www.youtube.com/live_chat:splat 200!
-/ytproxy/sh*         https://www.youtube.com/shorts:splat 200!
-/ytproxy/get_chat*   https://www.youtube.com/youtubei/v1/live_chat/get_live_chat:splat 200!
-/ytproxy/*           https://www.youtube.com/:splat 200!
-/api/kickstats/*     https://www.kickstats.com/:splat 200!
-/api/twitch-badges/* https://api.ivr.fi/:splat 200!
+/api/kickstats/*     https://www.kickstats.com/:splat 200
+/api/twitch-badges/* https://api.ivr.fi/:splat 200
+
 
