@@ -4,6 +4,39 @@
 const YOUTUBE_NAME_CACHE = new Map(); // channelId -> displayName
 const PENDING_NAME_RESOLVES = new Map(); // channelId -> Promise<displayName>
 
+// Mapping of YouTube Gift items to their default Jewel values
+const YOUTUBE_GIFT_JEWELS_MAP = {
+  'hiding': 10,
+  'hiding...': 10,
+  'treat': 10,
+  'heart': 10,
+  'hearts': 10,
+  'high five': 10,
+  'highfive': 10,
+  'clap': 10,
+  'thumbs up': 10,
+  'thumbsup': 10,
+  'samosa': 20,
+  'taco': 20,
+  'popcorn': 20,
+  'cupcake': 20,
+  'boba': 50,
+  'glowstick': 50,
+  'party popper': 50,
+  'mic drop': 100,
+  'micdrop': 100,
+  'bouquet': 100,
+  'rose': 100,
+  'trophy': 200,
+  'crown': 500,
+  'diamond': 1000,
+  'fireworks': 1000,
+  'sports car': 2500,
+  'sportscar': 2500,
+  'spaceship': 5000,
+  'rocket': 5000
+};
+
 export class YoutubeChatClient {
   constructor(onMessageCallback, onStatusCallback, onNameResolvedCallback, onMessageDeletedCallback) {
     this.onMessage = onMessageCallback;
@@ -1562,12 +1595,27 @@ export class YoutubeChatClient {
           bodyBg: '#0b8043',
           authorTextColor: '#ffffff'
         };
+      } else if (item.liveChatPaidGiftRenderer || 
+                 item.liveChatGiftRenderer || 
+                 item.liveChatGiftPurchaseRenderer || 
+                 item.liveChatJewelsGiftRenderer) {
+        renderer = item.liveChatPaidGiftRenderer || 
+                   item.liveChatGiftRenderer || 
+                   item.liveChatGiftPurchaseRenderer || 
+                   item.liveChatJewelsGiftRenderer;
+        isSystemEvent = true;
+        eventType = 'gift';
       }
 
       if (!renderer) return;
 
       // Extract message content and build parts array
-      const runs = renderer.message?.runs || [];
+      const runs = renderer.message?.runs || 
+                   renderer.headerText?.runs || 
+                   renderer.primaryText?.runs || 
+                   renderer.title?.runs || 
+                   renderer.giftText?.runs || [];
+
       runs.forEach(run => {
         if (run.text) {
           text += run.text;
@@ -1575,9 +1623,10 @@ export class YoutubeChatClient {
             type: 'text',
             content: run.text
           });
-        } else if (run.emoji) {
-          const name = run.emoji.shortcuts?.[0] || run.emoji.emojiId || 'emoji';
-          const thumbs = run.emoji.image?.thumbnails || [];
+        } else if (run.emoji || run.image || run.sticker || run.thumbnail) {
+          const emojiObj = run.emoji || run.image || run.sticker || run.thumbnail || {};
+          const name = emojiObj.shortcuts?.[0] || emojiObj.emojiId || emojiObj.name || 'gift';
+          const thumbs = emojiObj.image?.thumbnails || emojiObj.thumbnails || [];
           let url = null;
           if (thumbs.length > 0) {
             url = normalizeUrl(thumbs[thumbs.length - 1]?.url || thumbs[0]?.url);
@@ -1590,6 +1639,80 @@ export class YoutubeChatClient {
           });
         }
       });
+
+      // If no text in runs, check content / simpleText fields
+      if (!text && renderer.text?.content) {
+        text = renderer.text.content;
+        parts.push({ type: 'text', content: text });
+      } else if (!text && renderer.message?.simpleText) {
+        text = renderer.message.simpleText;
+        parts.push({ type: 'text', content: text });
+      } else if (!text && renderer.headerText?.simpleText) {
+        text = renderer.headerText.simpleText;
+        parts.push({ type: 'text', content: text });
+      } else if (!text && renderer.primaryText?.simpleText) {
+        text = renderer.primaryText.simpleText;
+        parts.push({ type: 'text', content: text });
+      }
+
+      // Check for Gift / Jewels item and images
+      let isGift = false;
+      let giftDetails = null;
+      const giftThumbs = renderer.sticker?.thumbnails || 
+                         renderer.gift?.thumbnails || 
+                         renderer.giftThumbnail?.thumbnails || 
+                         renderer.giftImage?.thumbnails || 
+                         renderer.giftImage?.sources || 
+                         renderer.image?.thumbnails || [];
+      let giftImageUrl = giftThumbs.length > 0 ? normalizeUrl(giftThumbs[giftThumbs.length - 1]?.url || giftThumbs[0]?.url) : null;
+
+      const sentMatch = text.match(/sent\s+([A-Za-z0-9_.\s]+)/i);
+      const isExplicitGift = eventType === 'gift' || !!renderer.gift || !!renderer.jewels || !!renderer.jewelsAmount;
+
+      if (sentMatch || isExplicitGift) {
+        isGift = true;
+        let giftName = '';
+        if (sentMatch && sentMatch[1]) {
+          giftName = sentMatch[1].trim();
+        } else if (renderer.gift?.name || renderer.giftName || renderer.title) {
+          giftName = renderer.gift?.name || renderer.giftName || renderer.title || 'Gift';
+          if (!text) {
+            text = `sent ${giftName}`;
+            parts.push({ type: 'text', content: text });
+          }
+        }
+
+        if (giftImageUrl && !parts.some(p => p.type === 'emote' && p.url === giftImageUrl)) {
+          parts.push({
+            type: 'emote',
+            name: giftName || 'gift',
+            url: giftImageUrl
+          });
+        }
+
+        let jewels = null;
+        if (renderer.purchaseAmountText?.simpleText) {
+          const m = renderer.purchaseAmountText.simpleText.match(/(\d+)/);
+          if (m) jewels = m[1];
+        } else if (renderer.jewelsAmount || renderer.jewels || renderer.jewelAmount || renderer.rubies) {
+          jewels = String(renderer.jewelsAmount || renderer.jewels || renderer.jewelAmount || renderer.rubies);
+        } else if (giftName) {
+          const cleanKey = giftName.toLowerCase().replace(/\.+$/, '').trim();
+          if (YOUTUBE_GIFT_JEWELS_MAP[cleanKey]) {
+            jewels = String(YOUTUBE_GIFT_JEWELS_MAP[cleanKey]);
+          } else if (YOUTUBE_GIFT_JEWELS_MAP[giftName.toLowerCase().trim()]) {
+            jewels = String(YOUTUBE_GIFT_JEWELS_MAP[giftName.toLowerCase().trim()]);
+          }
+        }
+
+        if (!jewels) jewels = '10';
+
+        giftDetails = {
+          name: giftName || 'Gift',
+          jewels: jewels,
+          imageUrl: giftImageUrl
+        };
+      }
 
       if (isSystemEvent && eventType === 'subscription' && !renderer.message) {
         text = text || 'Joined Channel Membership!';
@@ -1801,6 +1924,8 @@ export class YoutubeChatClient {
         badges: Array.from(new Set(badges)),
         badgeImages: badgeImages,
         youtubeRank: youtubeRank,
+        isGift: isGift,
+        giftDetails: giftDetails,
         isSystemEvent,
         eventType,
         eventDetails,
