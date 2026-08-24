@@ -231,7 +231,7 @@ export class YoutubeChatClient {
     // 1. Try dedicated live-info API endpoint (handles InnerTube on backend with proxy fallback)
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 3500);
+      const timer = setTimeout(() => controller.abort(), 8500);
       const res = await fetch(`/api/youtube/live-info?videoId=${encodeURIComponent(videoId)}`, {
         signal: controller.signal
       });
@@ -244,6 +244,35 @@ export class YoutubeChatClient {
             startTime: data.startTime || null,
             isExact: !!data.isExact,
             viewers: data.viewers || 0,
+            likes: data.likes || 0,
+            isShorts: !!data.isShorts,
+            title: data.title || '',
+            author: data.author || ''
+          };
+        }
+      }
+    } catch (e) {}
+
+    // 1b. Try InnerTube backend endpoint with live_info action
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch('/api/youtube/innertube', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'live_info', videoId }),
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.success) {
+          return {
+            isLive: data.isLive !== false,
+            startTime: data.startTime || null,
+            isExact: !!data.isExact,
+            viewers: data.viewers || 0,
+            likes: data.likes || 0,
             isShorts: !!data.isShorts,
             title: data.title || '',
             author: data.author || ''
@@ -255,7 +284,7 @@ export class YoutubeChatClient {
     // 2. Try local Next.js proxy (/ytproxy/youtubei/v1/player)
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 3000);
+      const timer = setTimeout(() => controller.abort(), 4000);
       const res = await fetch(localEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -273,7 +302,7 @@ export class YoutubeChatClient {
     // 3. Try query proxy (/api/youtube/proxy)
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 3000);
+      const timer = setTimeout(() => controller.abort(), 4000);
       const queryUrl = `/api/youtube/proxy?url=${encodeURIComponent(endpoint)}`;
       const res = await fetch(queryUrl, {
         method: 'POST',
@@ -289,12 +318,12 @@ export class YoutubeChatClient {
       }
     } catch (e) {}
 
-    // 4. Try rotating public CORS proxies directly (vital for static Netlify hosting)
+    // 4. Try rotating public CORS proxies directly (fallback for static hosting)
     for (const proxyFn of this.proxies) {
       try {
         const proxiedUrl = proxyFn(endpoint);
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 3500);
+        const timer = setTimeout(() => controller.abort(), 4000);
         const res = await fetch(proxiedUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -316,12 +345,13 @@ export class YoutubeChatClient {
       const watchHtml = await this.fetchWithProxyFallback(watchUrl);
       if (watchHtml) {
         const meta = this.parseMetadataFromHtml(watchHtml);
-        if (meta && meta.startTime) {
+        if (meta && (meta.startTime || meta.isLive)) {
           return {
             isLive: meta.isLive,
             startTime: meta.startTime,
             isExact: !!meta.isExact,
             viewers: meta.viewers || 0,
+            likes: meta.likes || 0,
             isShorts: !!meta.isShorts,
             title: ''
           };
@@ -371,8 +401,20 @@ export class YoutubeChatClient {
         try {
           const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
           if (data) {
+            // Check direct live broadcast details from playerResponse if provided by IFrame API
+            const liveDetails = data.info?.playerResponse?.microformat?.playerMicroformatRenderer?.liveBroadcastDetails;
+            const candTime = liveDetails?.actualStartTime || liveDetails?.startTimestamp;
+            if (candTime) {
+              const parsed = Date.parse(candTime);
+              if (!isNaN(parsed) && parsed > 0 && parsed <= Date.now() + 60000) {
+                cleanup();
+                resolve(parsed);
+                return;
+              }
+            }
+
             let secs = 0;
-            if (data.event === 'infoDelivery' && data.info) {
+            if ((data.event === 'infoDelivery' || data.event === 'initialDelivery') && data.info) {
               if (typeof data.info.duration === 'number' && data.info.duration > 0) {
                 secs = data.info.duration;
               } else if (typeof data.info.currentTime === 'number' && data.info.currentTime > 0) {
@@ -1182,6 +1224,24 @@ export class YoutubeChatClient {
         displayName: resolvedDisplayName
       });
 
+      // If start timestamp is still missing, trigger background iframe bridge resolution
+      if (!pollInstance.startTimestamp && videoId) {
+        this.resolveLiveStartTimeViaIFrame(videoId).then(iStartTime => {
+          if (iStartTime && !pollInstance.startTimestamp && this.activePolls.has(pollKey)) {
+            pollInstance.startTimestamp = iStartTime;
+            pollInstance.isExactStartTime = true;
+            this.onStatus(pollKey, 'connected', {
+              startTime: iStartTime,
+              isExact: true,
+              viewers: pollInstance.viewers,
+              likes: pollInstance.likes,
+              isShorts: pollInstance.isShorts,
+              displayName: resolvedDisplayName
+            });
+          }
+        }).catch(() => {});
+      }
+
       // Sequential Adaptive Polling Loop (avoids overlapping requests and invalidating tokens over internet/Netlify)
       const scheduleNextPoll = (delay = 1000) => {
         if (!this.activePolls.has(pollKey)) return;
@@ -1234,11 +1294,31 @@ export class YoutubeChatClient {
               try {
                 const pMeta = await this.fetchPlayerMetadata(pollInstance.videoId, pollInstance.apiKey);
                 if (pMeta) {
-                  if (pMeta.startTime && !pollInstance.startTimestamp) pollInstance.startTimestamp = pMeta.startTime;
+                  if (pMeta.startTime && !pollInstance.startTimestamp) {
+                    pollInstance.startTimestamp = pMeta.startTime;
+                    pollInstance.isExactStartTime = !!pMeta.isExact;
+                  }
                   if (pMeta.isShorts) pollInstance.isShorts = true;
                   if (pMeta.viewers && pollInstance.viewers === null) pollInstance.viewers = pMeta.viewers;
                 }
               } catch (e) {}
+
+              if (!pollInstance.startTimestamp && pollInstance.videoId) {
+                this.resolveLiveStartTimeViaIFrame(pollInstance.videoId).then(iStartTime => {
+                  if (iStartTime && !pollInstance.startTimestamp && this.activePolls.has(pollKey)) {
+                    pollInstance.startTimestamp = iStartTime;
+                    pollInstance.isExactStartTime = true;
+                    this.onStatus(pollKey, 'connected', {
+                      startTime: iStartTime,
+                      isExact: true,
+                      viewers: pollInstance.viewers,
+                      likes: pollInstance.likes,
+                      isShorts: pollInstance.isShorts,
+                      displayName: pollInstance.displayName || pollInstance.trimmedName.replace('@', '')
+                    });
+                  }
+                }).catch(() => {});
+              }
             }
 
             this.onStatus(pollKey, 'connected', { 

@@ -255,6 +255,77 @@ export async function POST(request: Request) {
       }, { status: 401 });
     }
 
+    /* ================= 2.5 LIVE INFO ================= */
+    if (action === 'live_info' || action === 'get_live_info') {
+      let targetVideoId = body.videoId || body.video_id;
+      const activeChannelId = channelId || body.targetChannelId || body.channel;
+      if (!targetVideoId && activeChannelId) {
+        targetVideoId = (await fetchActiveLiveVideoWithInnerTube(yt, activeChannelId)) ||
+                        (await fetchActiveLiveVideoId(activeChannelId));
+      }
+      if (!targetVideoId) {
+        return NextResponse.json({ success: false, error: 'videoId or channel is required' }, { status: 400 });
+      }
+
+      try {
+        const basicInfo = await yt.getBasicInfo(targetVideoId);
+        if (basicInfo && basicInfo.basic_info) {
+          const bi = basicInfo.basic_info as any;
+          const candidateTime = bi.start_timestamp || bi.publish_date || bi.upload_date;
+          let startTime: number | null = null;
+          let isExact = false;
+          if (candidateTime) {
+            if (typeof candidateTime === 'number') {
+              startTime = candidateTime < 10000000000 ? candidateTime * 1000 : candidateTime;
+              isExact = true;
+            } else if (typeof candidateTime === 'string') {
+              const trimmed = candidateTime.trim();
+              if (/^[0-9]{10,13}$/.test(trimmed)) {
+                const rawNum = parseInt(trimmed, 10);
+                startTime = rawNum < 10000000000 ? rawNum * 1000 : rawNum;
+                isExact = true;
+              } else {
+                let parseable = trimmed;
+                if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}/.test(trimmed)) {
+                  parseable = trimmed.replace(' ', 'T') + 'Z';
+                }
+                const parsed = Date.parse(parseable);
+                if (!isNaN(parsed) && parsed > 0) {
+                  startTime = parsed;
+                  isExact = true;
+                }
+              }
+            }
+          }
+
+          const viewers = typeof bi.view_count === 'number' ? bi.view_count : (parseInt(bi.view_count, 10) || 0);
+          const likes = typeof bi.like_count === 'number' ? bi.like_count : (parseInt(bi.like_count, 10) || 0);
+          const isLive = bi.is_live !== false || bi.is_live_content || !bi.duration;
+          const title = bi.title || '';
+          const author = bi.author || bi.channel?.name || '';
+          const isShorts = !!(bi.is_shorts || (bi.embed?.width && bi.embed?.height && bi.embed.height > bi.embed.width));
+          const uptimeSeconds = startTime ? Math.max(0, Math.floor((Date.now() - startTime) / 1000)) : null;
+
+          return NextResponse.json({
+            success: true,
+            isLive,
+            startTime,
+            isExact,
+            startTimestamp: candidateTime ? new Date(startTime || candidateTime).toISOString() : (startTime ? new Date(startTime).toISOString() : null),
+            uptimeSeconds,
+            viewers,
+            likes,
+            title,
+            author,
+            isShorts
+          });
+        }
+      } catch (e: any) {
+        console.warn('[InnerTube Route] live_info action error:', e.message);
+      }
+      return NextResponse.json({ success: false, error: 'Failed to fetch live stream info' }, { status: 404 });
+    }
+
     /* ================= 3. SEND MESSAGE ================= */
     if (action === 'send' || !action) {
       if (!message) {

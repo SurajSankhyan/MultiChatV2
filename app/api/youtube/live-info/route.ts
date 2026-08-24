@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getInnertubeInstance } from '@/lib/innertubeSession';
 
 const DEFAULT_INNERTUBE_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
 
@@ -6,7 +7,7 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
-  'Cache-Control': 'no-store, max-age=0'
+  'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
 };
 
 export async function OPTIONS() {
@@ -16,32 +17,42 @@ export async function OPTIONS() {
   });
 }
 
+function parseCandidateTimestamp(candidateTime: any): { startTime: number | null; isExact: boolean } {
+  if (!candidateTime) return { startTime: null, isExact: false };
+
+  if (typeof candidateTime === 'number') {
+    const ms = candidateTime < 10000000000 ? candidateTime * 1000 : candidateTime;
+    return { startTime: ms, isExact: true };
+  }
+
+  if (typeof candidateTime === 'string') {
+    const trimmed = candidateTime.trim();
+    if (/^[0-9]{10,13}$/.test(trimmed)) {
+      const rawNum = parseInt(trimmed, 10);
+      const ms = rawNum < 10000000000 ? rawNum * 1000 : rawNum;
+      return { startTime: ms, isExact: true };
+    }
+
+    let parseable = trimmed;
+    if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}/.test(trimmed)) {
+      parseable = trimmed.replace(' ', 'T') + 'Z';
+    }
+    const parsed = Date.parse(parseable);
+    if (!isNaN(parsed) && parsed > 0 && parsed <= Date.now() + 60000) {
+      return { startTime: parsed, isExact: true };
+    }
+  }
+
+  return { startTime: null, isExact: false };
+}
+
 function parsePlayerJson(json: any) {
   if (!json || json.error) return null;
   const mf = json.microformat?.playerMicroformatRenderer;
   const liveDetails = mf?.liveBroadcastDetails;
   const candidateTime = liveDetails?.actualStartTime || liveDetails?.startTimestamp || liveDetails?.scheduledStartTime || mf?.publishDate || mf?.uploadDate;
   
-  let startTime: number | null = null;
-  let isExact = false;
-  if (candidateTime) {
-    if (typeof candidateTime === 'number') {
-      startTime = candidateTime < 10000000000 ? candidateTime * 1000 : candidateTime;
-      isExact = !!(liveDetails?.actualStartTime || liveDetails?.startTimestamp);
-    } else if (typeof candidateTime === 'string') {
-      if (/^[0-9]{10,13}$/.test(candidateTime)) {
-        const rawNum = parseInt(candidateTime, 10);
-        startTime = rawNum < 10000000000 ? rawNum * 1000 : rawNum;
-        isExact = !!(liveDetails?.actualStartTime || liveDetails?.startTimestamp);
-      } else {
-        const parsed = Date.parse(candidateTime);
-        if (!isNaN(parsed) && parsed > 0 && parsed <= Date.now() + 60000) {
-          startTime = parsed;
-          isExact = !!(liveDetails?.actualStartTime || liveDetails?.startTimestamp);
-        }
-      }
-    }
-  }
+  const { startTime, isExact } = parseCandidateTimestamp(candidateTime);
 
   const viewers = parseInt(json.videoDetails?.viewCount, 10) || 0;
   const isLive = !!json.videoDetails?.isLive || !!json.videoDetails?.isLiveContent || liveDetails?.isLiveNow !== false;
@@ -67,6 +78,7 @@ function parsePlayerJson(json: any) {
     startTimestamp: candidateTime || (startTime ? new Date(startTime).toISOString() : null),
     uptimeSeconds,
     viewers,
+    likes: parseInt(json.videoDetails?.likeCount, 10) || 0,
     title,
     author,
     isShorts
@@ -74,29 +86,41 @@ function parsePlayerJson(json: any) {
 }
 
 function parseHtmlMetadata(html: string) {
-  if (!html) return null;
+  if (!html || typeof html !== 'string') return null;
+  
   const startDateMatch = html.match(/itemprop="startDate"\s+content="([^"]+)"/i) || 
                          html.match(/<meta\s+itemprop="startDate"\s+content="([^"]+)"/i) ||
                          html.match(/"startDate"\s*:\s*"([^"]+)"/i) ||
                          html.match(/"startTimestamp"\s*:\s*"([^"]+)"/i) ||
                          html.match(/"actualStartTime"\s*:\s*"([^"]+)"/i) ||
                          html.match(/itemprop="datePublished"\s+content="([^"]+)"/i) ||
-                         html.match(/"publishDate"\s*:\s*"([^"]+)"/i);
+                         html.match(/itemprop="uploadDate"\s+content="([^"]+)"/i) ||
+                         html.match(/"publishDate"\s*:\s*"([^"]+)"/i) ||
+                         html.match(/"uploadDate"\s*:\s*"([^"]+)"/i);
   
-  let startTime: number | null = null;
   let candidateTime = startDateMatch ? startDateMatch[1] : null;
-  if (candidateTime) {
-    const parsed = Date.parse(candidateTime);
-    if (!isNaN(parsed) && parsed > 0 && parsed <= Date.now() + 60000) {
-      startTime = parsed;
-    }
-  }
+  let { startTime, isExact } = parseCandidateTimestamp(candidateTime);
 
   let viewers = 0;
   const origMatch = html.match(/"originalViewCount"\s*:\s*"([^"]+)"/);
   if (origMatch && origMatch[1]) {
     const val = parseInt(origMatch[1].replace(/[^0-9]/g, ''), 10);
     if (!isNaN(val)) viewers = val;
+  } else {
+    const shortViewMatch = html.match(/"viewCount"\s*:\s*"([^"]+)"/);
+    if (shortViewMatch && shortViewMatch[1]) {
+      const val = parseInt(shortViewMatch[1].replace(/[^0-9]/g, ''), 10);
+      if (!isNaN(val)) viewers = val;
+    }
+  }
+
+  let likes = 0;
+  const likeMatch = html.match(/"likeCount"\s*:\s*"([0-9.,KMBkmb]+)"/i) || html.match(/"likeCount"\s*:\s*([0-9]+)/i);
+  if (likeMatch && likeMatch[1]) {
+    const text = String(likeMatch[1]).toLowerCase().replace(/,/g, '');
+    if (text.includes('k')) likes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
+    else if (text.includes('m')) likes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
+    else likes = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
   }
 
   let title = '';
@@ -105,21 +129,52 @@ function parseHtmlMetadata(html: string) {
     title = titleMatch[1].replace(' - YouTube', '').trim();
   }
 
+  const isLive = html.includes('"isLive":true') || html.includes('"isLiveNow":true') || html.includes('liveChatRenderer') || html.includes('itemprop="startDate"');
+
+  let isShorts = false;
+  const formatMatches = [...html.matchAll(/"width"\s*:\s*(\d+)\s*,\s*"height"\s*:\s*(\d+)/g)];
+  for (const m of formatMatches) {
+    const w = parseInt(m[1], 10);
+    const h = parseInt(m[2], 10);
+    if (w > 0 && h > 0 && h > w) {
+      isShorts = true;
+      break;
+    }
+  }
+
   if (startTime) {
     const uptimeSeconds = Math.max(0, Math.floor((Date.now() - startTime) / 1000));
     return {
       success: true,
       isLive: true,
       startTime,
-      isExact: true,
-      startTimestamp: candidateTime,
+      isExact: isExact || true,
+      startTimestamp: candidateTime || new Date(startTime).toISOString(),
       uptimeSeconds,
       viewers,
+      likes,
       title,
       author: '',
-      isShorts: false
+      isShorts
     };
   }
+
+  if (isLive || viewers > 0 || title) {
+    return {
+      success: true,
+      isLive: isLive || true,
+      startTime: null,
+      isExact: false,
+      startTimestamp: null,
+      uptimeSeconds: null,
+      viewers,
+      likes,
+      title,
+      author: '',
+      isShorts
+    };
+  }
+
   return null;
 }
 
@@ -130,6 +185,7 @@ async function resolveLiveVideoId(channelOrHandle: string): Promise<string | nul
     ? `https://www.youtube.com/channel/${clean}/live`
     : `https://www.youtube.com/@${clean}/live`;
 
+  // 1. Direct fetch
   try {
     const res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36' }
@@ -142,65 +198,96 @@ async function resolveLiveVideoId(channelOrHandle: string): Promise<string | nul
     }
   } catch (e) {}
 
-  const proxies = [
-    (u: string) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
-    (u: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`
-  ];
-  for (const pFn of proxies) {
-    try {
-      const pRes = await fetch(pFn(url));
-      if (pRes.ok) {
-        const html = await pRes.text();
-        const match = html.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/) ||
-                      html.match(/watch\?v=([a-zA-Z0-9_-]{11})/);
-        if (match?.[1]) return match[1];
-      }
-    } catch (e) {}
-  }
+  // 2. InnerTube youtubei.js search / channel lookup
+  try {
+    const yt = await getInnertubeInstance();
+    const searchRes = await yt.search(clean, { type: 'video' });
+    const liveVideo: any = searchRes.videos?.find((v: any) => v.is_live);
+    if (liveVideo?.id) {
+      return liveVideo.id;
+    }
+  } catch (e) {}
 
   return null;
 }
 
-async function fetchLiveStreamInfo(videoId: string) {
+export async function fetchLiveStreamInfo(videoId: string) {
   if (!videoId) return null;
 
-  const payload = {
-    context: {
-      client: {
-        clientName: 'WEB',
-        clientVersion: '2.20240404.01.00',
-        hl: 'en',
-        gl: 'US'
-      }
-    },
-    videoId
-  };
-
-  const endpoint = `https://www.youtube.com/youtubei/v1/player?key=${DEFAULT_INNERTUBE_KEY}`;
-
-  const fetchOptions = {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Origin': 'https://www.youtube.com',
-      'Referer': 'https://www.youtube.com/'
-    },
-    body: JSON.stringify(payload)
-  };
-
-  // 1. Direct InnerTube POST
+  // 1. Primary: InnerTube Engine via youtubei.js (Best for Netlify & Datacenter Serverless)
   try {
-    const res = await fetch(endpoint, fetchOptions);
-    if (res.ok) {
-      const data = await res.json();
-      const parsed = parsePlayerJson(data);
-      if (parsed && parsed.startTime) return parsed;
-    }
-  } catch (e) {}
+    const yt = await getInnertubeInstance();
+    const basicInfo = await yt.getBasicInfo(videoId);
+    if (basicInfo && basicInfo.basic_info) {
+      const bi = basicInfo.basic_info as any;
+      const candidateTime = bi.start_timestamp || bi.publish_date || bi.upload_date;
+      const { startTime, isExact } = parseCandidateTimestamp(candidateTime);
 
-  // 2. Direct Watch page HTML GET
+      const viewers = typeof bi.view_count === 'number' ? bi.view_count : (parseInt(bi.view_count, 10) || 0);
+      const likes = typeof bi.like_count === 'number' ? bi.like_count : (parseInt(bi.like_count, 10) || 0);
+      const isLive = bi.is_live !== false || bi.is_live_content || !bi.duration;
+      const title = bi.title || '';
+      const author = bi.author || bi.channel?.name || '';
+      const isShorts = !!(bi.is_shorts || (bi.embed?.width && bi.embed?.height && bi.embed.height > bi.embed.width));
+
+      const uptimeSeconds = startTime ? Math.max(0, Math.floor((Date.now() - startTime) / 1000)) : null;
+
+      if (startTime || isLive) {
+        return {
+          success: true,
+          isLive,
+          startTime,
+          isExact: isExact || !!bi.start_timestamp,
+          startTimestamp: candidateTime ? new Date(startTime || candidateTime).toISOString() : (startTime ? new Date(startTime).toISOString() : null),
+          uptimeSeconds,
+          viewers,
+          likes,
+          title,
+          author,
+          isShorts
+        };
+      }
+    }
+  } catch (err: any) {
+    console.warn('[Live-Info API] youtubei.js getBasicInfo notice:', err.message);
+  }
+
+  // 2. Secondary: InnerTube REST POST with multiple client contexts (WEB_EMBEDDED_PLAYER, WEB, TVHTML5)
+  const clientConfigs = [
+    { clientName: 'WEB', clientVersion: '2.20240404.01.00', hl: 'en', gl: 'US' },
+    { clientName: 'WEB_EMBEDDED_PLAYER', clientVersion: '1.20240404.01.00', hl: 'en', gl: 'US' },
+    { clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER', clientVersion: '2.0', hl: 'en', gl: 'US' }
+  ];
+
+  for (const client of clientConfigs) {
+    try {
+      const endpoint = `https://www.youtube.com/youtubei/v1/player?key=${DEFAULT_INNERTUBE_KEY}`;
+      const payload = {
+        context: { client },
+        videoId
+      };
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Origin': 'https://www.youtube.com',
+          'Referer': 'https://www.youtube.com/'
+        },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const parsed = parsePlayerJson(data);
+        if (parsed && (parsed.startTime || parsed.isLive)) {
+          return parsed;
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 3. Tertiary: Watch page HTML GET
   try {
     const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
     const watchRes = await fetch(watchUrl, {
@@ -212,11 +299,11 @@ async function fetchLiveStreamInfo(videoId: string) {
     if (watchRes.ok) {
       const html = await watchRes.text();
       const parsed = parseHtmlMetadata(html);
-      if (parsed && parsed.startTime) return parsed;
+      if (parsed) return parsed;
     }
   } catch (e) {}
 
-  // 3. Live chat HTML GET
+  // 4. Quaternary: Live chat HTML GET
   try {
     const chatUrl = `https://www.youtube.com/live_chat?v=${videoId}`;
     const chatRes = await fetch(chatUrl, {
@@ -228,7 +315,7 @@ async function fetchLiveStreamInfo(videoId: string) {
     if (chatRes.ok) {
       const html = await chatRes.text();
       const parsed = parseHtmlMetadata(html);
-      if (parsed && parsed.startTime) return parsed;
+      if (parsed) return parsed;
     }
   } catch (e) {}
 
@@ -236,24 +323,28 @@ async function fetchLiveStreamInfo(videoId: string) {
 }
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  let videoId = searchParams.get('videoId') || searchParams.get('v') || searchParams.get('video_id');
-  const channel = searchParams.get('channel') || searchParams.get('handle') || searchParams.get('channelId');
+  try {
+    const { searchParams } = new URL(request.url);
+    let videoId = searchParams.get('videoId') || searchParams.get('v') || searchParams.get('video_id');
+    const channel = searchParams.get('channel') || searchParams.get('handle') || searchParams.get('channelId');
 
-  if (!videoId && channel) {
-    videoId = await resolveLiveVideoId(channel);
+    if (!videoId && channel) {
+      videoId = await resolveLiveVideoId(channel);
+    }
+
+    if (!videoId) {
+      return NextResponse.json({ success: false, error: 'videoId or channel parameter is required' }, { status: 400, headers: corsHeaders });
+    }
+
+    const info = await fetchLiveStreamInfo(videoId);
+    if (!info) {
+      return NextResponse.json({ success: false, error: 'Failed to fetch live stream info' }, { status: 404, headers: corsHeaders });
+    }
+
+    return NextResponse.json(info, { status: 200, headers: corsHeaders });
+  } catch (err: any) {
+    return NextResponse.json({ success: false, error: err.message || 'Internal error' }, { status: 500, headers: corsHeaders });
   }
-
-  if (!videoId) {
-    return NextResponse.json({ success: false, error: 'videoId or channel parameter is required' }, { status: 400, headers: corsHeaders });
-  }
-
-  const info = await fetchLiveStreamInfo(videoId);
-  if (!info) {
-    return NextResponse.json({ success: false, error: 'Failed to fetch live stream info' }, { status: 404, headers: corsHeaders });
-  }
-
-  return NextResponse.json(info, { status: 200, headers: corsHeaders });
 }
 
 export async function POST(request: Request) {

@@ -237,7 +237,7 @@ export async function POST(request: Request) {
       try {
         const yt = await getInnertubeInstance(null, formattedCookie, idx);
         const info = await yt.account.getInfo();
-        const accountItem = info?.contents?.contents?.[0];
+        const accountItem: any = info?.contents?.contents?.[0];
         if (accountItem) {
           const h = accountItem.channel_handle?.text;
           const n = accountItem.account_name?.text;

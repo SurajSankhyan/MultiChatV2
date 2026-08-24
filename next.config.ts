@@ -7,6 +7,14 @@ const nextConfig: NextConfig = {
     "puppeteer-extra-plugin-stealth",
     "youtubei.js"
   ],
+  async rewrites() {
+    return [
+      {
+        source: '/ytproxy/:path*',
+        destination: 'https://www.youtube.com/:path*',
+      },
+    ];
+  },
 };
 
 export default nextConfig;

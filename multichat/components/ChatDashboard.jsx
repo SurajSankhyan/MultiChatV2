@@ -682,7 +682,10 @@ export default function ChatDashboard({
 
   const parseStartTimeMs = (val) => {
     if (!val) return null;
-    if (typeof val === 'number') return val > 0 ? val : null;
+    if (typeof val === 'number') {
+      if (val <= 0) return null;
+      return val < 10000000000 ? val * 1000 : val;
+    }
     if (typeof val === 'string') {
       const trimmed = val.trim();
       if (!trimmed || trimmed === 'offline' || trimmed === 'N/A') return null;

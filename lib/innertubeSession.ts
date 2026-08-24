@@ -56,7 +56,7 @@ export function formatInnertubeCookie(rawCookie?: string): string | undefined {
 import { decryptCookie } from './cryptoCookie';
 
 export async function getInnertubeInstance(credentials?: any, cookie?: string, accountIndex: number = 0) {
-  const { Innertube, UniversalCache } = await import('youtubei.js' as any).catch(() => import('file:///d:/Youtube/testing/NEW/New%20MultiChat%20Website/node_modules/youtubei.js/dist/src/platform/node.js' as any));
+  const { Innertube, UniversalCache } = await import('youtubei.js');
 
   const decryptedCookie = (cookie && cookie.includes('=')) ? cookie : (decryptCookie(cookie) || cookie);
   const formattedCookie = formatInnertubeCookie(decryptedCookie) || decryptedCookie;
@@ -77,16 +77,17 @@ export async function getInnertubeInstance(credentials?: any, cookie?: string, a
       const auth = `SAPISIDHASH ${ts}_${sha1}`;
 
       try {
-        if (yt.session?.http?.headers && typeof (yt.session.http.headers as any).set === 'function') {
-          (yt.session.http.headers as any).set('Authorization', auth);
-          (yt.session.http.headers as any).set('Cookie', formattedCookie);
-          (yt.session.http.headers as any).set('Origin', 'https://www.youtube.com');
-          (yt.session.http.headers as any).set('Referer', 'https://www.youtube.com/');
-        } else if (yt.session?.http?.headers) {
-          (yt.session.http.headers as any)['Authorization'] = auth;
-          (yt.session.http.headers as any)['Cookie'] = formattedCookie;
-          (yt.session.http.headers as any)['Origin'] = 'https://www.youtube.com';
-          (yt.session.http.headers as any)['Referer'] = 'https://www.youtube.com/';
+        const http = (yt.session as any)?.http;
+        if (http?.headers && typeof http.headers.set === 'function') {
+          http.headers.set('Authorization', auth);
+          http.headers.set('Cookie', formattedCookie);
+          http.headers.set('Origin', 'https://www.youtube.com');
+          http.headers.set('Referer', 'https://www.youtube.com/');
+        } else if (http?.headers) {
+          http.headers['Authorization'] = auth;
+          http.headers['Cookie'] = formattedCookie;
+          http.headers['Origin'] = 'https://www.youtube.com';
+          http.headers['Referer'] = 'https://www.youtube.com/';
         }
       } catch (e) {}
     }
@@ -141,10 +142,11 @@ export async function getInnertubeInstance(credentials?: any, cookie?: string, a
 
         await yt.session.oauth.init(formattedCreds);
         try {
-          if (yt.session?.http?.headers && typeof (yt.session.http.headers as any).set === 'function') {
-            (yt.session.http.headers as any).set('Authorization', `Bearer ${activeAccess}`);
-          } else if (yt.session?.http?.headers) {
-            (yt.session.http.headers as any)['Authorization'] = `Bearer ${activeAccess}`;
+          const http = (yt.session as any)?.http;
+          if (http?.headers && typeof http.headers.set === 'function') {
+            http.headers.set('Authorization', `Bearer ${activeAccess}`);
+          } else if (http?.headers) {
+            http.headers['Authorization'] = `Bearer ${activeAccess}`;
           }
         } catch (e) {}
         console.log('[Innertube Session] Successfully signed in with OAuth credentials! (logged_in:', yt.session.logged_in, ')');
