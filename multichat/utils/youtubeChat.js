@@ -188,23 +188,27 @@ export class YoutubeChatClient {
       if (!json || json.error || (!json.microformat && !json.videoDetails)) return null;
       const mf = json.microformat?.playerMicroformatRenderer;
       const liveDetails = mf?.liveBroadcastDetails;
-      const candidateTime = liveDetails?.actualStartTime || liveDetails?.startTimestamp || liveDetails?.scheduledStartTime || mf?.publishDate || mf?.uploadDate;
+      const candidateTime = liveDetails?.actualStartTime || liveDetails?.startTimestamp;
       let startTime = null;
       let isExact = false;
       if (candidateTime) {
         if (typeof candidateTime === 'number') {
           startTime = candidateTime < 10000000000 ? candidateTime * 1000 : candidateTime;
-          isExact = !!(liveDetails?.actualStartTime || liveDetails?.startTimestamp);
+          isExact = true;
         } else if (typeof candidateTime === 'string') {
           if (/^[0-9]{10,13}$/.test(candidateTime)) {
             const rawNum = parseInt(candidateTime, 10);
             startTime = rawNum < 10000000000 ? rawNum * 1000 : rawNum;
-            isExact = !!(liveDetails?.actualStartTime || liveDetails?.startTimestamp);
+            isExact = true;
           } else {
-            const parsed = Date.parse(candidateTime);
+            let parseable = candidateTime.trim();
+            if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}/.test(parseable)) {
+              parseable = parseable.replace(' ', 'T') + 'Z';
+            }
+            const parsed = Date.parse(parseable);
             if (!isNaN(parsed) && parsed > 0 && parsed <= Date.now() + 60000) {
               startTime = parsed;
-              isExact = !!(liveDetails?.actualStartTime || liveDetails?.startTimestamp);
+              isExact = true;
             }
           }
         }
@@ -411,21 +415,6 @@ export class YoutubeChatClient {
                 resolve(parsed);
                 return;
               }
-            }
-
-            let secs = 0;
-            if ((data.event === 'infoDelivery' || data.event === 'initialDelivery') && data.info) {
-              if (typeof data.info.duration === 'number' && data.info.duration > 0) {
-                secs = data.info.duration;
-              } else if (typeof data.info.currentTime === 'number' && data.info.currentTime > 0) {
-                secs = data.info.currentTime;
-              }
-            }
-
-            if (secs > 0) {
-              const startMs = Date.now() - Math.floor(secs * 1000);
-              cleanup();
-              resolve(startMs);
             }
           }
         } catch (err) {}
@@ -652,20 +641,17 @@ export class YoutubeChatClient {
         if (mf.liveBroadcastDetails.isLiveNow !== false) {
           isLive = true;
         }
-        const candidateTime = mf.liveBroadcastDetails.actualStartTime || mf.liveBroadcastDetails.startTimestamp || mf.liveBroadcastDetails.scheduledStartTime;
+        const candidateTime = mf.liveBroadcastDetails.actualStartTime || mf.liveBroadcastDetails.startTimestamp;
         if (candidateTime) {
-          const parsedTime = new Date(candidateTime).getTime();
-          if (!isNaN(parsedTime) && parsedTime > 0) {
+          let parseable = String(candidateTime).trim();
+          if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}/.test(parseable)) {
+            parseable = parseable.replace(' ', 'T') + 'Z';
+          }
+          const parsedTime = Date.parse(parseable);
+          if (!isNaN(parsedTime) && parsedTime > 0 && parsedTime <= Date.now() + 60000) {
             startTime = parsedTime;
             isExact = true;
           }
-        }
-      }
-      if (!startTime && mf.publishDate) {
-        const parsedPublish = new Date(mf.publishDate).getTime();
-        if (!isNaN(parsedPublish) && parsedPublish > 0 && parsedPublish <= Date.now() + 60000) {
-          startTime = parsedPublish;
-          isExact = true;
         }
       }
     }
@@ -698,8 +684,7 @@ export class YoutubeChatClient {
     if (!startTime) {
        const priorityRegexes = [
          /"(?:actualStartTime|startTimestamp|startDate)"\s*:\s*"([^"]+)"/gi,
-         /itemprop="(?:datePublished|uploadDate)"\s+content="([^"]+)"/gi,
-         /"(?:scheduledStartTime|publishDate|uploadDate|datePublished)"\s*:\s*"([^"]+)"/gi
+         /itemprop="startDate"\s+content="([^"]+)"/gi
        ];
        for (const rgx of priorityRegexes) {
          if (startTime) break;
@@ -712,7 +697,11 @@ export class YoutubeChatClient {
              isExact = true;
              break;
            }
-           const parsed = Date.parse(str);
+           let parseable = str.trim();
+           if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}/.test(parseable)) {
+             parseable = parseable.replace(' ', 'T') + 'Z';
+           }
+           const parsed = Date.parse(parseable);
            if (!isNaN(parsed) && parsed > 0 && parsed <= Date.now() + 60000) {
              startTime = parsed;
              isExact = true;

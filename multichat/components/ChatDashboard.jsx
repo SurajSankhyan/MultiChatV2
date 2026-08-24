@@ -1027,7 +1027,8 @@ export default function ChatDashboard({
       } else if (ch === 'kick_all') {
         setPlatformStatuses(prev => ({ ...prev, kick: status }));
       } else if (ch === 'youtube_all') {
-        setPlatformStatuses(prev => ({ ...prev, youtube: status }));      } else {
+        setPlatformStatuses(prev => ({ ...prev, youtube: status }));
+      } else {
         // Individual channel status - map across all handle / casing variants
         const rawClean = ch.replace(/^@+/, '').trim();
         const atClean = `@${rawClean}`;
@@ -1048,34 +1049,35 @@ export default function ChatDashboard({
         }));
       }
 
-        // Update stream start times and viewers count
-        if (status === 'connected') {
-          const rawClean = ch.replace(/^@+/, '').trim();
-          const atClean = `@${rawClean}`;
-          const justClean = ch.replace('@', '').trim();
-          const lowerCh = ch.toLowerCase();
-          const lowerRaw = rawClean.toLowerCase();
-          const lowerAt = atClean.toLowerCase();
-          const startTimeVal = metadata?.startTime;
+      // Handle stream metrics based on status
+      const rawClean = ch.replace(/^@+/, '').trim();
+      const atClean = `@${rawClean}`;
+      const justClean = ch.replace('@', '').trim();
+      const lowerCh = ch.toLowerCase();
+      const lowerRaw = rawClean.toLowerCase();
+      const lowerAt = atClean.toLowerCase();
 
-          setStreamStartTimes(prev => {
-            const existing = prev[ch] || prev[rawClean] || prev[atClean] || prev[justClean] || prev[lowerCh] || prev[lowerRaw] || prev[lowerAt];
-            const isExact = metadata?.isExact;
-            const timeToUse = (existing && !isExact) ? existing : (startTimeVal || existing);
-            if (!timeToUse) return prev;
-            const next = { 
-              ...prev, 
-              [ch]: timeToUse, 
-              [rawClean]: timeToUse, 
-              [atClean]: timeToUse, 
-              [justClean]: timeToUse,
-              [lowerCh]: timeToUse,
-              [lowerRaw]: timeToUse,
-              [lowerAt]: timeToUse
-            };
-            try { localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next)); } catch (e) {}
-            return next;
-          });
+      if (status === 'connected') {
+        const startTimeVal = metadata?.startTime;
+        if (startTimeVal) {
+          const parsedMs = parseStartTimeMs(startTimeVal);
+          if (parsedMs && parsedMs > 0 && parsedMs <= Date.now() + 60000) {
+            setStreamStartTimes(prev => {
+              const next = { 
+                ...prev, 
+                [ch]: startTimeVal, 
+                [rawClean]: startTimeVal, 
+                [atClean]: startTimeVal, 
+                [justClean]: startTimeVal,
+                [lowerCh]: startTimeVal,
+                [lowerRaw]: startTimeVal,
+                [lowerAt]: startTimeVal
+              };
+              try { localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next)); } catch (e) {}
+              return next;
+            });
+          }
+        }
         if (metadata && metadata.viewers !== undefined && metadata.viewers !== null) {
           setStreamViewers(prev => {
             const next = { 
@@ -1133,22 +1135,16 @@ export default function ChatDashboard({
           });
         }
       } else if (status === 'offline' || status === 'disconnected') {
-        const rawClean = ch.replace(/^@+/, '').trim();
-        const atClean = `@${rawClean}`;
-        const justClean = ch.replace('@', '').trim();
-        const lowerCh = ch.toLowerCase();
-        const lowerRaw = rawClean.toLowerCase();
-        const lowerAt = atClean.toLowerCase();
-
-        setPlatformStatuses(prev => {
+        setStreamStartTimes(prev => {
           const next = { ...prev };
-          next[ch] = status;
-          next[rawClean] = status;
-          next[atClean] = status;
-          next[justClean] = status;
-          next[lowerCh] = status;
-          next[lowerRaw] = status;
-          next[lowerAt] = status;
+          delete next[ch];
+          delete next[rawClean];
+          delete next[atClean];
+          delete next[justClean];
+          delete next[lowerCh];
+          delete next[lowerRaw];
+          delete next[lowerAt];
+          try { localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next)); } catch (e) {}
           return next;
         });
 
@@ -1162,7 +1158,7 @@ export default function ChatDashboard({
           delete next[lowerCh];
           delete next[lowerRaw];
           delete next[lowerAt];
-          localStorage.setItem('prochat_cached_stream_viewers', JSON.stringify(next));
+          try { localStorage.setItem('prochat_cached_stream_viewers', JSON.stringify(next)); } catch (e) {}
           return next;
         });
         setStreamLikes(prev => {
@@ -1174,7 +1170,7 @@ export default function ChatDashboard({
           delete next[lowerCh];
           delete next[lowerRaw];
           delete next[lowerAt];
-          localStorage.setItem('prochat_cached_stream_likes', JSON.stringify(next));
+          try { localStorage.setItem('prochat_cached_stream_likes', JSON.stringify(next)); } catch (e) {}
           return next;
         });
 

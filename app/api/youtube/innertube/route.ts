@@ -271,7 +271,7 @@ export async function POST(request: Request) {
         const basicInfo = await yt.getBasicInfo(targetVideoId);
         if (basicInfo && basicInfo.basic_info) {
           const bi = basicInfo.basic_info as any;
-          const candidateTime = bi.start_timestamp || bi.publish_date || bi.upload_date;
+          const candidateTime = bi.start_timestamp;
           let startTime: number | null = null;
           let isExact = false;
           if (candidateTime) {

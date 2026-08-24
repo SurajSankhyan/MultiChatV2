@@ -50,7 +50,7 @@ function parsePlayerJson(json: any) {
   if (!json || json.error) return null;
   const mf = json.microformat?.playerMicroformatRenderer;
   const liveDetails = mf?.liveBroadcastDetails;
-  const candidateTime = liveDetails?.actualStartTime || liveDetails?.startTimestamp || liveDetails?.scheduledStartTime || mf?.publishDate || mf?.uploadDate;
+  const candidateTime = liveDetails?.actualStartTime || liveDetails?.startTimestamp;
   
   const { startTime, isExact } = parseCandidateTimestamp(candidateTime);
 
@@ -90,13 +90,9 @@ function parseHtmlMetadata(html: string) {
   
   const startDateMatch = html.match(/itemprop="startDate"\s+content="([^"]+)"/i) || 
                          html.match(/<meta\s+itemprop="startDate"\s+content="([^"]+)"/i) ||
-                         html.match(/"startDate"\s*:\s*"([^"]+)"/i) ||
-                         html.match(/"startTimestamp"\s*:\s*"([^"]+)"/i) ||
                          html.match(/"actualStartTime"\s*:\s*"([^"]+)"/i) ||
-                         html.match(/itemprop="datePublished"\s+content="([^"]+)"/i) ||
-                         html.match(/itemprop="uploadDate"\s+content="([^"]+)"/i) ||
-                         html.match(/"publishDate"\s*:\s*"([^"]+)"/i) ||
-                         html.match(/"uploadDate"\s*:\s*"([^"]+)"/i);
+                         html.match(/"startTimestamp"\s*:\s*"([^"]+)"/i) ||
+                         html.match(/"startDate"\s*:\s*"([^"]+)"/i);
   
   let candidateTime = startDateMatch ? startDateMatch[1] : null;
   let { startTime, isExact } = parseCandidateTimestamp(candidateTime);
@@ -220,7 +216,7 @@ export async function fetchLiveStreamInfo(videoId: string) {
     const basicInfo = await yt.getBasicInfo(videoId);
     if (basicInfo && basicInfo.basic_info) {
       const bi = basicInfo.basic_info as any;
-      const candidateTime = bi.start_timestamp || bi.publish_date || bi.upload_date;
+      const candidateTime = bi.start_timestamp;
       const { startTime, isExact } = parseCandidateTimestamp(candidateTime);
 
       const viewers = typeof bi.view_count === 'number' ? bi.view_count : (parseInt(bi.view_count, 10) || 0);
