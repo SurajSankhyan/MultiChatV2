@@ -804,15 +804,6 @@ export default function ChatDashboard({
           })
       );
 
-      const hasLiveChannel = activeChannels.some(ch => {
-        if (!ch.enabled) return false;
-        const clean = ch.name.toLowerCase().replace(/^@+/, '').trim();
-        const rawClean = ch.name.toLowerCase().replace('@', '').trim();
-        const status = platformStatuses[clean] || platformStatuses[rawClean] || platformStatuses[ch.platform];
-        const vCount = streamViewers[clean] ?? streamViewers[rawClean] ?? 0;
-        return status === 'connected' || vCount > 0;
-      });
-
       const times = Object.entries(streamStartTimes)
         .filter(([k]) => activeChannelKeys.size === 0 || activeChannelKeys.has(k))
         .map(([, t]) => parseStartTimeMs(t))
@@ -822,15 +813,12 @@ export default function ChatDashboard({
         const earliest = Math.min(...times);
         const diffSecs = Math.floor((Date.now() - earliest) / 1000);
         setUptime(diffSecs >= 0 ? diffSecs : 0);
-      } else if (hasLiveChannel) {
-        // Fallback live session tick if streamStartTimes is still resolving
-        setUptime(prev => (prev !== null && prev > 0 ? prev + 1 : 1));
       } else {
         setUptime(null);
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, [streamStartTimes, activeChannels, platformStatuses, streamViewers]);
+  }, [streamStartTimes, activeChannels]);
 
   // Viewer count variance
   useEffect(() => {
@@ -1070,7 +1058,7 @@ export default function ChatDashboard({
           setStreamStartTimes(prev => {
             const existing = prev[ch] || prev[rawClean] || prev[atClean] || prev[justClean] || prev[lowerCh] || prev[lowerRaw] || prev[lowerAt];
             const isExact = metadata?.isExact;
-            const timeToUse = (existing && !isExact) ? existing : (startTimeVal || existing || Date.now());
+            const timeToUse = (existing && !isExact) ? existing : (startTimeVal || existing);
             if (!timeToUse) return prev;
             const next = { 
               ...prev, 

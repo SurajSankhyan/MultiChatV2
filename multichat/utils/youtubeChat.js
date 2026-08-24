@@ -1084,11 +1084,6 @@ export class YoutubeChatClient {
         }
       }
 
-      if (!localStartTime) {
-        localStartTime = Date.now();
-        isExactStartTime = false;
-      }
-
       console.log(`YouTube client: connected to stream ${videoId} with clientVersion: ${clientVersion}, startTime: ${localStartTime ? new Date(localStartTime).toISOString() : 'null'}`);
 
       const currentViewers = localViewers !== null ? localViewers : null;
@@ -1104,7 +1099,7 @@ export class YoutubeChatClient {
         timeoutId: null,
         viewerIntervalId: null,
         seenIds: existingSeenIds,
-        startTimestamp: localStartTime || Date.now(),
+        startTimestamp: localStartTime || null,
         isExactStartTime,
         isShorts,
         displayName: resolvedDisplayName,

@@ -73,6 +73,44 @@ function parsePlayerJson(json: any) {
   };
 }
 
+async function resolveLiveVideoId(channelOrHandle: string): Promise<string | null> {
+  if (!channelOrHandle) return null;
+  const clean = channelOrHandle.replace(/^@+/, '').trim();
+  const url = clean.toLowerCase().startsWith('uc')
+    ? `https://www.youtube.com/channel/${clean}/live`
+    : `https://www.youtube.com/@${clean}/live`;
+
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36' }
+    });
+    if (res.ok) {
+      const html = await res.text();
+      const match = html.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/) ||
+                    html.match(/watch\?v=([a-zA-Z0-9_-]{11})/);
+      if (match?.[1]) return match[1];
+    }
+  } catch (e) {}
+
+  const proxies = [
+    (u: string) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+    (u: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`
+  ];
+  for (const pFn of proxies) {
+    try {
+      const pRes = await fetch(pFn(url));
+      if (pRes.ok) {
+        const html = await pRes.text();
+        const match = html.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/) ||
+                      html.match(/watch\?v=([a-zA-Z0-9_-]{11})/);
+        if (match?.[1]) return match[1];
+      }
+    } catch (e) {}
+  }
+
+  return null;
+}
+
 async function fetchLiveStreamInfo(videoId: string) {
   if (!videoId) return null;
 
@@ -136,10 +174,15 @@ async function fetchLiveStreamInfo(videoId: string) {
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const videoId = searchParams.get('videoId') || searchParams.get('v') || searchParams.get('video_id');
+  let videoId = searchParams.get('videoId') || searchParams.get('v') || searchParams.get('video_id');
+  const channel = searchParams.get('channel') || searchParams.get('handle') || searchParams.get('channelId');
+
+  if (!videoId && channel) {
+    videoId = await resolveLiveVideoId(channel);
+  }
 
   if (!videoId) {
-    return NextResponse.json({ success: false, error: 'videoId parameter is required' }, { status: 400, headers: corsHeaders });
+    return NextResponse.json({ success: false, error: 'videoId or channel parameter is required' }, { status: 400, headers: corsHeaders });
   }
 
   const info = await fetchLiveStreamInfo(videoId);
@@ -153,10 +196,15 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
-    const videoId = body.videoId || body.video_id || body.v;
+    let videoId = body.videoId || body.video_id || body.v;
+    const channel = body.channel || body.handle || body.channelId;
+
+    if (!videoId && channel) {
+      videoId = await resolveLiveVideoId(channel);
+    }
 
     if (!videoId) {
-      return NextResponse.json({ success: false, error: 'videoId is required in body' }, { status: 400, headers: corsHeaders });
+      return NextResponse.json({ success: false, error: 'videoId or channel is required in body' }, { status: 400, headers: corsHeaders });
     }
 
     const info = await fetchLiveStreamInfo(videoId);
