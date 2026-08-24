@@ -1048,6 +1048,15 @@ export class YoutubeChatClient {
             if (!continuationToken && chatParams.continuationToken) continuationToken = chatParams.continuationToken;
             if (!clientVersion && chatParams.clientVersion) clientVersion = chatParams.clientVersion;
             if (!liveChatId && chatParams.liveChatId) liveChatId = chatParams.liveChatId;
+
+            // Also extract metadata/startTime from chatHtml if not resolved yet
+            if (!localStartTime) {
+              const chatMeta = this.parseMetadataFromHtml(chatHtml);
+              if (chatMeta && chatMeta.startTime) {
+                localStartTime = chatMeta.startTime;
+                isExactStartTime = !!chatMeta.isExact;
+              }
+            }
           }
         } catch (e) {
           console.warn("YouTube client: live_chat fetch error:", e.message);
@@ -1075,6 +1084,11 @@ export class YoutubeChatClient {
         }
       }
 
+      if (!localStartTime) {
+        localStartTime = Date.now();
+        isExactStartTime = false;
+      }
+
       console.log(`YouTube client: connected to stream ${videoId} with clientVersion: ${clientVersion}, startTime: ${localStartTime ? new Date(localStartTime).toISOString() : 'null'}`);
 
       const currentViewers = localViewers !== null ? localViewers : null;
@@ -1090,7 +1104,7 @@ export class YoutubeChatClient {
         timeoutId: null,
         viewerIntervalId: null,
         seenIds: existingSeenIds,
-        startTimestamp: localStartTime || null,
+        startTimestamp: localStartTime || Date.now(),
         isExactStartTime,
         isShorts,
         displayName: resolvedDisplayName,
