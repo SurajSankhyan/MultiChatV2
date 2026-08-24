@@ -73,6 +73,56 @@ function parsePlayerJson(json: any) {
   };
 }
 
+function parseHtmlMetadata(html: string) {
+  if (!html) return null;
+  const startDateMatch = html.match(/itemprop="startDate"\s+content="([^"]+)"/i) || 
+                         html.match(/<meta\s+itemprop="startDate"\s+content="([^"]+)"/i) ||
+                         html.match(/"startDate"\s*:\s*"([^"]+)"/i) ||
+                         html.match(/"startTimestamp"\s*:\s*"([^"]+)"/i) ||
+                         html.match(/"actualStartTime"\s*:\s*"([^"]+)"/i) ||
+                         html.match(/itemprop="datePublished"\s+content="([^"]+)"/i) ||
+                         html.match(/"publishDate"\s*:\s*"([^"]+)"/i);
+  
+  let startTime: number | null = null;
+  let candidateTime = startDateMatch ? startDateMatch[1] : null;
+  if (candidateTime) {
+    const parsed = Date.parse(candidateTime);
+    if (!isNaN(parsed) && parsed > 0 && parsed <= Date.now() + 60000) {
+      startTime = parsed;
+    }
+  }
+
+  let viewers = 0;
+  const origMatch = html.match(/"originalViewCount"\s*:\s*"([^"]+)"/);
+  if (origMatch && origMatch[1]) {
+    const val = parseInt(origMatch[1].replace(/[^0-9]/g, ''), 10);
+    if (!isNaN(val)) viewers = val;
+  }
+
+  let title = '';
+  const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
+  if (titleMatch && titleMatch[1]) {
+    title = titleMatch[1].replace(' - YouTube', '').trim();
+  }
+
+  if (startTime) {
+    const uptimeSeconds = Math.max(0, Math.floor((Date.now() - startTime) / 1000));
+    return {
+      success: true,
+      isLive: true,
+      startTime,
+      isExact: true,
+      startTimestamp: candidateTime,
+      uptimeSeconds,
+      viewers,
+      title,
+      author: '',
+      isShorts: false
+    };
+  }
+  return null;
+}
+
 async function resolveLiveVideoId(channelOrHandle: string): Promise<string | null> {
   if (!channelOrHandle) return null;
   const clean = channelOrHandle.replace(/^@+/, '').trim();
@@ -140,34 +190,47 @@ async function fetchLiveStreamInfo(videoId: string) {
     body: JSON.stringify(payload)
   };
 
-  // 1. Direct fetch
+  // 1. Direct InnerTube POST
   try {
     const res = await fetch(endpoint, fetchOptions);
     if (res.ok) {
       const data = await res.json();
       const parsed = parsePlayerJson(data);
-      if (parsed) return parsed;
+      if (parsed && parsed.startTime) return parsed;
     }
   } catch (e) {}
 
-  // 2. Rotating proxy fallback
-  const proxies = [
-    (u: string) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
-    (u: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-    (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`
-  ];
-
-  for (const proxyFn of proxies) {
-    try {
-      const pUrl = proxyFn(endpoint);
-      const res = await fetch(pUrl, fetchOptions);
-      if (res.ok) {
-        const data = await res.json();
-        const parsed = parsePlayerJson(data);
-        if (parsed) return parsed;
+  // 2. Direct Watch page HTML GET
+  try {
+    const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const watchRes = await fetch(watchUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9'
       }
-    } catch (e) {}
-  }
+    });
+    if (watchRes.ok) {
+      const html = await watchRes.text();
+      const parsed = parseHtmlMetadata(html);
+      if (parsed && parsed.startTime) return parsed;
+    }
+  } catch (e) {}
+
+  // 3. Live chat HTML GET
+  try {
+    const chatUrl = `https://www.youtube.com/live_chat?v=${videoId}`;
+    const chatRes = await fetch(chatUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9'
+      }
+    });
+    if (chatRes.ok) {
+      const html = await chatRes.text();
+      const parsed = parseHtmlMetadata(html);
+      if (parsed && parsed.startTime) return parsed;
+    }
+  } catch (e) {}
 
   return null;
 }

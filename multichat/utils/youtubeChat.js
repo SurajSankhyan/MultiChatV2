@@ -305,10 +305,29 @@ export class YoutubeChatClient {
         if (res.ok) {
           const data = await res.json();
           const parsed = parsePlayerJson(data);
-          if (parsed) return parsed;
+          if (parsed && parsed.startTime) return parsed;
         }
       } catch (e) {}
     }
+
+    // 5. Fallback: fetch watch page HTML directly via proxy fallback (which contains itemprop="startDate" and startTimestamp)
+    try {
+      const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+      const watchHtml = await this.fetchWithProxyFallback(watchUrl);
+      if (watchHtml) {
+        const meta = this.parseMetadataFromHtml(watchHtml);
+        if (meta && meta.startTime) {
+          return {
+            isLive: meta.isLive,
+            startTime: meta.startTime,
+            isExact: !!meta.isExact,
+            viewers: meta.viewers || 0,
+            isShorts: !!meta.isShorts,
+            title: ''
+          };
+        }
+      }
+    } catch (e) {}
 
     return null;
   }
