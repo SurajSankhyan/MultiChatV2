@@ -228,10 +228,34 @@ export class YoutubeChatClient {
       };
     };
 
-    // 1. Try local proxy
+    // 1. Try dedicated live-info API endpoint (handles InnerTube on backend with proxy fallback)
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 2500);
+      const timer = setTimeout(() => controller.abort(), 3500);
+      const res = await fetch(`/api/youtube/live-info?videoId=${encodeURIComponent(videoId)}`, {
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.success) {
+          return {
+            isLive: data.isLive !== false,
+            startTime: data.startTime || null,
+            isExact: !!data.isExact,
+            viewers: data.viewers || 0,
+            isShorts: !!data.isShorts,
+            title: data.title || '',
+            author: data.author || ''
+          };
+        }
+      }
+    } catch (e) {}
+
+    // 2. Try local Next.js proxy (/ytproxy/youtubei/v1/player)
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 3000);
       const res = await fetch(localEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -246,10 +270,10 @@ export class YoutubeChatClient {
       }
     } catch (e) {}
 
-    // 2. Try query proxy
+    // 3. Try query proxy (/api/youtube/proxy)
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 2500);
+      const timer = setTimeout(() => controller.abort(), 3000);
       const queryUrl = `/api/youtube/proxy?url=${encodeURIComponent(endpoint)}`;
       const res = await fetch(queryUrl, {
         method: 'POST',
@@ -264,6 +288,27 @@ export class YoutubeChatClient {
         if (parsed) return parsed;
       }
     } catch (e) {}
+
+    // 4. Try rotating public CORS proxies directly (vital for static Netlify hosting)
+    for (const proxyFn of this.proxies) {
+      try {
+        const proxiedUrl = proxyFn(endpoint);
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 3500);
+        const res = await fetch(proxiedUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: controller.signal
+        });
+        clearTimeout(timer);
+        if (res.ok) {
+          const data = await res.json();
+          const parsed = parsePlayerJson(data);
+          if (parsed) return parsed;
+        }
+      } catch (e) {}
+    }
 
     return null;
   }

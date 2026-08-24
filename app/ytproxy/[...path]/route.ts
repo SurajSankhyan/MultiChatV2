@@ -38,22 +38,49 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
   headers.set('Referer', 'https://www.youtube.com/');
   headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
 
+  let html = '';
+  let status = 200;
   try {
     const res = await fetch(targetUrl, { headers });
-    const html = await res.text();
+    if (res.ok) {
+      html = await res.text();
+      status = res.status;
+    }
+  } catch (err: any) {}
+
+  if (!html) {
+    const proxies = [
+      (u: string) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+      (u: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+      (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`
+    ];
+    for (const proxyFn of proxies) {
+      try {
+        const pUrl = proxyFn(targetUrl);
+        const res = await fetch(pUrl, { headers });
+        if (res.ok) {
+          html = await res.text();
+          status = res.status;
+          break;
+        }
+      } catch (e) {}
+    }
+  }
+
+  if (html) {
     return new NextResponse(html, {
-      status: res.status,
+      status: status,
       headers: { 
-        'Content-Type': res.headers.get('Content-Type') || 'text/html; charset=utf-8',
+        'Content-Type': 'text/html; charset=utf-8',
         ...corsHeaders
       }
     });
-  } catch (err: any) {
-    return new NextResponse(err.message, { 
-      status: 500,
-      headers: corsHeaders
-    });
   }
+
+  return new NextResponse('Failed to fetch YouTube resource via proxy fallback', { 
+    status: 502,
+    headers: corsHeaders
+  });
 }
 
 export async function POST(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
@@ -101,10 +128,46 @@ export async function POST(request: Request, { params }: { params: Promise<{ pat
       }
     };
 
-    const res = await fetch(targetUrl, { method: 'POST', headers, body: JSON.stringify(body) });
-    const data = await res.json();
-    return NextResponse.json(data, {
-      status: res.status,
+    let data: any = null;
+    let resStatus = 200;
+
+    try {
+      const res = await fetch(targetUrl, { method: 'POST', headers, body: JSON.stringify(body) });
+      if (res.ok) {
+        data = await res.json();
+        resStatus = res.status;
+      }
+    } catch (e) {}
+
+    // If direct fetch failed or was blocked by YouTube on Netlify, fallback to rotating proxies
+    if (!data) {
+      const proxies = [
+        (u: string) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+        (u: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+        (u: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`
+      ];
+      for (const proxyFn of proxies) {
+        try {
+          const pUrl = proxyFn(targetUrl);
+          const pRes = await fetch(pUrl, { method: 'POST', headers, body: JSON.stringify(body) });
+          if (pRes.ok) {
+            data = await pRes.json();
+            resStatus = pRes.status;
+            break;
+          }
+        } catch (err) {}
+      }
+    }
+
+    if (data) {
+      return NextResponse.json(data, {
+        status: resStatus,
+        headers: corsHeaders
+      });
+    }
+
+    return new NextResponse('Failed to route YouTube POST request through proxy fallbacks', { 
+      status: 502,
       headers: corsHeaders
     });
   } catch (err: any) {
