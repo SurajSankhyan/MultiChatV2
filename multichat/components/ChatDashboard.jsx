@@ -682,6 +682,10 @@ export default function ChatDashboard({
 
   const parseStartTimeMs = (val) => {
     if (!val) return null;
+    if (val instanceof Date || (val && typeof val.getTime === 'function')) {
+      const ms = val.getTime();
+      return !isNaN(ms) && ms > 0 ? ms : null;
+    }
     if (typeof val === 'number') {
       if (val <= 0) return null;
       return val < 10000000000 ? val * 1000 : val;
@@ -808,7 +812,12 @@ export default function ChatDashboard({
       );
 
       const times = Object.entries(streamStartTimes)
-        .filter(([k]) => activeChannelKeys.size === 0 || activeChannelKeys.has(k))
+        .filter(([k]) => {
+          if (activeChannelKeys.size === 0) return true;
+          const lowerK = String(k).toLowerCase().trim();
+          const cleanK = lowerK.replace(/^@+/, '').trim();
+          return activeChannelKeys.has(lowerK) || activeChannelKeys.has(cleanK) || activeChannelKeys.has(`@${cleanK}`);
+        })
         .map(([, t]) => parseStartTimeMs(t))
         .filter(t => t !== null && t > 0 && t <= Date.now() + 60000);
       

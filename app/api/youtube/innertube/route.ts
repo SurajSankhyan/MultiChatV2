@@ -275,7 +275,13 @@ export async function POST(request: Request) {
           let startTime: number | null = null;
           let isExact = false;
           if (candidateTime) {
-            if (typeof candidateTime === 'number') {
+            if (candidateTime instanceof Date || (candidateTime && typeof candidateTime.getTime === 'function')) {
+              const ms = candidateTime.getTime();
+              if (!isNaN(ms) && ms > 0 && ms <= Date.now() + 60000) {
+                startTime = ms;
+                isExact = true;
+              }
+            } else if (typeof candidateTime === 'number') {
               startTime = candidateTime < 10000000000 ? candidateTime * 1000 : candidateTime;
               isExact = true;
             } else if (typeof candidateTime === 'string') {
@@ -290,7 +296,7 @@ export async function POST(request: Request) {
                   parseable = trimmed.replace(' ', 'T') + 'Z';
                 }
                 const parsed = Date.parse(parseable);
-                if (!isNaN(parsed) && parsed > 0) {
+                if (!isNaN(parsed) && parsed > 0 && parsed <= Date.now() + 60000) {
                   startTime = parsed;
                   isExact = true;
                 }

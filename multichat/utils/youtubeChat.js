@@ -192,7 +192,13 @@ export class YoutubeChatClient {
       let startTime = null;
       let isExact = false;
       if (candidateTime) {
-        if (typeof candidateTime === 'number') {
+        if (candidateTime instanceof Date || (candidateTime && typeof candidateTime.getTime === 'function')) {
+          const ms = candidateTime.getTime();
+          if (!isNaN(ms) && ms > 0 && ms <= Date.now() + 60000) {
+            startTime = ms;
+            isExact = true;
+          }
+        } else if (typeof candidateTime === 'number') {
           startTime = candidateTime < 10000000000 ? candidateTime * 1000 : candidateTime;
           isExact = true;
         } else if (typeof candidateTime === 'string') {

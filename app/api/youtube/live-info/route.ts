@@ -20,6 +20,13 @@ export async function OPTIONS() {
 function parseCandidateTimestamp(candidateTime: any): { startTime: number | null; isExact: boolean } {
   if (!candidateTime) return { startTime: null, isExact: false };
 
+  if (candidateTime instanceof Date || (candidateTime && typeof candidateTime.getTime === 'function')) {
+    const ms = candidateTime.getTime();
+    if (!isNaN(ms) && ms > 0 && ms <= Date.now() + 60000) {
+      return { startTime: ms, isExact: true };
+    }
+  }
+
   if (typeof candidateTime === 'number') {
     const ms = candidateTime < 10000000000 ? candidateTime * 1000 : candidateTime;
     return { startTime: ms, isExact: true };
