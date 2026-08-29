@@ -28,7 +28,7 @@ import {
   Gift,
   Crown
 } from 'lucide-react';
-import ChatFeed, { checkIsMentioned } from './ChatFeed';
+import ChatFeed, { checkIsMentioned, GLOBAL_AVATAR_CACHE } from './ChatFeed';
 import ChatInput from './ChatInput';
 import SpidermanPet from './SpidermanPet';
 import ChatterInsights from './ChatterInsights';
@@ -41,6 +41,7 @@ import { TwitchChatClient } from '../utils/twitchChat';
 import { KickChatClient } from '../utils/kickChat';
 import { YoutubeChatClient, calculateYoutubeTop3Ranks } from '../utils/youtubeChat';
 import { ChatSimulator } from '../utils/simulator';
+import { parseAmountString, detectCurrencySymbol } from './HighlightOverlay';
 
 export const isBotMessage = (msg) => {
   if (!msg) return false;
@@ -556,6 +557,150 @@ export default function ChatDashboard({
   const handleClearEvents = () => {
     setMessages(prev => prev.filter(m => !m.isSystemEvent));
   };
+
+  // Live Stream Chat Highlight Overlay State (Chat Overlay V5.2 Engine)
+  const [activeHighlightId, setActiveHighlightId] = useState(null);
+  const [heldSuper, setHeldSuper] = useState(null);
+
+  const broadcastChannelRef = useRef(null);
+  useEffect(() => {
+    try {
+      broadcastChannelRef.current = new BroadcastChannel('multichat_highlight_overlay');
+    } catch (e) {}
+    return () => {
+      if (broadcastChannelRef.current) broadcastChannelRef.current.close();
+    };
+  }, []);
+
+  const handleHideHighlight = useCallback(() => {
+    setActiveHighlightId(null);
+    setHeldSuper(null);
+    try {
+      if (broadcastChannelRef.current) {
+        broadcastChannelRef.current.postMessage({ command: 'hide' });
+      }
+      localStorage.setItem('multichat_active_highlight_event', JSON.stringify({ command: 'hide', timestamp: Date.now() }));
+    } catch (e) {}
+  }, []);
+
+  const handleHighlightMessage = useCallback((msg, options = {}) => {
+    if (!msg) return;
+
+    // If this message is already active on overlay, clicking again hides it
+    if (activeHighlightId === msg.id && !options.force && !options.overrideAmount) {
+      handleHideHighlight();
+      return;
+    }
+
+    const {
+      overrideAmount,
+      overrideMessage,
+      overrideAuthor
+    } = options;
+
+    // Check if this is a StreamElements / Streamlabs message
+    const isStreamService = isBotMessage(msg) && (
+      (msg.username && (msg.username.toLowerCase().includes('streamelements') || msg.username.toLowerCase().includes('streamlabs'))) ||
+      (msg.text && (msg.text.includes('UPI') || msg.text.toLowerCase().includes('tip') || msg.text.toLowerCase().includes('tipped') || msg.text.toLowerCase().includes('donated')))
+    );
+
+    if (isStreamService && !heldSuper && !overrideAmount) {
+      // First click on tip bot message: extract amount and message
+      const text = msg.text || '';
+      const amountParsed = parseAmountString(text);
+      const curSymbol = detectCurrencySymbol(text);
+      let messagePart = '';
+      const msgMatch = text.match(/(?:Msg|Message)\s*:?\s*(.*)$/i) || text.match(/!+\s*Msg\s*:?\s*(.*)$/i);
+      if (msgMatch && msgMatch[1]) messagePart = msgMatch[1].trim();
+
+      setHeldSuper({
+        amountValue: amountParsed ? Math.floor(amountParsed) : null,
+        donationAmount: amountParsed ? `${curSymbol}${Math.floor(amountParsed)}` : null,
+        messageText: messagePart || null,
+        timestamp: Date.now()
+      });
+      return;
+    }
+
+    let finalAmountValue = null;
+    let finalDonationAmount = null;
+    let finalText = msg.text || '';
+    let finalParts = msg.parts || [];
+
+    // Check if we have a heldSuper to attach to this chatter
+    if (heldSuper) {
+      finalAmountValue = heldSuper.amountValue;
+      finalDonationAmount = heldSuper.donationAmount;
+      if (heldSuper.messageText) {
+        finalText = heldSuper.messageText;
+        finalParts = [{ type: 'text', content: finalText }];
+      }
+      setHeldSuper(null);
+    } else if (overrideAmount !== undefined) {
+      const parsed = parseAmountString(String(overrideAmount));
+      if (parsed) {
+        finalAmountValue = Math.floor(parsed);
+        const sym = detectCurrencySymbol(String(overrideAmount));
+        finalDonationAmount = `${sym}${finalAmountValue}`;
+      } else {
+        finalDonationAmount = String(overrideAmount);
+      }
+    } else if (msg.eventDetails?.amount) {
+      finalDonationAmount = msg.eventDetails.amount;
+      const parsed = parseAmountString(msg.eventDetails.amount);
+      if (parsed) finalAmountValue = Math.floor(parsed);
+    }
+
+    const cleanUser = (msg.username || '').toLowerCase().replace(/^@+/, '').trim();
+    const cleanDisplay = (msg.displayName || '').toLowerCase().replace(/^@+/, '').trim();
+    const resolvedAvatar = msg.avatarUrl || msg._resolvedAvatar || msg.avatar || msg.authorPhoto || 
+      (cleanUser ? GLOBAL_AVATAR_CACHE.get(cleanUser) : null) || 
+      (cleanDisplay ? GLOBAL_AVATAR_CACHE.get(cleanDisplay) : null) || null;
+
+    const payload = {
+      chatId: msg.id,
+      displayName: overrideAuthor || msg.displayName || msg.username || 'Viewer',
+      username: msg.username || 'viewer',
+      avatarUrl: resolvedAvatar,
+      text: finalText,
+      parts: finalParts,
+      platform: msg.platform || 'youtube',
+      isShorts: !!msg.isShorts,
+      donationAmount: finalDonationAmount,
+      amountValue: finalAmountValue,
+      isSuperChat: msg.eventType === 'donation' || !!finalDonationAmount,
+      isMembership: msg.eventType === 'subscription' || msg.eventType === 'membership',
+      membershipTier: msg.eventDetails?.tier || null,
+      membershipDuration: msg.eventDetails?.milestoneText || msg.eventDetails?.tier || null,
+      isGift: msg.eventDetails?.subType === 'gift_purchase' || msg.eventDetails?.subType === 'gift_redemption' || !!msg.giftDetails,
+      giftDetails: msg.giftDetails || null,
+      backgroundColor: msg.eventDetails?.bodyBg || null,
+      textColor: msg.eventDetails?.contentTextColor || null,
+      authorBgColor: msg.eventDetails?.headerBg || null,
+      autoHideSeconds: settings.overlayFadeTime || 8
+    };
+
+    setActiveHighlightId(msg.id);
+
+    // Send to local BroadcastChannel and localStorage
+    try {
+      if (broadcastChannelRef.current) {
+        broadcastChannelRef.current.postMessage({ command: 'show', data: payload });
+      }
+      localStorage.setItem('multichat_active_highlight_event', JSON.stringify({ command: 'show', data: payload, timestamp: Date.now() }));
+    } catch (e) {}
+  }, [activeHighlightId, heldSuper, settings.overlayFadeTime, handleHideHighlight]);
+
+  // Global ESC key to hide overlay
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        handleHideHighlight();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleHideHighlight]);
   
   // Moderation state initialized from localStorage
   const [moderation, setModeration] = useState(() => {
@@ -3168,6 +3313,25 @@ export default function ChatDashboard({
             )}
           </div>
 
+          {heldSuper && (
+            <div className="held-tip-banner">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '15px' }}>💸</span>
+                <span>
+                  Tip <strong>{heldSuper.donationAmount || `₹${heldSuper.amountValue}`}</strong> selected! Click any viewer in chat to feature them with this tip on stream.
+                </span>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setHeldSuper(null)}
+                style={{ background: 'none', border: 'none', color: '#fef08a', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px 6px', borderRadius: '4px' }}
+                title="Cancel tip pairing"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
+
           <ChatFeed 
             messages={recentMessages}
             onChatterClick={setSelectedChatter}
@@ -3195,6 +3359,9 @@ export default function ChatDashboard({
             onExploreEvents={() => setActiveTab('events')}
             user={user}
             activeChannels={activeChannels}
+            onHighlightMessage={handleHighlightMessage}
+            activeHighlightId={activeHighlightId}
+            heldSuper={heldSuper}
           />
           
           <ChatInput 

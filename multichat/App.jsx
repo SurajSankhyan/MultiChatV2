@@ -79,7 +79,14 @@ class DashboardErrorBoundary extends React.Component {
 
 export default function App({ logout }) {
   const modeDemo = false;
-  const [page, setPage] = useState('chat');
+  const [page, setPage] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname.toLowerCase();
+      const params = new URLSearchParams(window.location.search);
+      if (path.includes('overlay') || params.get('page') === 'overlay') return 'overlay';
+    }
+    return 'chat';
+  });
   const [user, setUser] = useState({ username: 'Streamer', avatar: 'S' });
   const [activeChannels, setActiveChannels] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -182,7 +189,7 @@ export default function App({ logout }) {
       const params = new URLSearchParams(window.location.search);
       const hash = window.location.hash.toLowerCase();
 
-      if (path.includes('overlay')) {
+      if (path.includes('overlay') || params.get('page') === 'overlay') {
         setPage('overlay');
       } else {
         setPage('chat');

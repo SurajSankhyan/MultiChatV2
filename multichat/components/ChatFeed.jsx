@@ -1,12 +1,13 @@
 import React, { useEffect, useLayoutEffect, useRef, useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { parseMessageContent } from '../utils/emotes';
-import { ArrowDown, MessageSquare, MoreVertical, Volume2, User, ShieldAlert, Trash2, Star, ExternalLink, Clock, ShieldCheck, ShieldOff, ChevronRight, Crown } from 'lucide-react';
+import { ArrowDown, MessageSquare, MoreVertical, Volume2, User, ShieldAlert, Trash2, Star, ExternalLink, Clock, ShieldCheck, ShieldOff, ChevronRight, Crown, Tv } from 'lucide-react';
 import PlatformLogo, { DefaultSubscriberBadge, KickGiftedSubsBadge, TwitchDefaultSubscriberBadge } from './PlatformLogo';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from './ui/interfaces-tooltip';
 import { getLiveTwitchBadgeUrl } from '../utils/twitchChat';
 import { calculateYoutubeTop3Ranks } from '../utils/youtubeChat';
 import { requestKickAvatar } from '../utils/kickAvatarResolver';
+import CustomTipModal from './CustomTipModal';
 
 const appStartTime = Date.now();
 export const GLOBAL_AVATAR_CACHE = new Map();
@@ -226,8 +227,12 @@ const ChatMessageRow = React.memo(({
   filterBlocklist,
   getUsernameColor,
   blockedUsers,
-  moderation
+  moderation,
+  onHighlightMessage,
+  activeHighlightId,
+  heldSuper
 }) => {
+  const isHighlighted = activeHighlightId === msg?.id;
   const avatarUrl = resolveMessageAvatar(msg, user);
   const contentParts = resolveContentParts(msg);
 
@@ -282,12 +287,33 @@ const ChatMessageRow = React.memo(({
                       <Volume2 size={15} style={{ verticalAlign: 'middle' }} />
                     </button>
                   </div>
-                  <div className="superchat-actions" style={{ position: 'relative' }} onClick={(e) => e.stopPropagation()}>
+                  <div className="superchat-actions" style={{ display: 'flex', alignItems: 'center', gap: '6px', position: 'relative' }} onClick={(e) => e.stopPropagation()}>
                     {settings.showIcons && (
                       <span className="superchat-platform">
                         <PlatformLogo platform={msg.platform} isShorts={msg.isShorts} size={14} />
                       </span>
                     )}
+                    <Tooltip delayDuration={150}>
+                      <TooltipTrigger asChild>
+                        <button 
+                          type="button"
+                          className="superchat-more-btn"
+                          style={{ 
+                            color: isHighlighted ? '#38bdf8' : authorTextColor,
+                            backgroundColor: isHighlighted ? 'rgba(56, 189, 248, 0.25)' : 'rgba(255, 255, 255, 0.08)'
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (onHighlightMessage) onHighlightMessage(msg);
+                          }}
+                        >
+                          <Tv size={15} />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" align="center">
+                        {isHighlighted ? "Hide from Stream Overlay (ESC)" : "Show on Stream Overlay"}
+                      </TooltipContent>
+                    </Tooltip>
                     <button 
                       className="superchat-more-btn" 
                       style={{ color: authorTextColor }} 
@@ -395,6 +421,36 @@ const ChatMessageRow = React.memo(({
                   <PlatformLogo platform={msg.platform} isShorts={msg.isShorts} size={15} />
                 </span>
               )}
+              <Tooltip delayDuration={150}>
+                <TooltipTrigger asChild>
+                  <button 
+                    type="button" 
+                    className="message-actions-menu-btn"
+                    style={{ 
+                      color: isHighlighted ? '#38bdf8' : authorTextColor,
+                      backgroundColor: isHighlighted ? 'rgba(56, 189, 248, 0.25)' : 'rgba(255, 255, 255, 0.06)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                      width: '26px',
+                      height: '26px',
+                      borderRadius: '6px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      padding: 0
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (onHighlightMessage) onHighlightMessage(msg);
+                    }}
+                  >
+                    <Tv size={15} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" align="center">
+                  {isHighlighted ? "Hide from Stream Overlay (ESC)" : "Show on Stream Overlay"}
+                </TooltipContent>
+              </Tooltip>
               <Tooltip delayDuration={150}>
                 <TooltipTrigger asChild>
                   <button 
@@ -556,13 +612,24 @@ const ChatMessageRow = React.memo(({
       );
     }
   } else {
-    const rowClass = `chat-message-row${settings.alternatingBackgrounds ? (isEven ? ' row-even' : ' row-odd') : ''} ${msg.repliedTo ? 'has-reply-thread' : ''}`;
+    const rowClass = `chat-message-row${settings.alternatingBackgrounds ? (isEven ? ' row-even' : ' row-odd') : ''} ${msg.repliedTo ? 'has-reply-thread' : ''} ${isHighlighted ? 'active-highlight-card' : ''}`;
 
     element = (
       <div 
         key={msg.id} 
         className={rowClass}
+        onClick={(e) => {
+          if (heldSuper && onHighlightMessage) {
+            e.stopPropagation();
+            onHighlightMessage(msg);
+          }
+        }}
       >
+        {isHighlighted && (
+          <span className="active-highlight-badge">
+            LIVE ON OVERLAY
+          </span>
+        )}
         {/* 1. Placeholder for grid */}
         {msg.repliedTo && (settings.showTimestamps || settings.showIcons) && (
           <div className="reply-empty-placeholder" />
@@ -878,6 +945,25 @@ const ChatMessageRow = React.memo(({
             <Tooltip delayDuration={150}>
               <TooltipTrigger asChild>
                 <button 
+                  type="button"
+                  className={`msg-hover-action-btn ${isHighlighted ? 'active-highlight-btn' : ''}`}
+                  style={isHighlighted ? { color: '#38bdf8', backgroundColor: 'rgba(56, 189, 248, 0.25)', border: '1px solid rgba(56, 189, 248, 0.4)' } : {}}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onHighlightMessage) onHighlightMessage(msg);
+                  }}
+                >
+                  <Tv size={15} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" align="center">
+                {isHighlighted ? "Hide from Stream Overlay (ESC)" : "Show on Stream Overlay"}
+              </TooltipContent>
+            </Tooltip>
+
+            <Tooltip delayDuration={150}>
+              <TooltipTrigger asChild>
+                <button 
                   className="msg-hover-action-btn"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -933,7 +1019,10 @@ const ChatMessageRow = React.memo(({
     prev.show24HrMs === next.show24HrMs &&
     prev.selectedChatter === next.selectedChatter &&
     prev.user === next.user &&
-    prev.isInitialLoading === next.isInitialLoading
+    prev.isInitialLoading === next.isInitialLoading &&
+    prev.activeHighlightId === next.activeHighlightId &&
+    prev.heldSuper === next.heldSuper &&
+    prev.onHighlightMessage === next.onHighlightMessage
   );
 });
 
@@ -964,7 +1053,10 @@ export default function ChatFeed({
   onExploreEvents,
   user = { username: 'Streamer' },
   activeChannels = [],
-  resolvedStreamerNames = {}
+  resolvedStreamerNames = {},
+  onHighlightMessage,
+  activeHighlightId,
+  heldSuper
 }) {
   const feedRef = useRef(null);
 
@@ -1158,6 +1250,7 @@ export default function ChatFeed({
   const [timeoutTargetMsg, setTimeoutTargetMsg] = useState(null);
   const [selectedTimeoutDuration, setSelectedTimeoutDuration] = useState(300);
   const [revealedDeletedIds, setRevealedDeletedIds] = useState(new Set());
+  const [customTipTargetMsg, setCustomTipTargetMsg] = useState(null);
 
   const handleToggleMenu = (e, msg) => {
     e.stopPropagation();
@@ -1218,7 +1311,7 @@ export default function ChatFeed({
   };
 
   useEffect(() => {
-    if (!activeMenuId && !timeoutTargetMsg) return;
+    if (!menuPos && !timeoutTargetMsg) return;
     const handleClickOutside = (e) => {
       if (
         e.target.closest('.message-context-menu') || 
@@ -1240,16 +1333,25 @@ export default function ChatFeed({
         setTimeoutTargetMsg(null);
       }
     };
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setActiveMenuId(null);
+        setMenuPos(null);
+        setTimeoutTargetMsg(null);
+      }
+    };
     const timer = setTimeout(() => {
-      window.addEventListener('click', handleClickOutside);
+      window.addEventListener('pointerdown', handleClickOutside, true);
       window.addEventListener('scroll', handleScroll, true);
-    }, 50);
+      window.addEventListener('keydown', handleKeyDown);
+    }, 20);
     return () => {
       clearTimeout(timer);
-      window.removeEventListener('click', handleClickOutside);
+      window.removeEventListener('pointerdown', handleClickOutside, true);
       window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [activeMenuId, timeoutTargetMsg]);
+  }, [menuPos, timeoutTargetMsg]);
   const [show24HrMs, setShow24HrMs] = useState(false);
 
   const toggleTimestampFormat = () => {
@@ -1304,13 +1406,6 @@ export default function ChatFeed({
     }
   };
 
-  // Close context dropdown when clicking outside
-  useEffect(() => {
-    if (activeMenuId === null) return;
-    const handleClose = () => setActiveMenuId(null);
-    window.addEventListener('click', handleClose);
-    return () => window.removeEventListener('click', handleClose);
-  }, [activeMenuId]);
 
   // Snapping scroll to bottom when returning to tab
   useEffect(() => {
@@ -2451,6 +2546,9 @@ export default function ChatFeed({
                   filterBlocklist={filterBlocklist}
                   getUsernameColor={getUsernameColor}
                   blockedUsers={blockedUsers}
+                  onHighlightMessage={onHighlightMessage}
+                  activeHighlightId={activeHighlightId}
+                  heldSuper={heldSuper}
                 />
               );
             })
@@ -2467,18 +2565,64 @@ export default function ChatFeed({
             if (onResetDisplay) onResetDisplay(); // shrink back to 200 when returning to live feed
           }}
         >
-          <ArrowDown size={14} /> More messages below ({unreadCount})
+          <ArrowDown size={14} style={{ marginRight: '6px' }} />
+          <span>{unreadCount} new message{unreadCount > 1 ? 's' : ''}</span>
         </div>
       )}
 
-      {/* Portaled 3-Dots Context Menu (Escapes parent overflow hidden/scroll clipping) */}
-      {activeMenuId && menuPos && menuPos.msg && typeof window !== 'undefined' && createPortal(
-        <div 
-          className="message-context-menu" 
-          style={menuPos.style}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* 1. Chatter Info */}
+      {/* Portaled Standalone Context Menu */}
+      {menuPos && typeof window !== 'undefined' && createPortal(
+        <>
+          <div 
+            className="context-menu-backdrop" 
+            onClick={(e) => { 
+              e.stopPropagation(); 
+              setActiveMenuId(null); 
+              setMenuPos(null); 
+            }} 
+            style={{ 
+              position: 'fixed', 
+              inset: 0, 
+              zIndex: 99998, 
+              background: 'transparent' 
+            }} 
+          />
+          <div 
+            className="message-context-menu"
+            style={{ ...menuPos.style, zIndex: 99999 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 1. Highlight on Stream Overlay */}
+            <button 
+              type="button"
+              className="message-context-menu-item"
+              onClick={() => {
+                if (onHighlightMessage) onHighlightMessage(menuPos.msg);
+                setActiveMenuId(null);
+                setMenuPos(null);
+              }}
+            >
+              <Tv size={13} style={{ marginRight: '8px', opacity: 0.8, color: '#38bdf8' }} />
+              <span>{activeHighlightId === menuPos.msg?.id ? 'Hide from Stream Overlay (ESC)' : 'Show on Stream Overlay'}</span>
+            </button>
+
+            {/* 2. Highlight with custom tip amount */}
+            <button 
+              type="button"
+              className="message-context-menu-item"
+              onClick={() => {
+                setCustomTipTargetMsg(menuPos.msg);
+                setActiveMenuId(null);
+                setMenuPos(null);
+              }}
+            >
+              <span style={{ marginRight: '8px', fontSize: '13px' }}>💸</span>
+              <span>Feature with Custom Tip (₹)</span>
+            </button>
+
+          <div className="message-context-menu-divider" />
+
+          {/* 3. Chatter Info */}
           <button 
             type="button"
             className="message-context-menu-item"
@@ -2492,7 +2636,7 @@ export default function ChatFeed({
             Chatter Info
           </button>
 
-          {/* 2. Go to Channel */}
+          {/* 4. Go to Channel */}
           <button 
             type="button"
             className="message-context-menu-item"
@@ -2513,7 +2657,7 @@ export default function ChatFeed({
             Go to channel
           </button>
 
-          {/* 3. Put User in Timeout */}
+          {/* 5. Put User in Timeout */}
           <button 
             type="button"
             className="message-context-menu-item warning"
@@ -2604,7 +2748,8 @@ export default function ChatFeed({
             <Trash2 size={13} style={{ marginRight: '8px', opacity: 0.8 }} />
             Remove message
           </button>
-        </div>,
+        </div>
+        </>,
         document.body
       )}
 
@@ -2628,43 +2773,36 @@ export default function ChatFeed({
             Timeout duration
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
             {[
-              { label: '10 seconds', seconds: 10 },
-              { label: '60 seconds', seconds: 60 },
-              { label: '5 minutes', seconds: 300 },
-              { label: '10 minutes', seconds: 600 },
-              { label: '30 minutes', seconds: 1800 },
-              { label: '24 hours', seconds: 86400 }
-            ].map((opt) => {
-              const isSelected = selectedTimeoutDuration === opt.seconds;
-              return (
-                <div 
-                  key={opt.seconds}
-                  style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '10px', 
-                    cursor: 'pointer', 
-                    fontSize: '13px', 
-                    color: '#ffffff',
-                    userSelect: 'none'
-                  }}
-                  onClick={() => setSelectedTimeoutDuration(opt.seconds)}
-                >
-                  <div style={{
-                    width: '18px',
-                    height: '18px',
-                    borderRadius: '50%',
-                    border: isSelected ? '5px solid #3b82f6' : '2px solid #9ca3af',
-                    boxSizing: 'border-box',
-                    transition: 'all 0.15s ease',
-                    flexShrink: 0
-                  }} />
-                  <span>{opt.label}</span>
-                </div>
-              );
-            })}
+              { label: '60 seconds', value: 60 },
+              { label: '5 minutes', value: 300 },
+              { label: '10 minutes', value: 600 },
+              { label: '24 hours', value: 86400 }
+            ].map(opt => (
+              <label 
+                key={opt.value} 
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '8px', 
+                  color: '#d4d4d8', 
+                  fontSize: '13px', 
+                  cursor: 'pointer',
+                  padding: '4px 0'
+                }}
+              >
+                <input 
+                  type="radio" 
+                  name="timeout_duration" 
+                  value={opt.value} 
+                  checked={selectedTimeoutDuration === opt.value}
+                  onChange={() => setSelectedTimeoutDuration(opt.value)}
+                  style={{ accentColor: '#3b82f6' }}
+                />
+                <span>{opt.label}</span>
+              </label>
+            ))}
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
@@ -2710,6 +2848,18 @@ export default function ChatFeed({
           </div>
         </div>,
         document.body
+      )}
+
+      {/* Custom Tip Feature Modal */}
+      {customTipTargetMsg && (
+        <CustomTipModal 
+          msg={customTipTargetMsg}
+          onClose={() => setCustomTipTargetMsg(null)}
+          onConfirm={(options) => {
+            if (onHighlightMessage) onHighlightMessage(customTipTargetMsg, options);
+            setCustomTipTargetMsg(null);
+          }}
+        />
       )}
     </div>
   );

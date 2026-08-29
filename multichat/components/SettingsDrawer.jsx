@@ -425,6 +425,47 @@ export default function SettingsDrawer({
     return `${origin}/overlay?${params.toString()}`;
   };
 
+  const [highlightCopied, setHighlightCopied] = useState(false);
+
+  const getHighlightOverlayUrl = () => {
+    if (typeof window === 'undefined') return '';
+    const origin = window.location.origin;
+    const params = new URLSearchParams();
+    params.append('mode', 'highlight');
+    if (settings.fontFamily) params.append('fontFamily', settings.fontFamily);
+    if (settings.overlayFadeTime !== undefined) params.append('autoHideSeconds', settings.overlayFadeTime);
+    return `${origin}/overlay?${params.toString()}`;
+  };
+
+  const handleCopyHighlightUrl = () => {
+    navigator.clipboard.writeText(getHighlightOverlayUrl());
+    setHighlightCopied(true);
+    setTimeout(() => setHighlightCopied(false), 2000);
+  };
+
+  const handleTestHighlight = () => {
+    const testData = {
+      chatId: 'test-' + Date.now(),
+      displayName: user?.username || 'Streamer Pro',
+      username: 'streamer_pro',
+      avatarUrl: user?.avatar && typeof user.avatar === 'string' && user.avatar.startsWith('http') ? user.avatar : 'https://yt3.ggpht.com/a/default-user=s88-c-k-c0x00ffffff-no-rj',
+      text: '🔥 Stream Highlight Overlay is connected and looking crisp on stream!',
+      parts: [{ type: 'text', content: '🔥 Stream Highlight Overlay is connected and looking crisp on stream!' }],
+      platform: 'youtube',
+      donationAmount: '₹500',
+      amountValue: 500,
+      isSuperChat: true,
+      autoHideSeconds: settings.overlayFadeTime || 8
+    };
+
+    try {
+      const bc = new BroadcastChannel('multichat_highlight_overlay');
+      bc.postMessage({ command: 'show', data: testData });
+      setTimeout(() => bc.close(), 500);
+      localStorage.setItem('multichat_active_highlight_event', JSON.stringify({ command: 'show', data: testData, timestamp: Date.now() }));
+    } catch (e) {}
+  };
+
   const handleCopyUrl = () => {
     navigator.clipboard.writeText(getOverlayUrl());
     setCopied(true);
@@ -1751,11 +1792,62 @@ export default function SettingsDrawer({
           {/* TAB 6: OVERLAY */}
           {activeTab === 'overlay' && (
             <div className="settings-section" id="overlay">
-              <div className="settings-section-card">
-                <div className="settings-header-secondary">OBS Browser Source URL</div>
+              {/* Highlight Overlay Card */}
+              <div className="settings-section-card" style={{ border: '1px solid rgba(56, 189, 248, 0.3)', background: 'linear-gradient(180deg, rgba(56, 189, 248, 0.06), rgba(9, 10, 15, 0.6))' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <div className="settings-header-secondary" style={{ color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                    <Tv size={16} />
+                    <span>Live Stream Chat Highlight Overlay (OBS)</span>
+                  </div>
+                  <span style={{ fontSize: '10px', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8' }}>FEATURED</span>
+                </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                    Copy this link and paste it as a Browser Source inside OBS Studio, Streamlabs OBS, or vMix. Adjust the source width/height in OBS (e.g. 400x800) to crop/format your overlay.
+                    Click any chat or Super Chat in the dashboard (or press <kbd style={{ background: '#27272a', padding: '1px 5px', borderRadius: '3px', color: '#fff' }}>ESC</kbd> to hide) to instantly feature it on stream with slide-in animations and golden ribbon tiers.
+                  </span>
+                  <div className="obs-url-box" style={{ background: '#090a0f', padding: '10px', borderRadius: '4px', border: '1px solid rgba(56, 189, 248, 0.2)', fontFamily: 'monospace', fontSize: 12.5, wordBreak: 'break-all', color: '#bae6fd' }}>
+                    {getHighlightOverlayUrl()}
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button 
+                      className="add-channel-btn" 
+                      style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '10px 0', background: '#0284c7' }}
+                      onClick={handleCopyHighlightUrl}
+                      type="button"
+                    >
+                      {highlightCopied ? <Check size={16} /> : <Copy size={16} />}
+                      {highlightCopied ? 'Copied Highlight URL!' : 'Copy Highlight Overlay URL'}
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={handleTestHighlight}
+                      style={{
+                        padding: '0 16px',
+                        background: 'rgba(255, 255, 255, 0.08)',
+                        border: '1px solid rgba(255, 255, 255, 0.15)',
+                        borderRadius: '6px',
+                        color: '#ffffff',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                      title="Send a sample highlight to test your OBS overlay"
+                    >
+                      <span>🚀 Test Highlight</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Standard Rolling Chat Overlay Card */}
+              <div className="settings-section-card" style={{ marginTop: '12px' }}>
+                <div className="settings-header-secondary">Standard Rolling Chat Overlay URL</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                    Copy this link to display continuous live chat feed inside OBS Studio.
                   </span>
                   <div className="obs-url-box" style={{ background: '#090a0f', padding: '10px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)', fontFamily: 'monospace', fontSize: 12.5, wordBreak: 'break-all' }}>
                     {getOverlayUrl()}

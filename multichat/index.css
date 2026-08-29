@@ -6043,3 +6043,335 @@ input[type="range"]::-moz-range-thumb:hover {
   vertical-align: baseline !important;
   line-height: 1.2 !important;
 }
+
+/* ==========================================================================
+   LIVE STREAM CHAT HIGHLIGHT OVERLAY (Chat Overlay V5.2 Engine)
+   ========================================================================== */
+
+/* ==========================================================================
+   Highlight Overlay (matching Chat Overlay V5.2 aaronpk-override.css)
+   ========================================================================== */
+
+@keyframes superchat {
+  from {
+    transform: rotate(9deg) translate3d(-250px, 0, 0);
+  }
+  to {
+    transform: rotate(9deg) translate3d(350px, 0, 0);
+  }
+}
+
+@keyframes slideInLeftFade {
+  0% {
+    opacity: 0;
+    transform: translate3d(-100%, 0, 0) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes slideOutLeftFade {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(-100%, 0, 0) scale(0.95);
+  }
+}
+
+.hl-c-cont {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 20px 40px 20px 60px;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  max-width: 90vw;
+  box-sizing: border-box;
+}
+
+.hl-c-cont.fadeout {
+  transform: translateY(600px);
+}
+
+.animate-in {
+  animation: slideInLeftFade 0.3s ease-out forwards;
+}
+
+.animate-out {
+  animation: slideOutLeftFade 0.25s ease-in forwards;
+}
+
+.hl-name {
+  position: absolute;
+  top: -15px;
+  left: 120px;
+  font-weight: 700;
+  background: #ffa500;
+  color: #222;
+  padding: 8px 18px;
+  transform: rotate(-0deg);
+  z-index: 5;
+  border-radius: 10px;
+  font-size: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.hl-name::before {
+  content: '';
+  background: #f6cc0c;
+}
+
+.hl-badges {
+  display: inline-block;
+  margin-left: 6px;
+}
+
+.hl-message {
+  position: relative;
+  width: auto;
+  min-width: 320px;
+  max-width: 860px;
+  font-weight: 600;
+  padding: 24px 38px 24px 80px;
+  color: #fff;
+  background-color: #222;
+  border-radius: 22px;
+  font-size: 36px;
+  line-height: 1.35;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  word-break: break-word;
+  box-sizing: border-box;
+}
+
+.hl-message img {
+  width: 48px;
+  vertical-align: middle;
+}
+
+.hl-message img.sticker {
+  width: 120px;
+}
+
+.hl-message a {
+  color: white;
+}
+
+.hl-img {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  z-index: 6;
+  width: 120px;
+  height: 120px;
+  background-color: #ffa500;
+  border-radius: 50%;
+  border: 0;
+  padding: 3px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.hl-img img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  z-index: 1;
+}
+
+.hl-img:after {
+  content: '';
+  display: block;
+  height: 100%;
+  width: 100%;
+  top: 0;
+  left: 0;
+  border-radius: 50%;
+  position: absolute;
+  pointer-events: none;
+  z-index: 3;
+  background: rgba(255, 255, 255, 0.1);
+  mix-blend-mode: lighten;
+}
+
+.donation {
+  position: absolute;
+  display: block;
+  text-align: center;
+  left: 20px;
+  bottom: -6px;
+  z-index: 7;
+  min-width: 130px;
+  border-radius: 10px;
+  padding: 26px 10px 4px;
+  overflow: hidden;
+  background: linear-gradient(to right, #BF953F, #ede599, #B38728);
+  color: #5a4211;
+  transform: rotate(-5deg);
+  font-weight: 800;
+  font-size: 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  box-sizing: border-box;
+}
+
+.donation.silver {
+  background: linear-gradient(to right, #d6d6d6, #f1f1f1, #d6d6d6);
+  color: #434343;    
+}
+
+.donation.gold {
+  background: linear-gradient(to right, #BF953F, #FCF6BA, #d0aa57, #FBF5B7, #AA771C);
+  color: #4d3400;
+}
+
+.donation.platinum {
+  background: linear-gradient(-72deg, #dedeff, #ffffff 16%, #dedeff 21%, #ffffff 24%, #555564 27%, #dedeff 36%, #ffffff 45%, #ffffff 60%, #dedeff 72%, #ffffff 80%, #dedeff 84%, #555564);
+  color: #333;
+}
+
+.donation.diamond {
+  background: linear-gradient(to right, #e5f1fa, #ffffff, #dbe7ec);
+  color: #00374d;
+}
+
+.donation.emerald {
+  background: linear-gradient(to right, #3fbf3f, #99ed9a, #3fbf3f);
+  color: #115a14;
+}
+
+.donation.tier-cyan {
+  background: linear-gradient(to right, #00e5ff, #00b4db);
+  color: #111;
+}
+
+.donation.tier-teal {
+  background: linear-gradient(to right, #1de9b6, #11998e);
+  color: #111;
+}
+
+.donation.tier-yellow {
+  background: linear-gradient(to right, #ffca28, #f7971e);
+  color: #111;
+}
+
+.donation.tier-orange {
+  background: linear-gradient(to right, #f57c00, #ff512f);
+  color: #fff;
+}
+
+.donation.tier-pink {
+  background: linear-gradient(to right, #e91e63, #ff4081);
+  color: #fff;
+}
+
+.donation.tier-red {
+  background: linear-gradient(to right, #e62117, #b31217);
+  color: #fff;
+}
+
+.donation.membership {
+  padding: 10px 10px 5px 10px;
+  font-size: 0.8em;
+}
+
+.membership-length {
+  font-size: 0.8em;
+}
+
+.donation::before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  font-size: 16px;
+  font-weight: 700;
+  text-align: center;
+  background-color: rgba(0, 0, 0, 0.23);
+  border-radius: 10px 10px 0 0;
+  padding: 4px 0 0;
+  display: block;
+  content: 'SUPERCHAT';
+  color: #fff;
+}
+
+.donation.membership::before {
+  content: '';
+}
+
+.donation::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: 0;
+  height: 200%;
+  width: 1px;
+  background-color: #fff;
+  box-shadow: 0 0 20px 20px #fff;
+  opacity: 0.7;
+  transform: rotate(9deg) translate3d(250px, 0, 0);
+  animation: superchat 3s ease-in-out infinite;
+}
+
+/* Dashboard Active Highlight Indicators */
+.active-highlight-card {
+  box-shadow: 0 0 0 2px #3b82f6, 0 0 16px rgba(59, 130, 246, 0.35) !important;
+  background-color: rgba(59, 130, 246, 0.08) !important;
+  position: relative;
+}
+
+.active-highlight-badge {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  background: #3b82f6;
+  color: #ffffff;
+  padding: 1px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  z-index: 3;
+  animation: pulseHighlight 2s infinite ease-in-out;
+}
+
+@keyframes pulseHighlight {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.04);
+  }
+}
+
+/* Held Tip Banner */
+.held-tip-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: linear-gradient(90deg, rgba(234, 179, 8, 0.18), rgba(234, 179, 8, 0.08));
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  border-radius: 8px;
+  margin: 6px 12px;
+  font-size: 12.5px;
+  color: #fef08a;
+}
+

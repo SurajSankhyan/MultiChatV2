@@ -5,6 +5,7 @@ import { KickChatClient } from '../utils/kickChat';
 import { YoutubeChatClient, calculateYoutubeTop3Ranks } from '../utils/youtubeChat';
 import { ChatSimulator } from '../utils/simulator';
 import PlatformLogo, { DefaultSubscriberBadge, KickGiftedSubsBadge, TwitchDefaultSubscriberBadge } from './PlatformLogo';
+import HighlightOverlay from './HighlightOverlay';
 
 const getTextShadowStyle = (outline, shadow) => {
   const parts = [];
@@ -75,6 +76,12 @@ const getDefaultAvatar = (platform, username, id) => {
 };
 
 export default function OverlayView() {
+  const queryParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
+  const overlayMode = queryParams.get('mode') || queryParams.get('type') || '';
+  if (overlayMode === 'highlight') {
+    return <HighlightOverlay />;
+  }
+
   const [messages, setMessages] = useState([]);
   const [fadingMsgIds, setFadingMsgIds] = useState(new Set());
   const youtubeTop3Ranks = React.useMemo(() => calculateYoutubeTop3Ranks(messages), [messages]);
@@ -1161,6 +1168,7 @@ export default function OverlayView() {
           </clipPath>
         </defs>
       </svg>
+      <HighlightOverlay />
     </div>
   );
 }
