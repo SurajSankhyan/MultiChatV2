@@ -1258,73 +1258,77 @@ export class YoutubeChatClient {
       }
 
       // Periodic viewer and like count update for YouTube
+      let offlineFailureCount = 0;
       pollInstance.viewerIntervalId = setInterval(async () => {
+        if (!this.activePolls.has(pollKey)) return;
         try {
-          const liveUrl = this.getLiveUrl(trimmedName);
-          const html = await this.fetchWithProxyFallback(liveUrl);
-          if (html) {
-            const currentVideoId = this.extractLiveVideoId(html);
-            if (!currentVideoId) {
-              console.log(`YouTube client: channel ${pollKey} went offline during 15s poll.`);
-              this.onStatus(pollKey, 'offline', { startTime: null, viewers: 0, likes: 0, displayName: pollInstance.displayName });
-              this.leave(trimmedName);
-              this.setupOfflinePoll(trimmedName, pollInstance.chatMode);
-              return;
-            }
-
-            const meta = this.parseMetadataFromHtml(html);
-            if (meta) {
-              if (meta.startTime) {
-                // Never overwrite an already established timer with a rough estimate
-                if (!pollInstance.startTimestamp || (meta.isExact && !pollInstance.isExactStartTime)) {
-                  pollInstance.startTimestamp = meta.startTime;
-                  if (meta.isExact) pollInstance.isExactStartTime = true;
+          // 1. Query live-info / player metadata directly for current videoId
+          let updated = false;
+          try {
+            const pMeta = await this.fetchPlayerMetadata(pollInstance.videoId, pollInstance.apiKey);
+            if (pMeta) {
+              if (pMeta.isLive === false) {
+                offlineFailureCount++;
+                if (offlineFailureCount >= 3) {
+                  console.log(`YouTube client: channel ${pollKey} confirmed offline after 3 checks.`);
+                  this.onStatus(pollKey, 'offline', { startTime: null, viewers: 0, likes: 0, displayName: pollInstance.displayName });
+                  this.leave(trimmedName);
+                  this.setupOfflinePoll(trimmedName, pollInstance.chatMode);
+                  return;
                 }
-              }
-              if (meta.viewers !== null && meta.viewers !== undefined) pollInstance.viewers = meta.viewers;
-              if (meta.likes !== null && meta.likes !== undefined) pollInstance.likes = meta.likes;
-              if (meta.isShorts) pollInstance.isShorts = true;
-            }
-            if (!pollInstance.startTimestamp || !pollInstance.isShorts) {
-              try {
-                const pMeta = await this.fetchPlayerMetadata(pollInstance.videoId, pollInstance.apiKey);
-                if (pMeta) {
-                  if (pMeta.startTime && !pollInstance.startTimestamp) {
-                    pollInstance.startTimestamp = pMeta.startTime;
-                    pollInstance.isExactStartTime = !!pMeta.isExact;
-                  }
-                  if (pMeta.isShorts) pollInstance.isShorts = true;
-                  if (pMeta.viewers && pollInstance.viewers === null) pollInstance.viewers = pMeta.viewers;
+              } else {
+                offlineFailureCount = 0;
+                if (pMeta.viewers !== null && pMeta.viewers !== undefined) pollInstance.viewers = pMeta.viewers;
+                if (pMeta.likes !== null && pMeta.likes !== undefined) pollInstance.likes = pMeta.likes;
+                if (pMeta.isShorts) pollInstance.isShorts = true;
+                if (pMeta.startTime && (!pollInstance.startTimestamp || (pMeta.isExact && !pollInstance.isExactStartTime))) {
+                  pollInstance.startTimestamp = pMeta.startTime;
+                  if (pMeta.isExact) pollInstance.isExactStartTime = true;
                 }
-              } catch (e) {}
-
-              if (!pollInstance.startTimestamp && pollInstance.videoId) {
-                this.resolveLiveStartTimeViaIFrame(pollInstance.videoId).then(iStartTime => {
-                  if (iStartTime && !pollInstance.startTimestamp && this.activePolls.has(pollKey)) {
-                    pollInstance.startTimestamp = iStartTime;
-                    pollInstance.isExactStartTime = true;
-                    this.onStatus(pollKey, 'connected', {
-                      startTime: iStartTime,
-                      isExact: true,
-                      viewers: pollInstance.viewers,
-                      likes: pollInstance.likes,
-                      isShorts: pollInstance.isShorts,
-                      displayName: pollInstance.displayName || pollInstance.trimmedName.replace('@', '')
-                    });
-                  }
-                }).catch(() => {});
+                updated = true;
               }
             }
+          } catch (e) {}
 
-            this.onStatus(pollKey, 'connected', { 
-              startTime: pollInstance.startTimestamp,
-              isExact: !!pollInstance.isExactStartTime,
-              viewers: pollInstance.viewers,
-              likes: pollInstance.likes,
-              isShorts: pollInstance.isShorts,
-              displayName: pollInstance.displayName || pollInstance.trimmedName.replace('@', '')
-            });
+          // 2. Fallback to scraping watch page if direct player metadata didn't provide metrics
+          if (!updated) {
+            const liveUrl = this.getLiveUrl(trimmedName);
+            const html = await this.fetchWithProxyFallback(liveUrl);
+            if (html) {
+              const currentVideoId = this.extractLiveVideoId(html);
+              if (!currentVideoId) {
+                offlineFailureCount++;
+                if (offlineFailureCount >= 3) {
+                  console.log(`YouTube client: channel ${pollKey} went offline during 15s poll.`);
+                  this.onStatus(pollKey, 'offline', { startTime: null, viewers: 0, likes: 0, displayName: pollInstance.displayName });
+                  this.leave(trimmedName);
+                  this.setupOfflinePoll(trimmedName, pollInstance.chatMode);
+                  return;
+                }
+              } else {
+                offlineFailureCount = 0;
+                const meta = this.parseMetadataFromHtml(html);
+                if (meta) {
+                  if (meta.startTime && (!pollInstance.startTimestamp || (meta.isExact && !pollInstance.isExactStartTime))) {
+                    pollInstance.startTimestamp = meta.startTime;
+                    if (meta.isExact) pollInstance.isExactStartTime = true;
+                  }
+                  if (meta.viewers !== null && meta.viewers !== undefined) pollInstance.viewers = meta.viewers;
+                  if (meta.likes !== null && meta.likes !== undefined) pollInstance.likes = meta.likes;
+                  if (meta.isShorts) pollInstance.isShorts = true;
+                }
+              }
+            }
           }
+
+          this.onStatus(pollKey, 'connected', { 
+            startTime: pollInstance.startTimestamp,
+            isExact: !!pollInstance.isExactStartTime,
+            viewers: pollInstance.viewers,
+            likes: pollInstance.likes,
+            isShorts: pollInstance.isShorts,
+            displayName: pollInstance.displayName || pollInstance.trimmedName.replace('@', '')
+          });
         } catch (e) {
           console.warn(`YouTube client: failed to update viewers/likes for ${pollKey}:`, e.message);
         }
@@ -1615,14 +1619,11 @@ export class YoutubeChatClient {
         eventType = 'subscription';
         
         let headerText = '';
-        if (renderer.headerText && renderer.headerText.runs) {
+        if (renderer.headerText?.runs) {
           renderer.headerText.runs.forEach(run => { headerText += run.text || ''; });
+        } else if (renderer.headerText?.simpleText) {
+          headerText = renderer.headerText.simpleText;
         }
-        text = headerText || 'Joined Membership!';
-        parts.push({
-          type: 'text',
-          content: text + (renderer.message ? ': ' : '')
-        });
 
         let subtextText = '';
         if (renderer.headerSubtext) {
@@ -1633,13 +1634,37 @@ export class YoutubeChatClient {
           }
         }
 
+        // Check if this is a renewal milestone (e.g. "Member for 5 months") or a new member
+        const combinedHeader = `${headerText} ${subtextText}`.trim();
+        const monthMatch = combinedHeader.match(/Member for\s+([0-9]+\s*(?:months?|years?|days?|weeks?))/i) ||
+                           subtextText.match(/([0-9]+\s*(?:months?|years?|days?|weeks?))/i);
+        const isMilestone = !!monthMatch || /Member for/i.test(combinedHeader) || (!!renderer.message && !/Welcome to/i.test(combinedHeader));
+        const durationText = monthMatch ? monthMatch[1] : (subtextText || '');
+
+        let userCustomMessage = '';
+        if (renderer.message?.runs) {
+          renderer.message.runs.forEach(r => { userCustomMessage += r.text || ''; });
+        } else if (renderer.message?.simpleText) {
+          userCustomMessage = renderer.message.simpleText;
+        }
+
         eventDetails = {
-          tier: subtextText || 'Member',
-          hasUserMessage: !!renderer.message,
+          subType: isMilestone ? 'milestone' : 'new_member',
+          months: monthMatch ? monthMatch[1] : null,
+          tier: isMilestone ? (durationText ? `Member for ${durationText}` : (subtextText || 'Member')) : (subtextText || headerText || 'Member'),
+          milestoneText: isMilestone ? (combinedHeader.includes('Member for') ? combinedHeader : `Member for ${durationText}`) : null,
+          hasUserMessage: !!userCustomMessage,
+          userMessage: userCustomMessage,
           headerBg: this.convertYoutubeColor(renderer.headerBackgroundColor) || '#0f9d58',
           bodyBg: this.convertYoutubeColor(renderer.bodyBackgroundColor) || '#0b8043',
           authorTextColor: this.convertYoutubeColor(renderer.authorNameTextColor) || '#ffffff'
         };
+
+        if (isMilestone) {
+          text = userCustomMessage || eventDetails.milestoneText || 'Membership Milestone!';
+        } else {
+          text = headerText || subtextText || 'Joined Channel Membership!';
+        }
       } else if (item.liveChatPaidStickerRenderer) {
         renderer = item.liveChatPaidStickerRenderer;
         isSystemEvent = true;
@@ -1674,6 +1699,7 @@ export class YoutubeChatClient {
         });
         
         eventDetails = {
+          subType: 'gift_redemption',
           tier: 'Membership Gift',
           headerBg: '#0f9d58',
           bodyBg: '#0b8043',
@@ -1695,6 +1721,7 @@ export class YoutubeChatClient {
         });
         
         eventDetails = {
+          subType: 'gift_redemption',
           tier: 'Membership Gift',
           headerBg: '#0f9d58',
           bodyBg: '#0b8043',
@@ -1717,6 +1744,7 @@ export class YoutubeChatClient {
         });
         
         eventDetails = {
+          subType: 'gift_purchase',
           tier: 'Membership Gift',
           headerBg: '#0f9d58',
           bodyBg: '#0b8043',
@@ -1738,6 +1766,7 @@ export class YoutubeChatClient {
         });
         
         eventDetails = {
+          subType: 'gift_redemption',
           tier: 'Membership Gift',
           headerBg: '#0f9d58',
           bodyBg: '#0b8043',
@@ -1764,29 +1793,33 @@ export class YoutubeChatClient {
                    renderer.title?.runs || 
                    renderer.giftText?.runs || [];
 
-      runs.forEach(run => {
-        if (run.text) {
-          text += run.text;
-          parts.push({
-            type: 'text',
-            content: run.text
-          });
-        } else if (run.emoji || run.image || run.sticker || run.thumbnail) {
-          const emojiObj = run.emoji || run.image || run.sticker || run.thumbnail || {};
-          const name = emojiObj.shortcuts?.[0] || emojiObj.emojiId || emojiObj.name || 'gift';
-          const thumbs = emojiObj.image?.thumbnails || emojiObj.thumbnails || [];
-          let url = null;
-          if (thumbs.length > 0) {
-            url = normalizeUrl(thumbs[thumbs.length - 1]?.url || thumbs[0]?.url);
+      if (parts.length === 0) {
+        runs.forEach(run => {
+          if (run.text) {
+            if (!text || !text.includes(run.text)) {
+              text += (text ? ' ' : '') + run.text;
+            }
+            parts.push({
+              type: 'text',
+              content: run.text
+            });
+          } else if (run.emoji || run.image || run.sticker || run.thumbnail) {
+            const emojiObj = run.emoji || run.image || run.sticker || run.thumbnail || {};
+            const name = emojiObj.shortcuts?.[0] || emojiObj.emojiId || emojiObj.name || 'gift';
+            const thumbs = emojiObj.image?.thumbnails || emojiObj.thumbnails || [];
+            let url = null;
+            if (thumbs.length > 0) {
+              url = normalizeUrl(thumbs[thumbs.length - 1]?.url || thumbs[0]?.url);
+            }
+            text += ` ${name} `;
+            parts.push({
+              type: 'emote',
+              name: name,
+              url: url
+            });
           }
-          text += ` ${name} `;
-          parts.push({
-            type: 'emote',
-            name: name,
-            url: url
-          });
-        }
-      });
+        });
+      }
 
       // If no text in runs, check content / simpleText fields
       if (!text && renderer.text?.content) {
@@ -1803,32 +1836,29 @@ export class YoutubeChatClient {
         parts.push({ type: 'text', content: text });
       }
 
-      // Check for Gift / Jewels item and images
+      // Check for Gift / Jewels item and images strictly on real gift events
       let isGift = false;
       let giftDetails = null;
-      const giftThumbs = renderer.sticker?.thumbnails || 
-                         renderer.gift?.thumbnails || 
-                         renderer.giftThumbnail?.thumbnails || 
-                         renderer.giftImage?.thumbnails || 
-                         renderer.giftImage?.sources || 
-                         renderer.image?.thumbnails || [];
-      let giftImageUrl = giftThumbs.length > 0 ? normalizeUrl(giftThumbs[giftThumbs.length - 1]?.url || giftThumbs[0]?.url) : null;
+      const isExplicitGift = eventType === 'gift' || 
+                             !!item.liveChatJewelsGiftRenderer || 
+                             !!item.liveChatPaidGiftRenderer || 
+                             !!item.liveChatGiftPurchaseRenderer ||
+                             !!renderer.gift || 
+                             !!renderer.jewels || 
+                             !!renderer.jewelsAmount;
 
-      const sentMatch = text.match(/sent\s+([A-Za-z0-9_.\s]+)/i);
-      const isExplicitGift = eventType === 'gift' || !!renderer.gift || !!renderer.jewels || !!renderer.jewelsAmount;
-
-      if (sentMatch || isExplicitGift) {
+      if (isExplicitGift) {
         isGift = true;
-        let giftName = '';
-        if (sentMatch && sentMatch[1]) {
-          giftName = sentMatch[1].trim();
-        } else if (renderer.gift?.name || renderer.giftName || renderer.title) {
-          giftName = renderer.gift?.name || renderer.giftName || renderer.title || 'Gift';
-          if (!text) {
-            text = `sent ${giftName}`;
-            parts.push({ type: 'text', content: text });
-          }
-        }
+        const giftThumbs = renderer.sticker?.thumbnails || 
+                           renderer.gift?.thumbnails || 
+                           renderer.giftThumbnail?.thumbnails || 
+                           renderer.giftImage?.thumbnails || 
+                           renderer.giftImage?.sources || 
+                           renderer.image?.thumbnails || [];
+        let giftImageUrl = giftThumbs.length > 0 ? normalizeUrl(giftThumbs[giftThumbs.length - 1]?.url || giftThumbs[0]?.url) : null;
+
+        let giftName = renderer.gift?.name || renderer.giftName || renderer.title || 'Gift';
+        if (typeof giftName !== 'string' || !giftName) giftName = 'Gift';
 
         if (giftImageUrl && !parts.some(p => p.type === 'emote' && p.url === giftImageUrl)) {
           parts.push({
@@ -1856,18 +1886,25 @@ export class YoutubeChatClient {
         if (!jewels) jewels = '10';
 
         giftDetails = {
-          name: giftName || 'Gift',
+          name: giftName,
           jewels: jewels,
           imageUrl: giftImageUrl
         };
+
+        if (!text) {
+          text = `sent ${giftName}`;
+          parts.push({ type: 'text', content: text });
+        }
       }
 
       if (isSystemEvent && eventType === 'subscription' && !renderer.message) {
-        text = text || 'Joined Channel Membership!';
-        parts.push({
-          type: 'text',
-          content: text
-        });
+        text = text || (eventDetails?.tier || 'Joined Channel Membership!');
+        if (parts.length === 0) {
+          parts.push({
+            type: 'text',
+            content: text
+          });
+        }
       }
 
       const authorChannelId = renderer.authorExternalChannelId || null;

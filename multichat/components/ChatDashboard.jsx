@@ -552,6 +552,10 @@ export default function ChatDashboard({
   const handleClearChat = () => {
     setMessages([]);
   };
+
+  const handleClearEvents = () => {
+    setMessages(prev => prev.filter(m => !m.isSystemEvent));
+  };
   
   // Moderation state initialized from localStorage
   const [moderation, setModeration] = useState(() => {
@@ -1363,15 +1367,7 @@ export default function ChatDashboard({
               }
             })
             .catch(() => {
-              setStreamViewers(prev => ({ ...prev, [cleanName]: 0 }));
-              setStreamStartTimes(prev => {
-                const next = { ...prev };
-                delete next[cleanName];
-                delete next[ch.name];
-                delete next[`@${cleanName}`];
-                try { localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next)); } catch (e) {}
-                return next;
-              });
+              // Maintain current stream viewers/start times during transient network errors
               if (kickClientRef.current && kickClientRef.current.isConnected) {
                 setPlatformStatuses(prev => ({ ...prev, [cleanName]: 'connected', kick: 'connected' }));
               }
@@ -2534,21 +2530,25 @@ export default function ChatDashboard({
   };
 
 
-  const totalConnectedViewers = Object.entries(streamViewers)
-    .filter(([chName]) => activeChannels.some(ch => ch.enabled && (
-      ch.name.toLowerCase().replace(/^@+/, '').trim() === chName ||
-      ch.name.toLowerCase().replace('@', '').trim() === chName
-    )))
-    .reduce((sum, [, count]) => sum + (count || 0), 0);
+  const totalConnectedViewers = activeChannels
+    .filter(ch => ch.enabled)
+    .reduce((sum, ch) => {
+      const clean = ch.name.toLowerCase().replace(/^@+/, '').trim();
+      const rawClean = ch.name.toLowerCase().replace('@', '').trim();
+      const count = streamViewers[clean] ?? streamViewers[rawClean] ?? streamViewers[`@${clean}`] ?? streamViewers[ch.name] ?? 0;
+      return sum + (typeof count === 'number' && !isNaN(count) && count > 0 ? count : 0);
+    }, 0);
 
   const displayViewerCount = activeChannels.some(ch => ch.enabled) ? totalConnectedViewers : 0;
 
-  const totalConnectedLikes = Object.entries(streamLikes)
-    .filter(([chName]) => activeChannels.some(ch => ch.enabled && ch.platform === 'youtube' && (
-      ch.name.toLowerCase().replace(/^@+/, '').trim() === chName ||
-      ch.name.toLowerCase().replace('@', '').trim() === chName
-    )))
-    .reduce((sum, [, count]) => sum + (count || 0), 0);
+  const totalConnectedLikes = activeChannels
+    .filter(ch => ch.enabled && ch.platform === 'youtube')
+    .reduce((sum, ch) => {
+      const clean = ch.name.toLowerCase().replace(/^@+/, '').trim();
+      const rawClean = ch.name.toLowerCase().replace('@', '').trim();
+      const likes = streamLikes[clean] ?? streamLikes[rawClean] ?? streamLikes[`@${clean}`] ?? streamLikes[ch.name] ?? 0;
+      return sum + (typeof likes === 'number' && !isNaN(likes) && likes > 0 ? likes : 0);
+    }, 0);
 
   const displayLikesCount = activeChannels.some(ch => ch.enabled && ch.platform === 'youtube') ? totalConnectedLikes : 0;
 
@@ -3100,26 +3100,71 @@ export default function ChatDashboard({
         <section id="all-messages-container" className="full-width" style={{ position: 'relative' }}>
           {recentMessages.length === 0 && <SpidermanPet />}
           {/* Breadcrumb path */}
-          <div className="breadcrumb-container">
-            <span className="breadcrumb-item">
-              {['all', 'events', 'mentions'].includes(activeTab) ? 'All' : (selectedCh?.platform.toUpperCase() || 'PLATFORM')}
-            </span>
-            <ChevronRight size={12} style={{ color: '#71717a' }} />
-            {channelUrl ? (
-              <a 
-                href={channelUrl} 
-                target="_blank" 
-                rel="noopener noreferrer" 
-                className="breadcrumb-item active breadcrumb-channel-link"
-                style={{ textDecoration: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-              >
-                <span>{channelDisplayName}</span>
-                <ExternalLink size={11} style={{ opacity: 0.7 }} />
-              </a>
-            ) : (
-              <span className="breadcrumb-item active">
-                {channelDisplayName}
+          <div className="breadcrumb-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="breadcrumb-item">
+                {['all', 'events', 'mentions'].includes(activeTab) ? 'All' : (selectedCh?.platform.toUpperCase() || 'PLATFORM')}
               </span>
+              <ChevronRight size={12} style={{ color: '#71717a' }} />
+              {channelUrl ? (
+                <a 
+                  href={channelUrl} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="breadcrumb-item active breadcrumb-channel-link"
+                  style={{ textDecoration: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                >
+                  <span>{channelDisplayName}</span>
+                  <ExternalLink size={11} style={{ opacity: 0.7 }} />
+                </a>
+              ) : (
+                <span className="breadcrumb-item active">
+                  {channelDisplayName}
+                </span>
+              )}
+            </div>
+
+            {activeTab === 'events' && (
+              <Tooltip delayDuration={150}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="clear-events-btn"
+                    onClick={handleClearEvents}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '4px 10px',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: '#f87171',
+                      backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                      border: '1px solid rgba(239, 68, 68, 0.22)',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      outline: 'none'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.18)';
+                      e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                      e.currentTarget.style.color = '#fca5a5';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.08)';
+                      e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.22)';
+                      e.currentTarget.style.color = '#f87171';
+                    }}
+                  >
+                    <Trash2 size={12} />
+                    <span>Clear Events</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="left">
+                  Clear all events feed history
+                </TooltipContent>
+              </Tooltip>
             )}
           </div>
 

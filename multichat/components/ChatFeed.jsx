@@ -379,10 +379,14 @@ const ChatMessageRow = React.memo(({
                 })}
               </div>
               <span className="membership-tier" style={{ fontSize: '13px', fontWeight: 600, color: 'rgba(255, 255, 255, 0.95)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                {(msg.eventDetails?.isGift || (msg.text && msg.text.toLowerCase().includes('gift'))) && (
+                {(msg.eventDetails?.subType === 'gift_purchase' || msg.eventDetails?.subType === 'gift_redemption' || msg.eventDetails?.isGift || (msg.text && msg.text.toLowerCase().includes('gift'))) ? (
                   <span style={{ fontSize: '14px' }}>🎁</span>
+                ) : (msg.eventDetails?.subType === 'milestone' || msg.eventDetails?.months) ? (
+                  <span style={{ fontSize: '14px' }}>⭐</span>
+                ) : (
+                  <span style={{ fontSize: '14px' }}>🎉</span>
                 )}
-                {msg.eventDetails?.tier || msg.text || 'Member'}
+                {msg.eventDetails?.milestoneText || msg.eventDetails?.tier || msg.text || 'Member'}
               </span>
             </div>
             <div className="membership-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative', marginLeft: 'auto' }} onClick={(e) => e.stopPropagation()}>
@@ -411,9 +415,12 @@ const ChatMessageRow = React.memo(({
                     }}
                     onClick={(e) => {
                       e.stopPropagation();
+                      const spokenText = msg.eventDetails?.subType === 'milestone' 
+                        ? `${msg.displayName} - ${msg.eventDetails?.milestoneText || 'Membership milestone'}: ${msg.eventDetails?.userMessage || msg.text || ''}`
+                        : `${msg.displayName} joined. ${msg.eventDetails?.tier || ''}`;
                       handleSpeakSuperchat({
                         ...msg,
-                        text: `${msg.displayName} joined. ${msg.eventDetails?.tier || ''}`
+                        text: spokenText
                       });
                     }}
                   >
@@ -456,7 +463,25 @@ const ChatMessageRow = React.memo(({
           {hasUserMessage && (
             <div className="membership-body" style={{ backgroundColor: bodyBg, borderRadius: '0 0 8px 8px' }}>
               <div className="membership-text" style={{ paddingLeft: '48px' }}>
-                {msg.text || 'Welcome to the channel!'}
+                {msg.parts && msg.parts.length > 0 ? (
+                  msg.parts.map((part, index) => {
+                    if (part.type === 'emote') {
+                      return (
+                        <img 
+                          key={index} 
+                          className="msg-emote" 
+                          src={part.url} 
+                          alt={part.name} 
+                          title={part.name}
+                          style={{ verticalAlign: 'middle', margin: '0 2px' }}
+                        />
+                      );
+                    }
+                    return <span key={index}>{part.content || part.text || ''}</span>;
+                  })
+                ) : (
+                  msg.eventDetails?.userMessage || msg.text || 'Welcome to the channel!'
+                )}
               </div>
             </div>
           )}
