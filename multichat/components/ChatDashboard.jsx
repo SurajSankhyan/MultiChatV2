@@ -563,12 +563,34 @@ export default function ChatDashboard({
   const [heldSuper, setHeldSuper] = useState(null);
 
   const broadcastChannelRef = useRef(null);
+  const supabaseChannelRef = useRef(null);
+
   useEffect(() => {
     try {
       broadcastChannelRef.current = new BroadcastChannel('multichat_highlight_overlay');
     } catch (e) {}
+
+    try {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      if (supabaseUrl && supabaseKey) {
+        import('@/utils/supabase/client').then(({ createClient }) => {
+          const supabase = createClient();
+          const channel = supabase.channel('multichat_highlight_overlay', {
+            config: { broadcast: { self: true } }
+          });
+          channel.subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              supabaseChannelRef.current = channel;
+            }
+          });
+        }).catch(() => {});
+      }
+    } catch (e) {}
+
     return () => {
       if (broadcastChannelRef.current) broadcastChannelRef.current.close();
+      if (supabaseChannelRef.current) supabaseChannelRef.current.unsubscribe();
     };
   }, []);
 
@@ -582,12 +604,15 @@ export default function ChatDashboard({
       localStorage.setItem('multichat_active_highlight_event', JSON.stringify({ command: 'hide', timestamp: Date.now() }));
     } catch (e) {}
 
-    // Sync to server for Incognito, OBS Studio & other browsers
-    fetch('/api/overlay/highlight', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ command: 'hide' })
-    }).catch(() => {});
+    if (supabaseChannelRef.current) {
+      try {
+        supabaseChannelRef.current.send({
+          type: 'broadcast',
+          event: 'highlight',
+          payload: { command: 'hide' }
+        }).catch(() => {});
+      } catch (e) {}
+    }
   }, []);
 
   const handleHighlightMessage = useCallback((msg, options = {}) => {
@@ -714,12 +739,15 @@ export default function ChatDashboard({
       localStorage.setItem('multichat_active_highlight_event', JSON.stringify({ command: 'show', data: payload, timestamp: Date.now() }));
     } catch (e) {}
 
-    // Sync to server for Incognito, OBS Studio & other browsers
-    fetch('/api/overlay/highlight', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ command: 'show', data: payload })
-    }).catch(() => {});
+    if (supabaseChannelRef.current) {
+      try {
+        supabaseChannelRef.current.send({
+          type: 'broadcast',
+          event: 'highlight',
+          payload: { command: 'show', data: payload }
+        }).catch(() => {});
+      } catch (e) {}
+    }
   }, [activeHighlightId, heldSuper, settings.overlayFadeTime, settings.highlightShowPlatformLogo, handleHideHighlight]);
 
   // Global ESC key to hide overlay

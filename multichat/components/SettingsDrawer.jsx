@@ -478,11 +478,28 @@ export default function SettingsDrawer({
       localStorage.setItem('multichat_active_highlight_event', JSON.stringify({ command: 'show', data: testData, timestamp: Date.now() }));
     } catch (e) {}
 
-    fetch('/api/overlay/highlight', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ command: 'show', data: testData })
-    }).catch(() => {});
+    try {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      if (supabaseUrl && supabaseKey) {
+        import('@/utils/supabase/client').then(({ createClient }) => {
+          const supabase = createClient();
+          const channel = supabase.channel('multichat_highlight_overlay', {
+            config: { broadcast: { self: true } }
+          });
+          channel.subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              channel.send({
+                type: 'broadcast',
+                event: 'highlight',
+                payload: { command: 'show', data: testData }
+              }).catch(() => {});
+              setTimeout(() => channel.unsubscribe(), 1000);
+            }
+          });
+        }).catch(() => {});
+      }
+    } catch (e) {}
   };
 
   const handleCopyUrl = () => {

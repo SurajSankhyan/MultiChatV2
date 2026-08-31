@@ -214,9 +214,12 @@ export default function HighlightOverlay({ previewData = null }) {
     }
   }, [previewData]);
 
-  // Set up BroadcastChannel, Storage Listener, and Server Polling for real-time OBS & Incognito sync
+  // Set up BroadcastChannel, Storage Listener, and Supabase Realtime for instant OBS & online sync
   useEffect(() => {
+    let isSubscribed = true;
     let bc = null;
+    let supabaseChannel = null;
+
     try {
       bc = new BroadcastChannel('multichat_highlight_overlay');
       bc.onmessage = (event) => {
@@ -230,6 +233,32 @@ export default function HighlightOverlay({ previewData = null }) {
     } catch (e) {
       console.warn("BroadcastChannel not supported", e);
     }
+
+    // Connect to Supabase Realtime WebSocket for cross-device & OBS Studio syncing
+    try {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      if (supabaseUrl && supabaseKey) {
+        import('@/utils/supabase/client').then(({ createClient }) => {
+          if (!isSubscribed) return;
+          const supabase = createClient();
+          supabaseChannel = supabase.channel('multichat_highlight_overlay', {
+            config: { broadcast: { self: true } }
+          });
+          supabaseChannel
+            .on('broadcast', { event: 'highlight' }, (payload) => {
+              if (!isSubscribed) return;
+              const msg = payload?.payload || payload || {};
+              if (msg.command === 'show' && msg.data) {
+                showHighlight(msg.data);
+              } else if (msg.command === 'hide') {
+                hideHighlight();
+              }
+            })
+            .subscribe();
+        }).catch(() => {});
+      }
+    } catch (e) {}
 
     const handleStorage = (e) => {
       if (e.key === 'multichat_active_highlight_event') {
@@ -264,36 +293,16 @@ export default function HighlightOverlay({ previewData = null }) {
 
     window.addEventListener('storage', handleStorage);
 
-    // Cross-session / Incognito / OBS Studio Server Poller
-    let lastEventId = null;
-    let isSubscribed = true;
-
-    const pollServerState = async () => {
-      try {
-        const res = await fetch('/api/overlay/highlight', { cache: 'no-store' });
-        if (!res.ok) return;
-        const state = await res.json();
-        if (!isSubscribed || !state || !state.eventId) return;
-
-        if (lastEventId === null) {
-          // Initial check on mount: only show if created in last 60 seconds
-          lastEventId = state.eventId;
-          if (state.command === 'show' && state.data && (Date.now() - (state.updatedAt || 0) < 60000)) {
-            showHighlight(state.data);
-          }
-        } else if (state.eventId !== lastEventId) {
-          lastEventId = state.eventId;
-          if (state.command === 'show' && state.data) {
-            showHighlight(state.data);
-          } else if (state.command === 'hide') {
-            hideHighlight();
-          }
+    // Check if there was a recent highlight dispatched in the last 4 seconds
+    try {
+      const stored = localStorage.getItem('multichat_active_highlight_event');
+      if (stored) {
+        const payload = JSON.parse(stored);
+        if (payload && payload.command === 'show' && payload.data && payload.timestamp && (Date.now() - payload.timestamp < 4000)) {
+          showHighlight(payload.data);
         }
-      } catch (err) {}
-    };
-
-    pollServerState();
-    const pollInterval = setInterval(pollServerState, 600);
+      }
+    } catch (e) {}
 
     // ESC key closes highlight locally
     const handleKeyDown = (e) => {
@@ -305,8 +314,8 @@ export default function HighlightOverlay({ previewData = null }) {
 
     return () => {
       isSubscribed = false;
-      clearInterval(pollInterval);
       if (bc) bc.close();
+      if (supabaseChannel) supabaseChannel.unsubscribe();
       window.removeEventListener('storage', handleStorage);
       window.removeEventListener('keydown', handleKeyDown);
       if (autoHideTimerRef.current) clearTimeout(autoHideTimerRef.current);
