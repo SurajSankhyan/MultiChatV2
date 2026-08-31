@@ -241,11 +241,6 @@ export class YoutubeChatClient {
           if (!isNaN(parsed) && parsed > 0) viewers = parsed;
         }
       }
-      const origCount = json.contents?.twoColumnWatchNextResults?.results?.results?.contents?.[0]?.videoPrimaryInfoRenderer?.viewCount?.videoViewCountRenderer?.originalViewCount;
-      if (!viewers && origCount) {
-        const parsed = parseInt(String(origCount).replace(/[^0-9]/g, ''), 10);
-        if (!isNaN(parsed) && parsed > 0) viewers = parsed;
-      }
       const likes = parseInt(json.videoDetails?.likeCount, 10) || 0;
       return {
         isLive: !!json.videoDetails?.isLive || !!json.videoDetails?.isLiveContent || liveDetails?.isLiveNow !== false,
@@ -682,21 +677,15 @@ export class YoutubeChatClient {
       }
     }
 
-    // Extract concurrent viewers from html first
-    const origMatch = html.match(/"originalViewCount"\s*:\s*"([^"]+)"/);
-    if (origMatch && origMatch[1]) {
-      const val = parseInt(origMatch[1].replace(/[^0-9]/g, ''), 10);
-      if (!isNaN(val)) viewers = val;
-    } else {
-      const watchingMatch = html.match(/"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"([0-9,.]+)"\s*\}\s*,\s*\{\s*"text"\s*:\s*"\s*watching/i) ||
-                            html.match(/"text"\s*:\s*"([0-9,.]+)\s*watching\s*now"/i) ||
-                            html.match(/"viewCount"\s*:\s*\{\s*"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"([0-9,.]+)"\s*\}\s*,\s*\{\s*"text"\s*:\s*"\s*watching/i);
-      if (watchingMatch && watchingMatch[1]) {
-        const text = watchingMatch[1].toLowerCase();
-        if (text.includes('k')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
-        else if (text.includes('m')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
-        else viewers = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
-      }
+    // Extract concurrent viewers from html (strictly watching text)
+    const watchingMatch = html.match(/"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"([0-9,.]+)"\s*\}\s*,\s*\{\s*"text"\s*:\s*"\s*watching/i) ||
+                          html.match(/"text"\s*:\s*"([0-9,.]+)\s*watching\s*now"/i) ||
+                          html.match(/"viewCount"\s*:\s*\{\s*"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"([0-9,.]+)"\s*\}\s*,\s*\{\s*"text"\s*:\s*"\s*watching/i);
+    if (watchingMatch && watchingMatch[1]) {
+      const text = watchingMatch[1].toLowerCase();
+      if (text.includes('k')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
+      else if (text.includes('m')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
+      else viewers = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
     }
 
     // Fallback for startTime if not found: prioritize actualStartTime and startTimestamp first
@@ -1305,17 +1294,20 @@ export class YoutubeChatClient {
                 }
               } else {
                 offlineFailureCount = 0;
-                if (pMeta.viewers !== null && pMeta.viewers !== undefined) pollInstance.viewers = pMeta.viewers;
-                if (pMeta.likes !== null && pMeta.likes !== undefined) pollInstance.likes = pMeta.likes;
+                if (pMeta.viewers && pMeta.viewers > 0) pollInstance.viewers = pMeta.viewers;
+                if (pMeta.likes && pMeta.likes > 0) pollInstance.likes = pMeta.likes;
                 if (pMeta.isShorts) pollInstance.isShorts = true;
-                if (pMeta.startTime && (!pollInstance.startTimestamp || (pMeta.isExact && !pollInstance.isExactStartTime))) {
-                  pollInstance.startTimestamp = pMeta.startTime;
-                  if (pMeta.isExact) pollInstance.isExactStartTime = true;
-                  try {
-                    const stored = localStorage.getItem('prochat_cached_stream_start_times') || '{}';
-                    const next = { ...JSON.parse(stored), [pollInstance.videoId]: pMeta.startTime, [trimmedName]: pMeta.startTime, [rawClean]: pMeta.startTime, [`@${rawClean}`]: pMeta.startTime };
-                    localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next));
-                  } catch (e) {}
+                if (pMeta.startTime) {
+                  const isStale = pollInstance.startTimestamp && (pollInstance.startTimestamp - pMeta.startTime > 24 * 3600 * 1000);
+                  if (!isStale && (!pollInstance.startTimestamp || (pMeta.isExact && !pollInstance.isExactStartTime))) {
+                    pollInstance.startTimestamp = pMeta.startTime;
+                    if (pMeta.isExact) pollInstance.isExactStartTime = true;
+                    try {
+                      const stored = localStorage.getItem('prochat_cached_stream_start_times') || '{}';
+                      const next = { ...JSON.parse(stored), [pollInstance.videoId]: pMeta.startTime, [trimmedName]: pMeta.startTime, [rawClean]: pMeta.startTime, [`@${rawClean}`]: pMeta.startTime };
+                      localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next));
+                    } catch (e) {}
+                  }
                 }
                 updated = true;
               }
@@ -1341,17 +1333,20 @@ export class YoutubeChatClient {
                 offlineFailureCount = 0;
                 const meta = this.parseMetadataFromHtml(html);
                 if (meta) {
-                  if (meta.startTime && (!pollInstance.startTimestamp || (meta.isExact && !pollInstance.isExactStartTime))) {
-                    pollInstance.startTimestamp = meta.startTime;
-                    if (meta.isExact) pollInstance.isExactStartTime = true;
-                    try {
-                      const stored = localStorage.getItem('prochat_cached_stream_start_times') || '{}';
-                      const next = { ...JSON.parse(stored), [pollInstance.videoId]: meta.startTime, [trimmedName]: meta.startTime, [rawClean]: meta.startTime, [`@${rawClean}`]: meta.startTime };
-                      localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next));
-                    } catch (e) {}
+                  if (meta.startTime) {
+                    const isStale = pollInstance.startTimestamp && (pollInstance.startTimestamp - meta.startTime > 24 * 3600 * 1000);
+                    if (!isStale && (!pollInstance.startTimestamp || (meta.isExact && !pollInstance.isExactStartTime))) {
+                      pollInstance.startTimestamp = meta.startTime;
+                      if (meta.isExact) pollInstance.isExactStartTime = true;
+                      try {
+                        const stored = localStorage.getItem('prochat_cached_stream_start_times') || '{}';
+                        const next = { ...JSON.parse(stored), [pollInstance.videoId]: meta.startTime, [trimmedName]: meta.startTime, [rawClean]: meta.startTime, [`@${rawClean}`]: meta.startTime };
+                        localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next));
+                      } catch (e) {}
+                    }
                   }
-                  if (meta.viewers !== null && meta.viewers !== undefined) pollInstance.viewers = meta.viewers;
-                  if (meta.likes !== null && meta.likes !== undefined) pollInstance.likes = meta.likes;
+                  if (meta.viewers && meta.viewers > 0) pollInstance.viewers = meta.viewers;
+                  if (meta.likes && meta.likes > 0) pollInstance.likes = meta.likes;
                   if (meta.isShorts) pollInstance.isShorts = true;
                 }
               }

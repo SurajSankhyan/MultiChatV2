@@ -74,11 +74,6 @@ function parsePlayerJson(json: any) {
       if (!isNaN(parsed) && parsed > 0) viewers = parsed;
     }
   }
-  const originalViewCount = json.contents?.twoColumnWatchNextResults?.results?.results?.contents?.[0]?.videoPrimaryInfoRenderer?.viewCount?.videoViewCountRenderer?.originalViewCount;
-  if (!viewers && originalViewCount) {
-    const parsed = parseInt(String(originalViewCount).replace(/[^0-9]/g, ''), 10);
-    if (!isNaN(parsed) && parsed > 0) viewers = parsed;
-  }
   const likes = parseInt(json.videoDetails?.likeCount, 10) || 0;
   const isLive = !!json.videoDetails?.isLive || !!json.videoDetails?.isLiveContent || liveDetails?.isLiveNow !== false;
   const title = json.videoDetails?.title || '';
@@ -125,7 +120,6 @@ function parseHtmlMetadata(html: string) {
   let viewers = 0;
   const watchingMatch = html.match(/"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"([0-9,.]+)"\s*\}\s*,\s*\{\s*"text"\s*:\s*"\s*watching/i) ||
                         html.match(/"text"\s*:\s*"([0-9,.]+)\s*watching\s*now"/i) ||
-                        html.match(/"originalViewCount"\s*:\s*"([0-9,.]+)"/i) ||
                         html.match(/"viewCount"\s*:\s*\{\s*"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"([0-9,.]+)"\s*\}\s*,\s*\{\s*"text"\s*:\s*"\s*watching/i);
   if (watchingMatch && watchingMatch[1]) {
     viewers = parseInt(watchingMatch[1].replace(/[^0-9]/g, ''), 10) || 0;

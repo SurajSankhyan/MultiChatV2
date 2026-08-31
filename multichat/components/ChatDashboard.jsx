@@ -1242,6 +1242,11 @@ export default function ChatDashboard({
           const parsedMs = parseStartTimeMs(startTimeVal);
           if (parsedMs && parsedMs > 0 && parsedMs <= Date.now() + 60000) {
             setStreamStartTimes(prev => {
+              const existingMs = parseStartTimeMs(prev[ch] || prev[rawClean]);
+              // Protect from stale VOD dates (older by > 24 hours than already established live start time)
+              if (existingMs && (existingMs - parsedMs > 24 * 3600 * 1000)) {
+                return prev;
+              }
               const next = { 
                 ...prev, 
                 [ch]: startTimeVal, 
@@ -1272,7 +1277,7 @@ export default function ChatDashboard({
             }
           } catch (e) {}
         }
-        if (metadata && metadata.viewers !== undefined && metadata.viewers !== null) {
+        if (metadata && metadata.viewers !== undefined && metadata.viewers !== null && metadata.viewers > 0) {
           setStreamViewers(prev => {
             const next = { 
               ...prev, 
@@ -1288,7 +1293,7 @@ export default function ChatDashboard({
             return next;
           });
         }
-        if (metadata && metadata.likes !== undefined && metadata.likes !== null) {
+        if (metadata && metadata.likes !== undefined && metadata.likes !== null && metadata.likes > 0) {
           setStreamLikes(prev => {
             const next = { 
               ...prev, 
