@@ -6,6 +6,10 @@ const PENDING_NAME_RESOLVES = new Map(); // channelId -> Promise<displayName>
 
 // Mapping of YouTube Gift items to their default Jewel values
 const YOUTUBE_GIFT_JEWELS_MAP = {
+  'star': 10,
+  'stars': 10,
+  'shooting star': 50,
+  'super star': 100,
   'hiding': 10,
   'hiding...': 10,
   'treat': 10,
@@ -227,12 +231,28 @@ export class YoutubeChatClient {
           break;
         }
       }
-      const viewers = parseInt(json.videoDetails?.viewCount, 10) || 0;
+      let viewers = 0;
+      const runs = json.contents?.twoColumnWatchNextResults?.results?.results?.contents?.[0]?.videoPrimaryInfoRenderer?.viewCount?.videoViewCountRenderer?.viewCount?.runs;
+      if (runs && runs[0]?.text) {
+        const run0 = runs[0].text;
+        const run1 = runs[1]?.text || '';
+        if (run1.toLowerCase().includes('watching') || run0.toLowerCase().includes('watching')) {
+          const parsed = parseInt(run0.replace(/[^0-9]/g, ''), 10);
+          if (!isNaN(parsed) && parsed > 0) viewers = parsed;
+        }
+      }
+      const origCount = json.contents?.twoColumnWatchNextResults?.results?.results?.contents?.[0]?.videoPrimaryInfoRenderer?.viewCount?.videoViewCountRenderer?.originalViewCount;
+      if (!viewers && origCount) {
+        const parsed = parseInt(String(origCount).replace(/[^0-9]/g, ''), 10);
+        if (!isNaN(parsed) && parsed > 0) viewers = parsed;
+      }
+      const likes = parseInt(json.videoDetails?.likeCount, 10) || 0;
       return {
         isLive: !!json.videoDetails?.isLive || !!json.videoDetails?.isLiveContent || liveDetails?.isLiveNow !== false,
         startTime,
         isExact,
         viewers,
+        likes,
         isShorts,
         title: json.videoDetails?.title
       };
@@ -668,22 +688,15 @@ export class YoutubeChatClient {
       const val = parseInt(origMatch[1].replace(/[^0-9]/g, ''), 10);
       if (!isNaN(val)) viewers = val;
     } else {
-      const shortIdx = html.indexOf('"shortViewCountText"');
-      if (shortIdx !== -1) {
-        const sub = html.substring(shortIdx, shortIdx + 300);
-        const runTextMatch = sub.match(/"text"\s*:\s*"([^"]+)"/);
-        if (runTextMatch && runTextMatch[1]) {
-          const text = runTextMatch[1].toLowerCase();
-          if (text.includes('k')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
-          else if (text.includes('m')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
-          else viewers = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
-        }
+      const watchingMatch = html.match(/"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"([0-9,.]+)"\s*\}\s*,\s*\{\s*"text"\s*:\s*"\s*watching/i) ||
+                            html.match(/"text"\s*:\s*"([0-9,.]+)\s*watching\s*now"/i) ||
+                            html.match(/"viewCount"\s*:\s*\{\s*"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"([0-9,.]+)"\s*\}\s*,\s*\{\s*"text"\s*:\s*"\s*watching/i);
+      if (watchingMatch && watchingMatch[1]) {
+        const text = watchingMatch[1].toLowerCase();
+        if (text.includes('k')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
+        else if (text.includes('m')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
+        else viewers = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
       }
-    }
-
-    // Fallback for viewers if still not found
-    if (!viewers && isLive && playerJson && playerJson.videoDetails && playerJson.videoDetails.viewCount) {
-       viewers = parseInt(playerJson.videoDetails.viewCount, 10) || 0;
     }
 
     // Fallback for startTime if not found: prioritize actualStartTime and startTimestamp first
@@ -1225,6 +1238,11 @@ export class YoutubeChatClient {
           if (iStartTime && !pollInstance.startTimestamp && this.activePolls.has(pollKey)) {
             pollInstance.startTimestamp = iStartTime;
             pollInstance.isExactStartTime = true;
+            try {
+              const stored = localStorage.getItem('prochat_cached_stream_start_times') || '{}';
+              const next = { ...JSON.parse(stored), [pollInstance.videoId]: iStartTime, [trimmedName]: iStartTime, [rawClean]: iStartTime, [`@${rawClean}`]: iStartTime };
+              localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next));
+            } catch (e) {}
             this.onStatus(pollKey, 'connected', {
               startTime: iStartTime,
               isExact: true,
@@ -1237,17 +1255,26 @@ export class YoutubeChatClient {
         }).catch(() => {});
       }
 
-      // Sequential Adaptive Polling Loop (avoids overlapping requests and invalidating tokens over internet/Netlify)
+      // Adaptive polling loop
+      let consecutiveErrors = 0;
+      let isPollActive = false;
+
       const scheduleNextPoll = (delay = 1000) => {
         if (!this.activePolls.has(pollKey)) return;
+        if (pollInstance.timeoutId) clearTimeout(pollInstance.timeoutId);
         pollInstance.timeoutId = setTimeout(async () => {
-          if (!this.activePolls.has(pollKey)) return;
+          if (!this.activePolls.has(pollKey) || isPollActive) return;
+          isPollActive = true;
           try {
             await this.pollChat(pollKey);
-          } catch (e) {
-            console.warn(`YouTube polling error for ${pollKey}:`, e.message);
+            consecutiveErrors = 0;
+          } catch (err) {
+            consecutiveErrors++;
+            console.warn(`YouTube client: poll error for ${pollKey} (fail #${consecutiveErrors}):`, err.message);
+          } finally {
+            isPollActive = false;
           }
-          // Schedule next poll only after previous completes
+          if (!this.activePolls.has(pollKey)) return;
           scheduleNextPoll(1000);
         }, delay);
       };
@@ -1269,9 +1296,9 @@ export class YoutubeChatClient {
             if (pMeta) {
               if (pMeta.isLive === false) {
                 offlineFailureCount++;
-                if (offlineFailureCount >= 3) {
-                  console.log(`YouTube client: channel ${pollKey} confirmed offline after 3 checks.`);
-                  this.onStatus(pollKey, 'offline', { startTime: null, viewers: 0, likes: 0, displayName: pollInstance.displayName });
+                if (offlineFailureCount >= 5) {
+                  console.log(`YouTube client: channel ${pollKey} confirmed offline after 5 checks.`);
+                  this.onStatus(pollKey, 'offline', { startTime: pollInstance.startTimestamp, viewers: 0, likes: 0, displayName: pollInstance.displayName });
                   this.leave(trimmedName);
                   this.setupOfflinePoll(trimmedName, pollInstance.chatMode);
                   return;
@@ -1284,6 +1311,11 @@ export class YoutubeChatClient {
                 if (pMeta.startTime && (!pollInstance.startTimestamp || (pMeta.isExact && !pollInstance.isExactStartTime))) {
                   pollInstance.startTimestamp = pMeta.startTime;
                   if (pMeta.isExact) pollInstance.isExactStartTime = true;
+                  try {
+                    const stored = localStorage.getItem('prochat_cached_stream_start_times') || '{}';
+                    const next = { ...JSON.parse(stored), [pollInstance.videoId]: pMeta.startTime, [trimmedName]: pMeta.startTime, [rawClean]: pMeta.startTime, [`@${rawClean}`]: pMeta.startTime };
+                    localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next));
+                  } catch (e) {}
                 }
                 updated = true;
               }
@@ -1298,9 +1330,9 @@ export class YoutubeChatClient {
               const currentVideoId = this.extractLiveVideoId(html);
               if (!currentVideoId) {
                 offlineFailureCount++;
-                if (offlineFailureCount >= 3) {
-                  console.log(`YouTube client: channel ${pollKey} went offline during 15s poll.`);
-                  this.onStatus(pollKey, 'offline', { startTime: null, viewers: 0, likes: 0, displayName: pollInstance.displayName });
+                if (offlineFailureCount >= 5) {
+                  console.log(`YouTube client: channel ${pollKey} went offline during poll.`);
+                  this.onStatus(pollKey, 'offline', { startTime: pollInstance.startTimestamp, viewers: 0, likes: 0, displayName: pollInstance.displayName });
                   this.leave(trimmedName);
                   this.setupOfflinePoll(trimmedName, pollInstance.chatMode);
                   return;
@@ -1312,6 +1344,11 @@ export class YoutubeChatClient {
                   if (meta.startTime && (!pollInstance.startTimestamp || (meta.isExact && !pollInstance.isExactStartTime))) {
                     pollInstance.startTimestamp = meta.startTime;
                     if (meta.isExact) pollInstance.isExactStartTime = true;
+                    try {
+                      const stored = localStorage.getItem('prochat_cached_stream_start_times') || '{}';
+                      const next = { ...JSON.parse(stored), [pollInstance.videoId]: meta.startTime, [trimmedName]: meta.startTime, [rawClean]: meta.startTime, [`@${rawClean}`]: meta.startTime };
+                      localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next));
+                    } catch (e) {}
                   }
                   if (meta.viewers !== null && meta.viewers !== undefined) pollInstance.viewers = meta.viewers;
                   if (meta.likes !== null && meta.likes !== undefined) pollInstance.likes = meta.likes;
@@ -1897,6 +1934,25 @@ export class YoutubeChatClient {
         }
       }
 
+      // Check text for sent gifts (e.g. "@heliqx sent Star")
+      if (!isGift && text) {
+        const giftMatch = text.match(/sent\s+([A-Za-z0-9_.\s]+)/i);
+        if (giftMatch) {
+          const rawGiftName = giftMatch[1].replace(/[:*]/g, '').trim();
+          const cleanKey = rawGiftName.toLowerCase().replace(/\.+$/, '').trim();
+          if (YOUTUBE_GIFT_JEWELS_MAP[cleanKey] || YOUTUBE_GIFT_JEWELS_MAP[rawGiftName.toLowerCase()]) {
+            isGift = true;
+            const jewels = String(YOUTUBE_GIFT_JEWELS_MAP[cleanKey] || YOUTUBE_GIFT_JEWELS_MAP[rawGiftName.toLowerCase()] || 10);
+            const emotePart = parts.find(p => p.type === 'emote');
+            giftDetails = {
+              name: rawGiftName,
+              jewels: jewels,
+              imageUrl: emotePart?.url || null
+            };
+          }
+        }
+      }
+
       if (isSystemEvent && eventType === 'subscription' && !renderer.message) {
         text = text || (eventDetails?.tier || 'Joined Channel Membership!');
         if (parts.length === 0) {
@@ -2051,11 +2107,18 @@ export class YoutubeChatClient {
       }
 
       const color = this.getRandomColor(username);
-      // Use highest-quality thumbnail (last in array is largest)
+      // Use highest-quality thumbnail (last in array is largest) upgraded to 1280px
       const photoThumbnails = renderer.authorPhoto?.thumbnails;
       let avatar = photoThumbnails && photoThumbnails.length > 0 
         ? normalizeUrl(photoThumbnails[photoThumbnails.length - 1].url) 
         : null;
+      if (avatar && typeof avatar === 'string' && (avatar.includes('googleusercontent.com') || avatar.includes('ggpht.com') || avatar.includes('youtube.com') || avatar.includes('ytimg.com'))) {
+        if (/=s\d+/.test(avatar)) {
+          avatar = avatar.replace(/=s\d+/, '=s1280');
+        } else if (!avatar.includes('=')) {
+          avatar = `${avatar}=s1280`;
+        }
+      }
 
       let deleteParams = null;
       let timeoutParams = null;

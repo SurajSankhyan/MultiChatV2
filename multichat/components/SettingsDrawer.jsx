@@ -432,6 +432,12 @@ export default function SettingsDrawer({
     const origin = window.location.origin;
     const params = new URLSearchParams();
     params.append('mode', 'highlight');
+    if (settings.highlightShowPlatformLogo) params.append('showSocialLogo', 'true');
+    if (settings.highlightAuthorBgColor && settings.highlightAuthorBgColor !== '#ffa500') params.append('authorBg', settings.highlightAuthorBgColor);
+    if (settings.highlightAuthorTextColor && settings.highlightAuthorTextColor !== '#222222') params.append('authorColor', settings.highlightAuthorTextColor);
+    if (settings.highlightCommentBgColor && settings.highlightCommentBgColor !== '#222222') params.append('commentBg', settings.highlightCommentBgColor);
+    if (settings.highlightCommentTextColor && settings.highlightCommentTextColor !== '#ffffff') params.append('commentColor', settings.highlightCommentTextColor);
+    if (settings.highlightFirstNameOnly) params.append('firstNameOnly', 'true');
     if (settings.fontFamily) params.append('fontFamily', settings.fontFamily);
     if (settings.overlayFadeTime !== undefined) params.append('autoHideSeconds', settings.overlayFadeTime);
     return `${origin}/overlay?${params.toString()}`;
@@ -446,8 +452,8 @@ export default function SettingsDrawer({
   const handleTestHighlight = () => {
     const testData = {
       chatId: 'test-' + Date.now(),
-      displayName: user?.username || 'Streamer Pro',
-      username: 'streamer_pro',
+      displayName: user?.username || 'Sample User',
+      username: 'sample_user',
       avatarUrl: user?.avatar && typeof user.avatar === 'string' && user.avatar.startsWith('http') ? user.avatar : 'https://yt3.ggpht.com/a/default-user=s88-c-k-c0x00ffffff-no-rj',
       text: '🔥 Stream Highlight Overlay is connected and looking crisp on stream!',
       parts: [{ type: 'text', content: '🔥 Stream Highlight Overlay is connected and looking crisp on stream!' }],
@@ -455,6 +461,13 @@ export default function SettingsDrawer({
       donationAmount: '₹500',
       amountValue: 500,
       isSuperChat: true,
+      badges: ['member', 'moderator'],
+      badgeImages: {
+        member: 'https://yt3.ggpht.com/qLpx0c5tY4U2e18n2c27kC5vL1PzM3zK=s16-c-k'
+      },
+      isMember: true,
+      isModerator: true,
+      showPlatformLogo: !!settings.highlightShowPlatformLogo,
       autoHideSeconds: settings.overlayFadeTime || 8
     };
 
@@ -464,6 +477,12 @@ export default function SettingsDrawer({
       setTimeout(() => bc.close(), 500);
       localStorage.setItem('multichat_active_highlight_event', JSON.stringify({ command: 'show', data: testData, timestamp: Date.now() }));
     } catch (e) {}
+
+    fetch('/api/overlay/highlight', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: 'show', data: testData })
+    }).catch(() => {});
   };
 
   const handleCopyUrl = () => {
@@ -1803,7 +1822,7 @@ export default function SettingsDrawer({
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                    Click any chat or Super Chat in the dashboard (or press <kbd style={{ background: '#27272a', padding: '1px 5px', borderRadius: '3px', color: '#fff' }}>ESC</kbd> to hide) to instantly feature it on stream with slide-in animations and golden ribbon tiers.
+                    Click any chat or Super Chat in the dashboard (or press <kbd style={{ background: '#27272a', padding: '1px 5px', borderRadius: '3px', color: '#fff' }}>ESC</kbd> to hide) to instantly feature it on stream with slide-in animations, chatter badges, and golden ribbon tiers.
                   </span>
                   <div className="obs-url-box" style={{ background: '#090a0f', padding: '10px', borderRadius: '4px', border: '1px solid rgba(56, 189, 248, 0.2)', fontFamily: 'monospace', fontSize: 12.5, wordBreak: 'break-all', color: '#bae6fd' }}>
                     {getHighlightOverlayUrl()}
@@ -1838,6 +1857,128 @@ export default function SettingsDrawer({
                     >
                       <span>🚀 Test Highlight</span>
                     </button>
+                  </div>
+
+                  {/* Highlight Overlay Customization Settings */}
+                  <div style={{ marginTop: '8px', borderTop: '1px solid rgba(56, 189, 248, 0.15)', paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Highlight Overlay Display & Styling
+                    </div>
+
+                    {/* Social Media / Platform Logo Toggle */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#d4d4d4' }}>Show Social Media / Platform Logo</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Display platform logo (YouTube, Kick, Twitch) next to the chatter name</div>
+                      </div>
+                      <label className="switch">
+                        <input 
+                          type="checkbox" 
+                          checked={!!settings.highlightShowPlatformLogo}
+                          onChange={(e) => updateSettings({ highlightShowPlatformLogo: e.target.checked })}
+                        />
+                        <span className="slider"></span>
+                      </label>
+                    </div>
+
+                    {/* Show Only First Name Toggle */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#d4d4d4' }}>Show Only First Name</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Trim chatter usernames with multiple words to only their first name</div>
+                      </div>
+                      <label className="switch">
+                        <input 
+                          type="checkbox" 
+                          checked={!!settings.highlightFirstNameOnly}
+                          onChange={(e) => updateSettings({ highlightFirstNameOnly: e.target.checked })}
+                        />
+                        <span className="slider"></span>
+                      </label>
+                    </div>
+
+                    {/* Color Controls Grid */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                      {/* Author Tag Background */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: '#d4d4d4' }}>Author Tag Background</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <input 
+                            type="color" 
+                            value={settings.highlightAuthorBgColor || '#ffa500'}
+                            onChange={(e) => updateSettings({ highlightAuthorBgColor: e.target.value })}
+                            style={{ width: '32px', height: '32px', padding: 0, border: 'none', borderRadius: '4px', cursor: 'pointer', background: 'none' }}
+                          />
+                          <input 
+                            type="text" 
+                            value={settings.highlightAuthorBgColor || '#ffa500'}
+                            onChange={(e) => updateSettings({ highlightAuthorBgColor: e.target.value })}
+                            placeholder="#ffa500"
+                            style={{ flex: 1, padding: '6px 8px', background: '#090a0f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', color: '#fff', fontSize: '12px', fontFamily: 'monospace' }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Author Tag Text Color */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: '#d4d4d4' }}>Author Tag Text Color</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <input 
+                            type="color" 
+                            value={settings.highlightAuthorTextColor || '#222222'}
+                            onChange={(e) => updateSettings({ highlightAuthorTextColor: e.target.value })}
+                            style={{ width: '32px', height: '32px', padding: 0, border: 'none', borderRadius: '4px', cursor: 'pointer', background: 'none' }}
+                          />
+                          <input 
+                            type="text" 
+                            value={settings.highlightAuthorTextColor || '#222222'}
+                            onChange={(e) => updateSettings({ highlightAuthorTextColor: e.target.value })}
+                            placeholder="#222222"
+                            style={{ flex: 1, padding: '6px 8px', background: '#090a0f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', color: '#fff', fontSize: '12px', fontFamily: 'monospace' }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Chat Message Box Background */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: '#d4d4d4' }}>Message Box Background</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <input 
+                            type="color" 
+                            value={settings.highlightCommentBgColor || '#222222'}
+                            onChange={(e) => updateSettings({ highlightCommentBgColor: e.target.value })}
+                            style={{ width: '32px', height: '32px', padding: 0, border: 'none', borderRadius: '4px', cursor: 'pointer', background: 'none' }}
+                          />
+                          <input 
+                            type="text" 
+                            value={settings.highlightCommentBgColor || '#222222'}
+                            onChange={(e) => updateSettings({ highlightCommentBgColor: e.target.value })}
+                            placeholder="#222222"
+                            style={{ flex: 1, padding: '6px 8px', background: '#090a0f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', color: '#fff', fontSize: '12px', fontFamily: 'monospace' }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Chat Message Box Text Color */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: '#d4d4d4' }}>Message Box Text Color</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <input 
+                            type="color" 
+                            value={settings.highlightCommentTextColor || '#ffffff'}
+                            onChange={(e) => updateSettings({ highlightCommentTextColor: e.target.value })}
+                            style={{ width: '32px', height: '32px', padding: 0, border: 'none', borderRadius: '4px', cursor: 'pointer', background: 'none' }}
+                          />
+                          <input 
+                            type="text" 
+                            value={settings.highlightCommentTextColor || '#ffffff'}
+                            onChange={(e) => updateSettings({ highlightCommentTextColor: e.target.value })}
+                            placeholder="#ffffff"
+                            style={{ flex: 1, padding: '6px 8px', background: '#090a0f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', color: '#fff', fontSize: '12px', fontFamily: 'monospace' }}
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>

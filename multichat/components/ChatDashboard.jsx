@@ -41,7 +41,7 @@ import { TwitchChatClient } from '../utils/twitchChat';
 import { KickChatClient } from '../utils/kickChat';
 import { YoutubeChatClient, calculateYoutubeTop3Ranks } from '../utils/youtubeChat';
 import { ChatSimulator } from '../utils/simulator';
-import { parseAmountString, detectCurrencySymbol } from './HighlightOverlay';
+import { parseAmountString, detectCurrencySymbol, getHighResAvatarUrl } from './HighlightOverlay';
 
 export const isBotMessage = (msg) => {
   if (!msg) return false;
@@ -581,6 +581,13 @@ export default function ChatDashboard({
       }
       localStorage.setItem('multichat_active_highlight_event', JSON.stringify({ command: 'hide', timestamp: Date.now() }));
     } catch (e) {}
+
+    // Sync to server for Incognito, OBS Studio & other browsers
+    fetch('/api/overlay/highlight', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: 'hide' })
+    }).catch(() => {});
   }, []);
 
   const handleHighlightMessage = useCallback((msg, options = {}) => {
@@ -653,9 +660,13 @@ export default function ChatDashboard({
 
     const cleanUser = (msg.username || '').toLowerCase().replace(/^@+/, '').trim();
     const cleanDisplay = (msg.displayName || '').toLowerCase().replace(/^@+/, '').trim();
-    const resolvedAvatar = msg.avatarUrl || msg._resolvedAvatar || msg.avatar || msg.authorPhoto || 
+    const rawAvatar = msg.avatarUrl || msg._resolvedAvatar || msg.avatar || msg.authorPhoto || 
       (cleanUser ? GLOBAL_AVATAR_CACHE.get(cleanUser) : null) || 
       (cleanDisplay ? GLOBAL_AVATAR_CACHE.get(cleanDisplay) : null) || null;
+    const resolvedAvatar = getHighResAvatarUrl(rawAvatar);
+
+    const isDonationOrSuper = msg.eventType === 'donation' || !!finalDonationAmount;
+    const isMembershipEvent = msg.eventType === 'subscription' || msg.eventType === 'membership';
 
     const payload = {
       chatId: msg.id,
@@ -668,15 +679,28 @@ export default function ChatDashboard({
       isShorts: !!msg.isShorts,
       donationAmount: finalDonationAmount,
       amountValue: finalAmountValue,
-      isSuperChat: msg.eventType === 'donation' || !!finalDonationAmount,
-      isMembership: msg.eventType === 'subscription' || msg.eventType === 'membership',
+      isSuperChat: isDonationOrSuper,
+      isMembership: isMembershipEvent,
       membershipTier: msg.eventDetails?.tier || null,
       membershipDuration: msg.eventDetails?.milestoneText || msg.eventDetails?.tier || null,
       isGift: msg.eventDetails?.subType === 'gift_purchase' || msg.eventDetails?.subType === 'gift_redemption' || !!msg.giftDetails,
       giftDetails: msg.giftDetails || null,
-      backgroundColor: msg.eventDetails?.bodyBg || null,
-      textColor: msg.eventDetails?.contentTextColor || null,
-      authorBgColor: msg.eventDetails?.headerBg || null,
+      backgroundColor: isDonationOrSuper ? (msg.eventDetails?.bodyBg || null) : null,
+      textColor: isDonationOrSuper ? (msg.eventDetails?.contentTextColor || null) : null,
+      authorBgColor: isDonationOrSuper ? (msg.eventDetails?.headerBg || null) : null,
+      badges: Array.isArray(msg.badges) ? msg.badges : [],
+      badgeImages: msg.badgeImages || {},
+      badgeVersions: msg.badgeVersions || {},
+      isOwner: !!msg.isOwner,
+      isBroadcaster: !!msg.isBroadcaster,
+      isModerator: !!msg.isModerator,
+      isMember: !!msg.isMember || (Array.isArray(msg.badges) && (msg.badges.includes('member') || msg.badges.includes('subscriber'))),
+      isVerified: !!msg.isVerified || (Array.isArray(msg.badges) && msg.badges.includes('verified')),
+      youtubeRank: msg.youtubeRank || null,
+      giftedSubsCount: msg.giftedSubsCount || null,
+      monthsSubscribed: msg.monthsSubscribed || null,
+      channel: msg.channel || null,
+      showPlatformLogo: !!settings.highlightShowPlatformLogo,
       autoHideSeconds: settings.overlayFadeTime || 8
     };
 
@@ -689,7 +713,14 @@ export default function ChatDashboard({
       }
       localStorage.setItem('multichat_active_highlight_event', JSON.stringify({ command: 'show', data: payload, timestamp: Date.now() }));
     } catch (e) {}
-  }, [activeHighlightId, heldSuper, settings.overlayFadeTime, handleHideHighlight]);
+
+    // Sync to server for Incognito, OBS Studio & other browsers
+    fetch('/api/overlay/highlight', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: 'show', data: payload })
+    }).catch(() => {});
+  }, [activeHighlightId, heldSuper, settings.overlayFadeTime, settings.highlightShowPlatformLogo, handleHideHighlight]);
 
   // Global ESC key to hide overlay
   useEffect(() => {
@@ -981,17 +1012,7 @@ export default function ChatDashboard({
     return () => clearInterval(interval);
   }, [streamStartTimes, activeChannels]);
 
-  // Viewer count variance
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setViewerCount(prev => {
-        const delta = Math.floor(Math.random() * 3) - 1; // -1, 0, or 1
-        const next = prev + delta;
-        return next > 0 ? next : 1;
-      });
-    }, 12000);
-    return () => clearInterval(interval);
-  }, []);
+
 
   const formatUptime = (seconds) => {
     if (seconds === null || seconds === undefined) return 'N/A';
@@ -1235,6 +1256,21 @@ export default function ChatDashboard({
               return next;
             });
           }
+        } else {
+          // If startTimeVal was not provided in this payload, restore from existing cache if available
+          try {
+            const stored = localStorage.getItem('prochat_cached_stream_start_times');
+            if (stored) {
+              const parsed = JSON.parse(stored);
+              const cached = parsed[ch] || parsed[rawClean] || parsed[atClean] || parsed[justClean] || parsed[lowerCh] || parsed[lowerRaw] || parsed[lowerAt];
+              if (cached) {
+                setStreamStartTimes(prev => {
+                  if (prev[ch] || prev[rawClean]) return prev;
+                  return { ...prev, [ch]: cached, [rawClean]: cached, [atClean]: cached, [justClean]: cached, [lowerCh]: cached, [lowerRaw]: cached, [lowerAt]: cached };
+                });
+              }
+            }
+          } catch (e) {}
         }
         if (metadata && metadata.viewers !== undefined && metadata.viewers !== null) {
           setStreamViewers(prev => {
@@ -1293,20 +1329,8 @@ export default function ChatDashboard({
           });
         }
       } else if (status === 'offline' || status === 'disconnected') {
-        setStreamStartTimes(prev => {
-          const next = { ...prev };
-          delete next[ch];
-          delete next[rawClean];
-          delete next[atClean];
-          delete next[justClean];
-          delete next[lowerCh];
-          delete next[lowerRaw];
-          delete next[lowerAt];
-          try { localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next)); } catch (e) {}
-          return next;
-        });
-
-        // Clear viewers and likes on offline/disconnect
+        // Retain cached stream start times during transient disconnections/polling drops
+        // Only clear temporary viewers/likes metric
         setStreamViewers(prev => {
           const next = { ...prev };
           delete next[ch];
@@ -2479,22 +2503,41 @@ export default function ChatDashboard({
     uniqueChatters.filter(c => participantFilter === 'all' || c.platform === participantFilter),
   [uniqueChatters, participantFilter]);
 
+  const isChannelLive = useCallback((ch) => {
+    const cleanName = ch.name.toLowerCase().replace(/^@+/, '').trim();
+    const rawClean = ch.name.toLowerCase().replace('@', '').trim();
+    const lowerName = ch.name.toLowerCase();
+    const status = platformStatuses[cleanName] || platformStatuses[rawClean] || platformStatuses[lowerName] || platformStatuses[ch.platform];
+    const realCount = streamViewers[cleanName] ?? streamViewers[rawClean] ?? streamViewers[`@${cleanName}`] ?? streamViewers[ch.name] ?? streamViewers[lowerName] ?? 0;
+    const realLikes = streamLikes[cleanName] ?? streamLikes[rawClean] ?? streamLikes[`@${cleanName}`] ?? streamLikes[ch.name] ?? streamLikes[lowerName] ?? 0;
+    const startTime = streamStartTimes[cleanName] ?? streamStartTimes[rawClean] ?? streamStartTimes[`@${cleanName}`] ?? streamStartTimes[`@${rawClean}`] ?? streamStartTimes[ch.name] ?? streamStartTimes[lowerName];
+    const isConnected = status === 'connected' || status === 'live';
+    return realCount > 0 || realLikes > 0 || (isConnected && (ch.platform === 'youtube' ? (realCount > 0 || !!startTime) : !!startTime));
+  }, [platformStatuses, streamViewers, streamLikes, streamStartTimes]);
+
+  const enabledChannels = useMemo(() => activeChannels.filter(ch => ch.enabled), [activeChannels]);
+  const liveChannels = useMemo(() => enabledChannels.filter(ch => isChannelLive(ch)), [enabledChannels, isChannelLive]);
+  const hasAnyLive = liveChannels.length > 0;
+
   const viewersByPlatform = {};
   const uptimesByPlatform = {};
   const likesByPlatform = {};
 
-  activeChannels.filter(ch => ch.enabled).forEach(ch => {
+  const targetChannelsForMetrics = hasAnyLive ? liveChannels : enabledChannels;
+
+  targetChannelsForMetrics.forEach(ch => {
     const cleanName = ch.name.toLowerCase().replace(/^@+/, '').trim();
     const rawClean = ch.name.toLowerCase().replace('@', '').trim();
-    const status = platformStatuses[cleanName] || platformStatuses[rawClean] || platformStatuses[ch.platform];
+    const lowerName = ch.name.toLowerCase();
+    const status = platformStatuses[cleanName] || platformStatuses[rawClean] || platformStatuses[lowerName] || platformStatuses[ch.platform];
     const isShorts = ch.platform === 'youtube' && (youtubeShortsChannels.has(cleanName) || youtubeShortsChannels.has(rawClean));
     const displayPlatform = isShorts ? 'youtube_shorts' : ch.platform;
 
     // 1. Calculate watchers count for this channel
-    const realCount = streamViewers[cleanName] ?? streamViewers[rawClean] ?? streamViewers[`@${cleanName}`] ?? 0;
-    const isChannelConnected = status === 'connected' || realCount > 0;
+    const realCount = streamViewers[cleanName] ?? streamViewers[rawClean] ?? streamViewers[`@${cleanName}`] ?? streamViewers[ch.name] ?? streamViewers[lowerName] ?? 0;
+    const isChannelConnected = status === 'connected' || status === 'live' || realCount > 0;
     
-    let count = isChannelConnected ? realCount : 0;
+    let count = isChannelConnected ? realCount : (realCount > 0 ? realCount : 0);
     if (!viewersByPlatform[displayPlatform]) {
       viewersByPlatform[displayPlatform] = 0;
     }
@@ -2502,8 +2545,8 @@ export default function ChatDashboard({
 
     // 2. Calculate likes count for this channel (YouTube only)
     if (ch.platform === 'youtube') {
-      const realLikes = streamLikes[cleanName] ?? streamLikes[rawClean] ?? streamLikes[`@${cleanName}`] ?? 0;
-      let lCount = isChannelConnected ? realLikes : 0;
+      const realLikes = streamLikes[cleanName] ?? streamLikes[rawClean] ?? streamLikes[`@${cleanName}`] ?? streamLikes[ch.name] ?? streamLikes[lowerName] ?? 0;
+      let lCount = isChannelConnected ? realLikes : (realLikes > 0 ? realLikes : 0);
       if (!likesByPlatform[displayPlatform]) {
         likesByPlatform[displayPlatform] = 0;
       }
@@ -2512,11 +2555,10 @@ export default function ChatDashboard({
 
     // 3. Calculate elapsed stream duration for this channel
     const isStreamActive = ch.platform === 'youtube'
-      ? (status === 'connected')
+      ? (status === 'connected' || realCount > 0)
       : (status === 'connected' && (realCount > 0 || !!(streamStartTimes[cleanName] || streamStartTimes[rawClean])));
 
     if (isStreamActive) {
-      const lowerName = ch.name.toLowerCase();
       const startTimeVal = streamStartTimes[cleanName] || 
                            streamStartTimes[rawClean] || 
                            streamStartTimes[`@${cleanName}`] || 
@@ -2536,6 +2578,9 @@ export default function ChatDashboard({
       }
     }
   });
+
+  const activeViewersByPlatform = viewersByPlatform;
+  const activeLikesByPlatform = likesByPlatform;
 
   const handleWatchersClick = () => {
     setViewerDisplayMode(prev => {
@@ -2680,7 +2725,8 @@ export default function ChatDashboard({
     .reduce((sum, ch) => {
       const clean = ch.name.toLowerCase().replace(/^@+/, '').trim();
       const rawClean = ch.name.toLowerCase().replace('@', '').trim();
-      const count = streamViewers[clean] ?? streamViewers[rawClean] ?? streamViewers[`@${clean}`] ?? streamViewers[ch.name] ?? 0;
+      const lowerName = ch.name.toLowerCase();
+      const count = streamViewers[clean] ?? streamViewers[rawClean] ?? streamViewers[`@${clean}`] ?? streamViewers[ch.name] ?? streamViewers[lowerName] ?? 0;
       return sum + (typeof count === 'number' && !isNaN(count) && count > 0 ? count : 0);
     }, 0);
 
@@ -2691,7 +2737,8 @@ export default function ChatDashboard({
     .reduce((sum, ch) => {
       const clean = ch.name.toLowerCase().replace(/^@+/, '').trim();
       const rawClean = ch.name.toLowerCase().replace('@', '').trim();
-      const likes = streamLikes[clean] ?? streamLikes[rawClean] ?? streamLikes[`@${clean}`] ?? streamLikes[ch.name] ?? 0;
+      const lowerName = ch.name.toLowerCase();
+      const likes = streamLikes[clean] ?? streamLikes[rawClean] ?? streamLikes[`@${clean}`] ?? streamLikes[ch.name] ?? streamLikes[lowerName] ?? 0;
       return sum + (typeof likes === 'number' && !isNaN(likes) && likes > 0 ? likes : 0);
     }, 0);
 
@@ -2758,8 +2805,8 @@ export default function ChatDashboard({
                   <Eye size={13} style={{ color: 'var(--text-muted)' }} />
                   {viewerDisplayMode === 'individual' && (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                      {Object.keys(viewersByPlatform).length > 0 ? (
-                        Object.entries(viewersByPlatform).map(([platform, count]) => (
+                      {Object.keys(activeViewersByPlatform).length > 0 ? (
+                        Object.entries(activeViewersByPlatform).map(([platform, count]) => (
                           <span key={platform} style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
                             <PlatformLogo platform={platform} size={12} />
                             <span>{count}</span>
@@ -2808,8 +2855,8 @@ export default function ChatDashboard({
                       <ThumbsUp size={13} style={{ color: 'var(--text-muted)' }} />
                       {likesDisplayMode === 'individual' && (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                          {Object.keys(likesByPlatform).length > 0 ? (
-                            Object.entries(likesByPlatform).map(([platform, count]) => (
+                          {Object.keys(activeLikesByPlatform).length > 0 ? (
+                            Object.entries(activeLikesByPlatform).map(([platform, count]) => (
                               <span key={platform} style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
                                 <PlatformLogo platform={platform} size={12} />
                                 <span>{formatLikesNumber(count)}</span>
@@ -2857,50 +2904,52 @@ export default function ChatDashboard({
             <TooltipContent side="bottom" align="center">
               {activeEnabledChannels.length > 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {activeEnabledChannels.map(ch => {
-                    const cleanName = ch.name.toLowerCase().replace(/^@+/, '').trim();
-                    const rawClean = ch.name.toLowerCase().replace('@', '').trim();
-                    const v = streamViewers[cleanName] ?? streamViewers[rawClean] ?? 0;
-                    const l = streamLikes[cleanName] ?? streamLikes[rawClean] ?? 0;
-                    const lowerName = ch.name.toLowerCase();
-                    const startTime = streamStartTimes[cleanName] ?? 
-                                      streamStartTimes[rawClean] ?? 
-                                      streamStartTimes[`@${cleanName}`] ?? 
-                                      streamStartTimes[`@${rawClean}`] ?? 
-                                      streamStartTimes[ch.name] ?? 
-                                      streamStartTimes[lowerName];
-                    
-                    const isConnected = platformStatuses[cleanName] === 'connected' || platformStatuses[rawClean] === 'connected';
-                    const isStreamLive = ch.platform === 'youtube'
-                      ? isConnected
-                      : (isConnected && (v > 0 || !!startTime));
-                    
-                    const isYoutube = ch.platform === 'youtube';
-                    let durationStr = 'offline';
-                    if (isStreamLive) {
-                      durationStr = 'Live';
-                      if (startTime) {
-                        const startMs = parseStartTimeMs(startTime);
-                        if (startMs && !isNaN(startMs)) {
-                          const diffSecs = Math.floor((Date.now() - startMs) / 1000);
-                          if (diffSecs >= 0) {
-                            durationStr = formatUptime(diffSecs);
+                  {(() => {
+                    const channelsToDisplay = hasAnyLive ? liveChannels : enabledChannels;
+
+                    return channelsToDisplay.map(ch => {
+                      const cleanName = ch.name.toLowerCase().replace(/^@+/, '').trim();
+                      const rawClean = ch.name.toLowerCase().replace('@', '').trim();
+                      const lowerName = ch.name.toLowerCase();
+                      const v = streamViewers[cleanName] ?? streamViewers[rawClean] ?? streamViewers['@' + cleanName] ?? streamViewers[ch.name] ?? streamViewers[lowerName] ?? 0;
+                      const l = streamLikes[cleanName] ?? streamLikes[rawClean] ?? streamLikes['@' + cleanName] ?? streamLikes[ch.name] ?? streamLikes[lowerName] ?? 0;
+                      const startTime = streamStartTimes[cleanName] ?? 
+                                        streamStartTimes[rawClean] ?? 
+                                        streamStartTimes['@' + cleanName] ?? 
+                                        streamStartTimes['@' + rawClean] ?? 
+                                        streamStartTimes[ch.name] ?? 
+                                        streamStartTimes[lowerName];
+                      
+                      const isConnected = platformStatuses[cleanName] === 'connected' || platformStatuses[rawClean] === 'connected';
+                      const isStreamLive = v > 0 || l > 0 || (isConnected && !!startTime);
+                      
+                      const isYoutube = ch.platform === 'youtube';
+                      let durationStr = 'offline';
+                      if (isStreamLive) {
+                        durationStr = 'Live';
+                        if (startTime) {
+                          const startMs = parseStartTimeMs(startTime);
+                          if (startMs && !isNaN(startMs)) {
+                            const diffSecs = Math.floor((Date.now() - startMs) / 1000);
+                            if (diffSecs >= 0) {
+                              durationStr = formatUptime(diffSecs);
+                            }
                           }
                         }
                       }
-                    }
-                    return (
-                      <div key={ch.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <PlatformLogo platform={ch.platform} size={12} />
-                        <span style={{ fontWeight: 600 }}>{getChannelDisplayName(ch)}:</span>
-                        <span>
-                          {v} viewers
-                          {isYoutube ? ` • ${formatLikesNumber(l)} likes` : ''} 
-                          {` (${durationStr})`}
-                        </span>
-                      </div>
-                    );
-                  })}
+                      return (
+                        <div key={ch.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <PlatformLogo platform={ch.platform} size={12} />
+                          <span style={{ fontWeight: 600 }}>{getChannelDisplayName(ch)}:</span>
+                          <span>
+                            {v} viewers
+                            {isYoutube ? ` • ${formatLikesNumber(l)} likes` : ''} 
+                            {` (${durationStr})`}
+                          </span>
+                        </div>
+                      );
+                    });
+                  })()}
                   {hasYoutubeChannel && (
                     <>
                       <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '6px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>

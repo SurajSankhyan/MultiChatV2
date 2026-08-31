@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { parseMessageContent } from '../utils/emotes';
 import { ArrowDown, MessageSquare, MoreVertical, Volume2, User, ShieldAlert, Trash2, Star, ExternalLink, Clock, ShieldCheck, ShieldOff, ChevronRight, Crown, Tv } from 'lucide-react';
@@ -8,6 +8,7 @@ import { getLiveTwitchBadgeUrl } from '../utils/twitchChat';
 import { calculateYoutubeTop3Ranks } from '../utils/youtubeChat';
 import { requestKickAvatar } from '../utils/kickAvatarResolver';
 import CustomTipModal from './CustomTipModal';
+import AvatarModal from './AvatarModal';
 
 const appStartTime = Date.now();
 export const GLOBAL_AVATAR_CACHE = new Map();
@@ -230,7 +231,8 @@ const ChatMessageRow = React.memo(({
   moderation,
   onHighlightMessage,
   activeHighlightId,
-  heldSuper
+  heldSuper,
+  onAvatarClick
 }) => {
   const isHighlighted = activeHighlightId === msg?.id;
   const avatarUrl = resolveMessageAvatar(msg, user);
@@ -249,15 +251,20 @@ const ChatMessageRow = React.memo(({
           <div className="superchat-header-container" style={{ backgroundColor: headerBg, padding: '12px', display: 'flex', alignItems: 'center' }}>
             <div className="superchat-container">
               <div className="superchat-left">
-                {showAvatarForPlatform('youtube') && (
+                {showAvatarForPlatform('youtube') && wrapWithTooltip(
                   <img 
                     className="msg-avatar superchat-avatar" 
                     src={avatarUrl} 
                     alt={msg.displayName} 
+                    style={{ cursor: 'pointer' }}
+                    onClick={(e) => onAvatarClick && onAvatarClick(e, msg, avatarUrl)}
+                    
                     onError={(e) => {
                       e.target.src = getDefaultAvatar(msg.platform, msg.username, msg.userId);
                     }}
-                  />
+                  />,
+                  'View profile picture',
+                  `avatar-${msg.id}`
                 )}
               </div>
               <div className="superchat-right">
@@ -376,13 +383,16 @@ const ChatMessageRow = React.memo(({
               borderRadius: hasUserMessage ? '8px 8px 0 0' : '8px'
             }}
           >
-            {showAvatarForPlatform('youtube') && (
+            {showAvatarForPlatform('youtube') && wrapWithTooltip(
               <img 
                 className="msg-avatar" 
                 src={avatarUrl} 
                 alt={msg.displayName} 
-                style={{ width: '36px', height: '36px', borderRadius: '50%' }}
-              />
+                style={{ width: '36px', height: '36px', borderRadius: '50%', cursor: 'pointer' }}
+                onClick={(e) => onAvatarClick && onAvatarClick(e, msg, avatarUrl)}
+              />,
+              'View profile picture',
+              `avatar-${msg.id}`
             )}
             <div className="membership-meta">
               <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
@@ -543,6 +553,153 @@ const ChatMessageRow = React.memo(({
           )}
         </div>
       );
+    } else if (msg.eventType === 'gift' || msg.giftDetails || msg.eventDetails?.subType === 'gift') {
+      const giftInfo = msg.giftDetails || {};
+      const giftName = giftInfo.name || msg.eventDetails?.giftName || 'Gift';
+      const jewelsAmount = giftInfo.jewels || msg.eventDetails?.jewels || null;
+      const giftImg = giftInfo.imageUrl || msg.eventDetails?.imageUrl || null;
+      
+      element = (
+        <div 
+          key={msg.id} 
+          className={`gift-event-row youtube-gift-card ${isHighlighted ? 'active-highlight' : ''}`}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            padding: '8px 14px',
+            margin: '4px 0',
+            backgroundColor: 'rgba(255, 116, 200, 0.08)',
+            border: '1px solid rgba(255, 116, 200, 0.28)',
+            borderRadius: '10px',
+            fontSize: '14px',
+            position: 'relative',
+            transition: 'all 0.15s ease'
+          }}
+        >
+          {showAvatarForPlatform(msg.platform) && wrapWithTooltip(
+            <img 
+              className="msg-avatar" 
+              src={avatarUrl} 
+              alt={msg.displayName} 
+              style={{ width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer', flexShrink: 0 }}
+              onClick={(e) => onAvatarClick && onAvatarClick(e, msg, avatarUrl)}
+              onError={(e) => {
+                e.target.src = getDefaultAvatar(msg.platform, msg.username, msg.userId);
+              }}
+            />,
+            'View profile picture',
+            `avatar-${msg.id}`
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, flexWrap: 'wrap', minWidth: 0 }}>
+            {renderUsernameWithTooltip(msg, '', { fontWeight: 700, color: '#f472b6' })}
+            
+            {msg.badges && msg.badges.map(badge => {
+              const badgeImageUrl = msg.badgeImages && msg.badgeImages[badge];
+              if (badgeImageUrl) {
+                return (
+                  <img 
+                    key={badge} 
+                    className="msg-badge-icon" 
+                    src={badgeImageUrl} 
+                    alt={badge} 
+                    title={badge} 
+                    style={{ width: '16px', height: '16px', display: 'inline-block', verticalAlign: 'middle', margin: 0 }}
+                  />
+                );
+              }
+              return null;
+            })}
+
+            <span style={{ color: '#ffffff', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <span>{msg.text || `sent ${giftName}`}</span>
+              {giftImg && (
+                <img 
+                  src={giftImg} 
+                  alt={giftName} 
+                  style={{ width: '28px', height: '28px', objectFit: 'contain', verticalAlign: 'middle' }} 
+                />
+              )}
+            </span>
+
+            {jewelsAmount && (
+              <span className="youtube-jewels-badge" title={`${jewelsAmount} Jewels`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                <svg className="jewel-icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '14px', height: '14px' }}>
+                  <path d="M6 3h12l4 7-10 12L2 10l4-7z" fill="url(#jewelGradient-feed)" stroke="#ff74c8" strokeWidth="1.2" strokeLinejoin="round"/>
+                  <path d="M2 10h20M12 22L7.5 10M12 22l4.5-12M6 3l1.5 7M18 3l-1.5 7M12 3v7" stroke="#ffffff" strokeOpacity="0.5" strokeWidth="0.8"/>
+                </svg>
+                <span>{jewelsAmount}</span>
+              </span>
+            )}
+          </div>
+
+          <div className="gift-actions" style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto', flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+            {settings.showIcons && (
+              <span className="msg-platform-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
+                <PlatformLogo platform={msg.platform} isShorts={msg.isShorts} size={14} />
+              </span>
+            )}
+            <Tooltip delayDuration={150}>
+              <TooltipTrigger asChild>
+                <button 
+                  type="button" 
+                  className="message-actions-menu-btn"
+                  style={{ 
+                    color: isHighlighted ? '#38bdf8' : '#ffffff',
+                    backgroundColor: isHighlighted ? 'rgba(56, 189, 248, 0.25)' : 'rgba(255, 255, 255, 0.08)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    width: '26px',
+                    height: '26px',
+                    borderRadius: '6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    padding: 0
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onHighlightMessage) onHighlightMessage(msg);
+                  }}
+                >
+                  <Tv size={15} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" align="center">
+                {isHighlighted ? "Hide from Stream Overlay (ESC)" : "Show on Stream Overlay"}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip delayDuration={150}>
+              <TooltipTrigger asChild>
+                <button 
+                  type="button" 
+                  className="message-actions-menu-btn"
+                  style={{ 
+                    color: '#ffffff',
+                    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    width: '26px',
+                    height: '26px',
+                    borderRadius: '6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    padding: 0
+                  }}
+                  onClick={(e) => handleToggleMenu(e, msg)}
+                >
+                  <MoreVertical size={15} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" align="center">
+                Moderation & Insights
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+      );
     } else if (msg.eventType === 'system' || msg.username === 'system' || msg.displayName === 'SYSTEM') {
       element = (
         <div 
@@ -596,8 +753,16 @@ const ChatMessageRow = React.memo(({
         >
           <div className="event-header">
             {settings.showIcons && <span className="msg-platform-icon"><PlatformLogo platform={msg.platform} isShorts={msg.isShorts} size={14} /></span>}
-            {msg.platform !== 'kick' && showAvatarForPlatform(msg.platform) && (
-              <img className="msg-avatar smaller" src={avatarUrl} alt={msg.displayName} />
+            {msg.platform !== 'kick' && showAvatarForPlatform(msg.platform) && wrapWithTooltip(
+              <img 
+                className="msg-avatar smaller" 
+                src={avatarUrl} 
+                alt={msg.displayName} 
+                style={{ cursor: 'pointer' }}
+                onClick={(e) => onAvatarClick && onAvatarClick(e, msg, avatarUrl)}
+              />,
+              'View profile picture',
+              `avatar-${msg.id}`
             )}
             {renderUsernameWithTooltip(msg, '', { color: getUsernameColor(msg) })}
             <span className="event-text-label">{msg.text}</span>
@@ -741,11 +906,13 @@ const ChatMessageRow = React.memo(({
 
         {/* 4. Main message row */}
         <div className="chat-message-main-row" style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: '4px', width: '100%', paddingRight: '68px', boxSizing: 'border-box' }}>
-          {showAvatarForPlatform(msg.platform) && (
+          {showAvatarForPlatform(msg.platform) && wrapWithTooltip(
             <img 
               className="msg-avatar" 
               src={avatarUrl} 
               alt={msg.displayName || msg.username} 
+              style={{ cursor: 'pointer' }}
+              onClick={(e) => onAvatarClick && onAvatarClick(e, msg, avatarUrl)}
               onError={(e) => {
                 const errCount = parseInt(e.target.dataset.errorCount || '0') + 1;
                 e.target.dataset.errorCount = errCount;
@@ -767,7 +934,9 @@ const ChatMessageRow = React.memo(({
                   e.target.src = getDefaultAvatar(msg.platform, msg.username, msg.userId);
                 }
               }}
-            />
+            />,
+            'View profile picture',
+            `avatar-${msg.id}`
           )}
 
           <div className="msg-content-wrapper" style={{ minWidth: 0, flex: 1, wordBreak: 'break-word' }}>
@@ -1022,7 +1191,8 @@ const ChatMessageRow = React.memo(({
     prev.isInitialLoading === next.isInitialLoading &&
     prev.activeHighlightId === next.activeHighlightId &&
     prev.heldSuper === next.heldSuper &&
-    prev.onHighlightMessage === next.onHighlightMessage
+    prev.onHighlightMessage === next.onHighlightMessage &&
+    prev.onAvatarClick === next.onAvatarClick
   );
 });
 
@@ -1251,6 +1421,20 @@ export default function ChatFeed({
   const [selectedTimeoutDuration, setSelectedTimeoutDuration] = useState(300);
   const [revealedDeletedIds, setRevealedDeletedIds] = useState(new Set());
   const [customTipTargetMsg, setCustomTipTargetMsg] = useState(null);
+  const [selectedAvatarUser, setSelectedAvatarUser] = useState(null);
+
+  const handleAvatarClick = useCallback((e, msg, resolvedAvatar) => {
+    if (e) e.stopPropagation();
+    if (!msg) return;
+    const finalAvatar = resolvedAvatar || resolveMessageAvatar(msg, user) || msg.avatarUrl || msg.avatar || null;
+    setSelectedAvatarUser({
+      displayName: msg.displayName || msg.username || 'User',
+      username: msg.username || '',
+      avatarUrl: finalAvatar,
+      platform: msg.platform || 'youtube',
+      channelUrl: msg.channelUrl || null
+    });
+  }, [user]);
 
   const handleToggleMenu = (e, msg) => {
     e.stopPropagation();
@@ -2549,6 +2733,7 @@ export default function ChatFeed({
                   onHighlightMessage={onHighlightMessage}
                   activeHighlightId={activeHighlightId}
                   heldSuper={heldSuper}
+                  onAvatarClick={handleAvatarClick}
                 />
               );
             })
@@ -2848,6 +3033,14 @@ export default function ChatFeed({
           </div>
         </div>,
         document.body
+      )}
+
+      {/* User Profile / DP Modal */}
+      {selectedAvatarUser && (
+        <AvatarModal 
+          user={selectedAvatarUser}
+          onClose={() => setSelectedAvatarUser(null)}
+        />
       )}
 
       {/* Custom Tip Feature Modal */}
