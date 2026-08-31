@@ -265,30 +265,48 @@ export async function fetchLiveStreamInfo(videoId: string) {
 
       let liveViewers = 0;
       const pi = info.primary_info as any;
-      if (pi?.view_count?.original_view_count !== undefined && pi?.view_count?.original_view_count !== null) {
-        liveViewers = typeof pi.view_count.original_view_count === 'number' 
-          ? pi.view_count.original_view_count 
-          : (parseInt(String(pi.view_count.original_view_count).replace(/[^0-9]/g, ''), 10) || 0);
-      } else if (pi?.view_count?.view_count?.text) {
+      if (pi?.view_count?.view_count?.text) {
         const text = String(pi.view_count.view_count.text);
         if (text.toLowerCase().includes('watching')) {
           const match = text.match(/([0-9,.]+)/);
-          if (match) {
-            liveViewers = parseInt(match[1].replace(/,/g, ''), 10) || 0;
-          }
+          if (match) liveViewers = parseInt(match[1].replace(/,/g, ''), 10) || 0;
         }
       } else if (pi?.view_count?.short_view_count?.text) {
         const text = String(pi.view_count.short_view_count.text);
         if (text.toLowerCase().includes('watching')) {
           const match = text.match(/([0-9,.]+)/);
-          if (match) {
-            liveViewers = parseInt(match[1].replace(/,/g, ''), 10) || 0;
-          }
+          if (match) liveViewers = parseInt(match[1].replace(/,/g, ''), 10) || 0;
+        }
+      } else if (pi?.view_count?.runs) {
+        const runs = pi.view_count.runs;
+        if (runs[1]?.text?.toLowerCase().includes('watching') || runs[0]?.text?.toLowerCase().includes('watching')) {
+          const match = String(runs[0].text).match(/([0-9,.]+)/);
+          if (match) liveViewers = parseInt(match[1].replace(/,/g, ''), 10) || 0;
         }
       }
 
+      let liveLikes = 0;
+      if (pi?.menu?.top_level_buttons) {
+        for (const btn of pi.menu.top_level_buttons) {
+          const vm = btn?.segmentedLikeDislikeButtonViewModel?.likeButtonViewModel?.likeButtonViewModel?.toggleButtonViewModel?.toggleButtonViewModel?.defaultButtonViewModel?.buttonViewModel;
+          const title = vm?.title || vm?.accessibilityText || '';
+          if (title) {
+            const m = String(title).match(/([0-9,.]+(?:\s*[kKmM])?)/);
+            if (m) {
+              const text = m[1].toLowerCase().replace(/,/g, '');
+              if (text.includes('k')) liveLikes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
+              else if (text.includes('m')) liveLikes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
+              else liveLikes = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
+            }
+          }
+        }
+      }
+      if (!liveLikes && bi.like_count !== undefined && bi.like_count !== null) {
+        liveLikes = typeof bi.like_count === 'number' ? bi.like_count : (parseInt(String(bi.like_count).replace(/[^0-9]/g, ''), 10) || 0);
+      }
+
       const viewers = liveViewers > 0 ? liveViewers : 0;
-      const likes = typeof bi.like_count === 'number' ? bi.like_count : (parseInt(bi.like_count, 10) || 0);
+      const likes = liveLikes;
       const isLive = bi.is_live !== false || bi.is_live_content || !bi.duration;
       const title = bi.title || '';
       const author = bi.author || bi.channel?.name || '';

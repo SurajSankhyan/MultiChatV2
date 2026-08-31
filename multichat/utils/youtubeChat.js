@@ -752,15 +752,20 @@ export class YoutubeChatClient {
           if (videoPrimaryInfo && videoPrimaryInfo.videoActions) {
             const actions = videoPrimaryInfo.videoActions.menuRenderer?.topLevelButtons;
             if (actions) {
-              const likeBtn = actions.find(a => a.segmentedLikeDislikeButtonViewModel)?.segmentedLikeDislikeButtonViewModel?.likeButtonViewModel?.likeButtonViewModel?.toggleButtonViewModel?.toggleButtonViewModel?.defaultButtonViewModel?.buttonViewModel;
-              if (likeBtn && likeBtn.title) {
-                const titleStr = likeBtn.title.toLowerCase().replace(/,/g, '');
-                if (titleStr.includes('k')) {
-                  likes = Math.round(parseFloat(titleStr.replace(/[^0-9.]/g, '')) * 1000);
-                } else if (titleStr.includes('m')) {
-                  likes = Math.round(parseFloat(titleStr.replace(/[^0-9.]/g, '')) * 1000000);
-                } else {
-                  likes = parseInt(titleStr.replace(/[^0-9]/g, ''), 10) || 0;
+              for (const a of actions) {
+                const vm = a.segmentedLikeDislikeButtonViewModel?.likeButtonViewModel?.likeButtonViewModel?.toggleButtonViewModel?.toggleButtonViewModel?.defaultButtonViewModel?.buttonViewModel ||
+                           a.likeButtonViewModel?.likeButtonViewModel?.toggleButtonViewModel?.toggleButtonViewModel?.defaultButtonViewModel?.buttonViewModel ||
+                           a.buttonViewModel;
+                const titleStr = vm?.title || vm?.accessibilityText || vm?.accessibility?.label || '';
+                if (titleStr) {
+                  const m = String(titleStr).match(/([0-9,.]+(?:\s*[kKmM])?)/);
+                  if (m) {
+                    const text = m[1].toLowerCase().replace(/,/g, '');
+                    if (text.includes('k')) likes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
+                    else if (text.includes('m')) likes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
+                    else likes = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
+                    if (likes > 0) break;
+                  }
                 }
               }
             }
@@ -769,23 +774,17 @@ export class YoutubeChatClient {
       } catch(e) {}
     }
 
-    // Fallback for likes if not found
-    if (!likes) {
-      const countMatch = html.match(/"likeCount"\s*:\s*"([0-9.,KMBkmb]+)"/i) || html.match(/"likeCount"\s*:\s*([0-9]+)/i);
-      if (countMatch && countMatch[1]) {
-        const text = String(countMatch[1]).toLowerCase().replace(/,/g, '');
+    // Fallback for likes from button accessibility text in HTML
+    if (!likes && html) {
+      const labelMatch = html.match(/like this video along with\s+([0-9,.]+(?:\s*[kKmM])?)/i) ||
+                         html.match(/"accessibilityData"\s*:\s*\{"label"\s*:\s*"([0-9.,KMBkmb]+)\s+likes?"\}/i) ||
+                         html.match(/"defaultButtonViewModel"\s*:\s*\{[^}]*"accessibilityText"\s*:\s*"([0-9.,KMBkmb]+)\s+likes?"/i) ||
+                         html.match(/"defaultButtonViewModel"\s*:\s*\{[^}]*"title"\s*:\s*"([0-9.,KMBkmb]+)"/i);
+      if (labelMatch && labelMatch[1]) {
+        const text = labelMatch[1].toLowerCase().replace(/,/g, '');
         if (text.includes('k')) likes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
         else if (text.includes('m')) likes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
         else likes = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
-      } else {
-        const labelMatch = html.match(/"label"\s*:\s*"([0-9.,KMBkmb]+)\s+likes?"/i) || 
-                           html.match(/"accessibilityData"\s*:\s*\{"label"\s*:\s*"([0-9.,KMBkmb]+)\s+likes?"\}/i);
-        if (labelMatch && labelMatch[1]) {
-          const text = labelMatch[1].toLowerCase().replace(/,/g, '');
-          if (text.includes('k')) likes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
-          else if (text.includes('m')) likes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
-          else likes = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
-        }
       }
     }
 
@@ -1316,39 +1315,27 @@ export class YoutubeChatClient {
 
           // 2. Fallback to scraping watch page if direct player metadata didn't provide metrics
           if (!updated) {
-            const liveUrl = this.getLiveUrl(trimmedName);
-            const html = await this.fetchWithProxyFallback(liveUrl);
+            const targetUrl = pollInstance.videoId ? `https://www.youtube.com/watch?v=${pollInstance.videoId}` : this.getLiveUrl(trimmedName);
+            const html = await this.fetchWithProxyFallback(targetUrl);
             if (html) {
-              const currentVideoId = this.extractLiveVideoId(html);
-              if (!currentVideoId) {
-                offlineFailureCount++;
-                if (offlineFailureCount >= 5) {
-                  console.log(`YouTube client: channel ${pollKey} went offline during poll.`);
-                  this.onStatus(pollKey, 'offline', { startTime: pollInstance.startTimestamp, viewers: 0, likes: 0, displayName: pollInstance.displayName });
-                  this.leave(trimmedName);
-                  this.setupOfflinePoll(trimmedName, pollInstance.chatMode);
-                  return;
-                }
-              } else {
+              const meta = this.parseMetadataFromHtml(html);
+              if (meta) {
                 offlineFailureCount = 0;
-                const meta = this.parseMetadataFromHtml(html);
-                if (meta) {
-                  if (meta.startTime) {
-                    const isStale = pollInstance.startTimestamp && (pollInstance.startTimestamp - meta.startTime > 24 * 3600 * 1000);
-                    if (!isStale && (!pollInstance.startTimestamp || (meta.isExact && !pollInstance.isExactStartTime))) {
-                      pollInstance.startTimestamp = meta.startTime;
-                      if (meta.isExact) pollInstance.isExactStartTime = true;
-                      try {
-                        const stored = localStorage.getItem('prochat_cached_stream_start_times') || '{}';
-                        const next = { ...JSON.parse(stored), [pollInstance.videoId]: meta.startTime, [trimmedName]: meta.startTime, [rawClean]: meta.startTime, [`@${rawClean}`]: meta.startTime };
-                        localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next));
-                      } catch (e) {}
-                    }
+                if (meta.startTime) {
+                  const isStale = pollInstance.startTimestamp && (pollInstance.startTimestamp - meta.startTime > 24 * 3600 * 1000);
+                  if (!isStale && (!pollInstance.startTimestamp || (meta.isExact && !pollInstance.isExactStartTime))) {
+                    pollInstance.startTimestamp = meta.startTime;
+                    if (meta.isExact) pollInstance.isExactStartTime = true;
+                    try {
+                      const stored = localStorage.getItem('prochat_cached_stream_start_times') || '{}';
+                      const next = { ...JSON.parse(stored), [pollInstance.videoId]: meta.startTime, [trimmedName]: meta.startTime, [rawClean]: meta.startTime, [`@${rawClean}`]: meta.startTime };
+                      localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next));
+                    } catch (e) {}
                   }
-                  if (meta.viewers && meta.viewers > 0) pollInstance.viewers = meta.viewers;
-                  if (meta.likes && meta.likes > 0) pollInstance.likes = meta.likes;
-                  if (meta.isShorts) pollInstance.isShorts = true;
                 }
+                if (meta.viewers && meta.viewers > 0) pollInstance.viewers = meta.viewers;
+                if (meta.likes && meta.likes > 0) pollInstance.likes = meta.likes;
+                if (meta.isShorts) pollInstance.isShorts = true;
               }
             }
           }
