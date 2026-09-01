@@ -839,6 +839,12 @@ export class YoutubeChatClient {
       if (!isLiveMatch) return null;
     }
     
+    // Explicit offline safeguard: if the canonical URL is a channel page, it's not a live watch page
+    const channelCanonicalMatch = html.match(/<link\s+rel="canonical"\s+href="[^"]*(?:\/channel\/|\/@)[^"]+"/i);
+    if (channelCanonicalMatch) {
+      return null;
+    }
+
     // 1. Try canonical URL watch?v= or /shorts/
     const canonicalMatch = html.match(/<link\s+rel="canonical"\s+href="[^"]*(?:watch\?v=|\/shorts\/)([a-zA-Z0-9_-]{11})"/i);
     if (canonicalMatch && canonicalMatch[1]) {
@@ -1232,9 +1238,9 @@ export class YoutubeChatClient {
             pollInstance.startTimestamp = iStartTime;
             pollInstance.isExactStartTime = true;
             try {
-              const stored = localStorage.getItem('prochat_cached_stream_start_times') || '{}';
-              const next = { ...JSON.parse(stored), [pollInstance.videoId]: iStartTime, [trimmedName]: iStartTime, [rawClean]: iStartTime, [`@${rawClean}`]: iStartTime };
-              localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next));
+                const stored = localStorage.getItem('prochat_cached_stream_start_times') || '{}';
+                const next = { ...JSON.parse(stored), [pollInstance.videoId]: iStartTime };
+                localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next));
             } catch (e) {}
             this.onStatus(pollKey, 'connected', {
               startTime: iStartTime,
