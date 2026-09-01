@@ -268,9 +268,9 @@ export async function POST(request: Request) {
       }
 
       try {
-        const info = await yt.getInfo(targetVideoId);
-        if (info && info.basic_info) {
-          const bi = info.basic_info as any;
+        const basicInfo = await yt.getBasicInfo(targetVideoId);
+        if (basicInfo && basicInfo.basic_info) {
+          const bi = basicInfo.basic_info as any;
           const candidateTime = bi.start_timestamp;
           let startTime: number | null = null;
           let isExact = false;
@@ -304,29 +304,7 @@ export async function POST(request: Request) {
             }
           }
 
-          let liveViewers = 0;
-          const pi = info.primary_info as any;
-          if (pi?.view_count?.view_count?.text) {
-            const text = String(pi.view_count.view_count.text);
-            if (text.toLowerCase().includes('watching')) {
-              const match = text.match(/([0-9,.]+)/);
-              if (match) liveViewers = parseInt(match[1].replace(/,/g, ''), 10) || 0;
-            }
-          } else if (pi?.view_count?.short_view_count?.text) {
-            const text = String(pi.view_count.short_view_count.text);
-            if (text.toLowerCase().includes('watching')) {
-              const match = text.match(/([0-9,.]+)/);
-              if (match) liveViewers = parseInt(match[1].replace(/,/g, ''), 10) || 0;
-            }
-          } else if (pi?.view_count?.runs) {
-            const runs = pi.view_count.runs;
-            if (runs[1]?.text?.toLowerCase().includes('watching') || runs[0]?.text?.toLowerCase().includes('watching')) {
-              const match = String(runs[0].text).match(/([0-9,.]+)/);
-              if (match) liveViewers = parseInt(match[1].replace(/,/g, ''), 10) || 0;
-            }
-          }
-
-          const viewers = liveViewers > 0 ? liveViewers : 0;
+          const viewers = typeof bi.view_count === 'number' ? bi.view_count : (parseInt(bi.view_count, 10) || 0);
           const likes = typeof bi.like_count === 'number' ? bi.like_count : (parseInt(bi.like_count, 10) || 0);
           const isLive = bi.is_live !== false || bi.is_live_content || !bi.duration;
           const title = bi.title || '';

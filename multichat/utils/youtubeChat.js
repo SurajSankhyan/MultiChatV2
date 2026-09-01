@@ -231,16 +231,7 @@ export class YoutubeChatClient {
           break;
         }
       }
-      let viewers = 0;
-      const runs = json.contents?.twoColumnWatchNextResults?.results?.results?.contents?.[0]?.videoPrimaryInfoRenderer?.viewCount?.videoViewCountRenderer?.viewCount?.runs;
-      if (runs && runs[0]?.text) {
-        const run0 = runs[0].text;
-        const run1 = runs[1]?.text || '';
-        if (run1.toLowerCase().includes('watching') || run0.toLowerCase().includes('watching')) {
-          const parsed = parseInt(run0.replace(/[^0-9]/g, ''), 10);
-          if (!isNaN(parsed) && parsed > 0) viewers = parsed;
-        }
-      }
+      const viewers = parseInt(json.videoDetails?.viewCount, 10) || 0;
       const likes = parseInt(json.videoDetails?.likeCount, 10) || 0;
       return {
         isLive: !!json.videoDetails?.isLive || !!json.videoDetails?.isLiveContent || liveDetails?.isLiveNow !== false,
@@ -677,15 +668,28 @@ export class YoutubeChatClient {
       }
     }
 
-    // Extract concurrent viewers from html (strictly watching text)
-    const watchingMatch = html.match(/"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"([0-9,.]+)"\s*\}\s*,\s*\{\s*"text"\s*:\s*"\s*watching/i) ||
-                          html.match(/"text"\s*:\s*"([0-9,.]+)\s*watching\s*now"/i) ||
-                          html.match(/"viewCount"\s*:\s*\{\s*"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"([0-9,.]+)"\s*\}\s*,\s*\{\s*"text"\s*:\s*"\s*watching/i);
-    if (watchingMatch && watchingMatch[1]) {
-      const text = watchingMatch[1].toLowerCase();
-      if (text.includes('k')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
-      else if (text.includes('m')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
-      else viewers = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
+    // Extract concurrent viewers from html first
+    const origMatch = html.match(/"originalViewCount"\s*:\s*"([^"]+)"/);
+    if (origMatch && origMatch[1]) {
+      const val = parseInt(origMatch[1].replace(/[^0-9]/g, ''), 10);
+      if (!isNaN(val)) viewers = val;
+    } else {
+      const shortIdx = html.indexOf('"shortViewCountText"');
+      if (shortIdx !== -1) {
+        const sub = html.substring(shortIdx, shortIdx + 300);
+        const runTextMatch = sub.match(/"text"\s*:\s*"([^"]+)"/);
+        if (runTextMatch && runTextMatch[1]) {
+          const text = runTextMatch[1].toLowerCase();
+          if (text.includes('k')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
+          else if (text.includes('m')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
+          else viewers = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
+        }
+      }
+    }
+
+    // Fallback for viewers if still not found
+    if (!viewers && isLive && playerJson && playerJson.videoDetails && playerJson.videoDetails.viewCount) {
+       viewers = parseInt(playerJson.videoDetails.viewCount, 10) || 0;
     }
 
     // Fallback for startTime if not found: prioritize actualStartTime and startTimestamp first
@@ -752,20 +756,15 @@ export class YoutubeChatClient {
           if (videoPrimaryInfo && videoPrimaryInfo.videoActions) {
             const actions = videoPrimaryInfo.videoActions.menuRenderer?.topLevelButtons;
             if (actions) {
-              for (const a of actions) {
-                const vm = a.segmentedLikeDislikeButtonViewModel?.likeButtonViewModel?.likeButtonViewModel?.toggleButtonViewModel?.toggleButtonViewModel?.defaultButtonViewModel?.buttonViewModel ||
-                           a.likeButtonViewModel?.likeButtonViewModel?.toggleButtonViewModel?.toggleButtonViewModel?.defaultButtonViewModel?.buttonViewModel ||
-                           a.buttonViewModel;
-                const titleStr = vm?.title || vm?.accessibilityText || vm?.accessibility?.label || '';
-                if (titleStr) {
-                  const m = String(titleStr).match(/([0-9,.]+(?:\s*[kKmM])?)/);
-                  if (m) {
-                    const text = m[1].toLowerCase().replace(/,/g, '');
-                    if (text.includes('k')) likes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
-                    else if (text.includes('m')) likes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
-                    else likes = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
-                    if (likes > 0) break;
-                  }
+              const likeBtn = actions.find(a => a.segmentedLikeDislikeButtonViewModel)?.segmentedLikeDislikeButtonViewModel?.likeButtonViewModel?.likeButtonViewModel?.toggleButtonViewModel?.toggleButtonViewModel?.defaultButtonViewModel?.buttonViewModel;
+              if (likeBtn && likeBtn.title) {
+                const titleStr = likeBtn.title.toLowerCase().replace(/,/g, '');
+                if (titleStr.includes('k')) {
+                  likes = Math.round(parseFloat(titleStr.replace(/[^0-9.]/g, '')) * 1000);
+                } else if (titleStr.includes('m')) {
+                  likes = Math.round(parseFloat(titleStr.replace(/[^0-9.]/g, '')) * 1000000);
+                } else {
+                  likes = parseInt(titleStr.replace(/[^0-9]/g, ''), 10) || 0;
                 }
               }
             }
@@ -774,17 +773,23 @@ export class YoutubeChatClient {
       } catch(e) {}
     }
 
-    // Fallback for likes from button accessibility text in HTML
-    if (!likes && html) {
-      const labelMatch = html.match(/like this video along with\s+([0-9,.]+(?:\s*[kKmM])?)/i) ||
-                         html.match(/"accessibilityData"\s*:\s*\{"label"\s*:\s*"([0-9.,KMBkmb]+)\s+likes?"\}/i) ||
-                         html.match(/"defaultButtonViewModel"\s*:\s*\{[^}]*"accessibilityText"\s*:\s*"([0-9.,KMBkmb]+)\s+likes?"/i) ||
-                         html.match(/"defaultButtonViewModel"\s*:\s*\{[^}]*"title"\s*:\s*"([0-9.,KMBkmb]+)"/i);
-      if (labelMatch && labelMatch[1]) {
-        const text = labelMatch[1].toLowerCase().replace(/,/g, '');
+    // Fallback for likes if not found
+    if (!likes) {
+      const countMatch = html.match(/"likeCount"\s*:\s*"([0-9.,KMBkmb]+)"/i) || html.match(/"likeCount"\s*:\s*([0-9]+)/i);
+      if (countMatch && countMatch[1]) {
+        const text = String(countMatch[1]).toLowerCase().replace(/,/g, '');
         if (text.includes('k')) likes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
         else if (text.includes('m')) likes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
         else likes = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
+      } else {
+        const labelMatch = html.match(/"label"\s*:\s*"([0-9.,KMBkmb]+)\s+likes?"/i) || 
+                           html.match(/"accessibilityData"\s*:\s*\{"label"\s*:\s*"([0-9.,KMBkmb]+)\s+likes?"\}/i);
+        if (labelMatch && labelMatch[1]) {
+          const text = labelMatch[1].toLowerCase().replace(/,/g, '');
+          if (text.includes('k')) likes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
+          else if (text.includes('m')) likes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
+          else likes = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
+        }
       }
     }
 

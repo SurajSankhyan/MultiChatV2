@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server';
-import { getInnertubeInstance } from '@/lib/innertubeSession';
+import { getInnertubeInstance, formatInnertubeCookie } from '@/lib/innertubeSession';
+import { asSupabase } from '@/lib/supabase';
+import { decryptCookie } from '@/lib/cryptoCookie';
 
 const DEFAULT_INNERTUBE_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
-
-// Server-side persistent in-memory cache for live stream start times
-const START_TIME_SERVER_CACHE = new Map<string, { startTime: number; isExact: boolean; cachedAt: number }>();
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -64,17 +63,7 @@ function parsePlayerJson(json: any) {
   
   const { startTime, isExact } = parseCandidateTimestamp(candidateTime);
 
-  let viewers = 0;
-  const runs = json.contents?.twoColumnWatchNextResults?.results?.results?.contents?.[0]?.videoPrimaryInfoRenderer?.viewCount?.videoViewCountRenderer?.viewCount?.runs;
-  if (runs && runs[0]?.text) {
-    const run0 = runs[0].text;
-    const run1 = runs[1]?.text || '';
-    if (run1.toLowerCase().includes('watching') || run0.toLowerCase().includes('watching')) {
-      const parsed = parseInt(run0.replace(/[^0-9]/g, ''), 10);
-      if (!isNaN(parsed) && parsed > 0) viewers = parsed;
-    }
-  }
-  const likes = parseInt(json.videoDetails?.likeCount, 10) || 0;
+  const viewers = parseInt(json.videoDetails?.viewCount, 10) || 0;
   const isLive = !!json.videoDetails?.isLive || !!json.videoDetails?.isLiveContent || liveDetails?.isLiveNow !== false;
   const title = json.videoDetails?.title || '';
   const author = json.videoDetails?.author || '';
@@ -98,7 +87,7 @@ function parsePlayerJson(json: any) {
     startTimestamp: candidateTime || (startTime ? new Date(startTime).toISOString() : null),
     uptimeSeconds,
     viewers,
-    likes,
+    likes: parseInt(json.videoDetails?.likeCount, 10) || 0,
     title,
     author,
     isShorts
@@ -118,11 +107,16 @@ function parseHtmlMetadata(html: string) {
   let { startTime, isExact } = parseCandidateTimestamp(candidateTime);
 
   let viewers = 0;
-  const watchingMatch = html.match(/"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"([0-9,.]+)"\s*\}\s*,\s*\{\s*"text"\s*:\s*"\s*watching/i) ||
-                        html.match(/"text"\s*:\s*"([0-9,.]+)\s*watching\s*now"/i) ||
-                        html.match(/"viewCount"\s*:\s*\{\s*"runs"\s*:\s*\[\s*\{\s*"text"\s*:\s*"([0-9,.]+)"\s*\}\s*,\s*\{\s*"text"\s*:\s*"\s*watching/i);
-  if (watchingMatch && watchingMatch[1]) {
-    viewers = parseInt(watchingMatch[1].replace(/[^0-9]/g, ''), 10) || 0;
+  const origMatch = html.match(/"originalViewCount"\s*:\s*"([^"]+)"/);
+  if (origMatch && origMatch[1]) {
+    const val = parseInt(origMatch[1].replace(/[^0-9]/g, ''), 10);
+    if (!isNaN(val)) viewers = val;
+  } else {
+    const shortViewMatch = html.match(/"viewCount"\s*:\s*"([^"]+)"/);
+    if (shortViewMatch && shortViewMatch[1]) {
+      const val = parseInt(shortViewMatch[1].replace(/[^0-9]/g, ''), 10);
+      if (!isNaN(val)) viewers = val;
+    }
   }
 
   let likes = 0;
@@ -189,46 +183,62 @@ function parseHtmlMetadata(html: string) {
   return null;
 }
 
-async function resolveLiveVideoId(channelOrHandle: string): Promise<string | null> {
+async function fetchUserCookieFromDB(channel: string | null): Promise<string | undefined> {
+  let userCookie = undefined;
+  try {
+    const { data: rows } = await asSupabase
+      .from('Youtube')
+      .select('youtube_cookie, custom_handle, channel_id');
+
+    if (rows && rows.length > 0) {
+      let cookieRow: any = null;
+      if (channel) {
+        const cleanMod = channel.toLowerCase().replace(/^@+/, '').trim();
+        cookieRow = rows.find((r: any) =>
+          ((r.channel_id || '').toLowerCase().trim() === cleanMod ||
+           (r.custom_handle || '').toLowerCase().replace(/^@+/, '').trim() === cleanMod) &&
+          (r.youtube_cookie || '').includes('SAPISID=')
+        );
+      }
+      if (!cookieRow) {
+        cookieRow = rows.find((r: any) => (r.youtube_cookie || '').includes('SAPISID=')) || rows[0];
+      }
+
+      if (cookieRow?.youtube_cookie) {
+        const rawCookie = cookieRow.youtube_cookie;
+        const decryptedCookie = rawCookie.includes('=') ? rawCookie : (decryptCookie(rawCookie) || rawCookie);
+        userCookie = formatInnertubeCookie(decryptedCookie) || decryptedCookie;
+      }
+    }
+  } catch (e: any) {
+    console.warn('[Live-Info API] Failed to fetch cookie from DB:', e.message);
+  }
+  return userCookie || process.env.YOUTUBE_COOKIE;
+}
+
+async function resolveLiveVideoId(channelOrHandle: string, cookie?: string): Promise<string | null> {
   if (!channelOrHandle) return null;
   const clean = channelOrHandle.replace(/^@+/, '').trim();
   const url = clean.toLowerCase().startsWith('uc')
     ? `https://www.youtube.com/channel/${clean}/live`
     : `https://www.youtube.com/@${clean}/live`;
 
-  // 1. Direct fetch with redirect tracking
+  // 1. Direct fetch
   try {
     const res = await fetch(url, {
-      redirect: 'follow',
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36' }
     });
     if (res.ok) {
-      const finalUrl = res.url || '';
-      const urlMatch = finalUrl.match(/watch\?v=([a-zA-Z0-9_-]{11})/);
-      if (urlMatch?.[1]) return urlMatch[1];
       const html = await res.text();
       const match = html.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/) ||
-                    html.match(/watch\?v=([a-zA-Z0-9_-]{11})/) ||
-                    html.match(/canonical"\s+href="https:\/\/www\.youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})"/);
+                    html.match(/watch\?v=([a-zA-Z0-9_-]{11})/);
       if (match?.[1]) return match[1];
     }
   } catch (e) {}
 
-  // 2. InnerTube URL resolution
+  // 2. InnerTube youtubei.js search / channel lookup
   try {
-    const yt = await getInnertubeInstance();
-    const nav: any = await yt.resolveURL(url).catch(() => null);
-    if (nav?.payload?.videoId) return nav.payload.videoId;
-    if (nav?.payload?.browseId) {
-      const ch = await yt.getChannel(nav.payload.browseId).catch(() => null);
-      const liveTab: any = await ch?.getLiveStreams().catch(() => null);
-      if (liveTab?.videos?.[0]?.id) return liveTab.videos[0].id;
-    }
-  } catch (e) {}
-
-  // 3. Search fallback
-  try {
-    const yt = await getInnertubeInstance();
+    const yt = await getInnertubeInstance(undefined, cookie);
     const searchRes = await yt.search(clean, { type: 'video' });
     const liveVideo: any = searchRes.videos?.find((v: any) => v.is_live);
     if (liveVideo?.id) {
@@ -239,74 +249,20 @@ async function resolveLiveVideoId(channelOrHandle: string): Promise<string | nul
   return null;
 }
 
-export async function fetchLiveStreamInfo(videoId: string) {
+export async function fetchLiveStreamInfo(videoId: string, cookie?: string) {
   if (!videoId) return null;
 
-  // Check server-side cache for this videoId
-  const cachedStart = videoId ? START_TIME_SERVER_CACHE.get(videoId) : null;
-
-  // 1. Primary: InnerTube Engine via youtubei.js getInfo
+  // 1. Primary: InnerTube Engine via youtubei.js (Best for Netlify & Datacenter Serverless)
   try {
-    const yt = await getInnertubeInstance();
-    const info = await yt.getInfo(videoId);
-    if (info && info.basic_info) {
-      const bi = info.basic_info as any;
+    const yt = await getInnertubeInstance(undefined, cookie);
+    const basicInfo = await yt.getBasicInfo(videoId);
+    if (basicInfo && basicInfo.basic_info) {
+      const bi = basicInfo.basic_info as any;
       const candidateTime = bi.start_timestamp;
-      let { startTime, isExact } = parseCandidateTimestamp(candidateTime);
+      const { startTime, isExact } = parseCandidateTimestamp(candidateTime);
 
-      if (!startTime && cachedStart && (Date.now() - cachedStart.cachedAt < 24 * 60 * 60 * 1000)) {
-        startTime = cachedStart.startTime;
-        isExact = cachedStart.isExact;
-      }
-
-      if (startTime && videoId) {
-        START_TIME_SERVER_CACHE.set(videoId, { startTime, isExact: !!isExact, cachedAt: Date.now() });
-      }
-
-      let liveViewers = 0;
-      const pi = info.primary_info as any;
-      if (pi?.view_count?.view_count?.text) {
-        const text = String(pi.view_count.view_count.text);
-        if (text.toLowerCase().includes('watching')) {
-          const match = text.match(/([0-9,.]+)/);
-          if (match) liveViewers = parseInt(match[1].replace(/,/g, ''), 10) || 0;
-        }
-      } else if (pi?.view_count?.short_view_count?.text) {
-        const text = String(pi.view_count.short_view_count.text);
-        if (text.toLowerCase().includes('watching')) {
-          const match = text.match(/([0-9,.]+)/);
-          if (match) liveViewers = parseInt(match[1].replace(/,/g, ''), 10) || 0;
-        }
-      } else if (pi?.view_count?.runs) {
-        const runs = pi.view_count.runs;
-        if (runs[1]?.text?.toLowerCase().includes('watching') || runs[0]?.text?.toLowerCase().includes('watching')) {
-          const match = String(runs[0].text).match(/([0-9,.]+)/);
-          if (match) liveViewers = parseInt(match[1].replace(/,/g, ''), 10) || 0;
-        }
-      }
-
-      let liveLikes = 0;
-      if (pi?.menu?.top_level_buttons) {
-        for (const btn of pi.menu.top_level_buttons) {
-          const vm = btn?.segmentedLikeDislikeButtonViewModel?.likeButtonViewModel?.likeButtonViewModel?.toggleButtonViewModel?.toggleButtonViewModel?.defaultButtonViewModel?.buttonViewModel;
-          const title = vm?.title || vm?.accessibilityText || '';
-          if (title) {
-            const m = String(title).match(/([0-9,.]+(?:\s*[kKmM])?)/);
-            if (m) {
-              const text = m[1].toLowerCase().replace(/,/g, '');
-              if (text.includes('k')) liveLikes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
-              else if (text.includes('m')) liveLikes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
-              else liveLikes = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
-            }
-          }
-        }
-      }
-      if (!liveLikes && bi.like_count !== undefined && bi.like_count !== null) {
-        liveLikes = typeof bi.like_count === 'number' ? bi.like_count : (parseInt(String(bi.like_count).replace(/[^0-9]/g, ''), 10) || 0);
-      }
-
-      const viewers = liveViewers > 0 ? liveViewers : 0;
-      const likes = liveLikes;
+      const viewers = typeof bi.view_count === 'number' ? bi.view_count : (parseInt(bi.view_count, 10) || 0);
+      const likes = typeof bi.like_count === 'number' ? bi.like_count : (parseInt(bi.like_count, 10) || 0);
       const isLive = bi.is_live !== false || bi.is_live_content || !bi.duration;
       const title = bi.title || '';
       const author = bi.author || bi.channel?.name || '';
@@ -314,7 +270,7 @@ export async function fetchLiveStreamInfo(videoId: string) {
 
       const uptimeSeconds = startTime ? Math.max(0, Math.floor((Date.now() - startTime) / 1000)) : null;
 
-      if (startTime || isLive || viewers > 0) {
+      if (startTime || isLive) {
         return {
           success: true,
           isLive,
@@ -331,7 +287,7 @@ export async function fetchLiveStreamInfo(videoId: string) {
       }
     }
   } catch (err: any) {
-    console.warn('[Live-Info API] youtubei.js getInfo notice:', err.message);
+    console.warn('[Live-Info API] youtubei.js getBasicInfo notice:', err.message);
   }
 
   // 2. Secondary: InnerTube REST POST with multiple client contexts (WEB_EMBEDDED_PLAYER, WEB, TVHTML5)
@@ -345,10 +301,7 @@ export async function fetchLiveStreamInfo(videoId: string) {
     try {
       const endpoint = `https://www.youtube.com/youtubei/v1/player?key=${DEFAULT_INNERTUBE_KEY}`;
       const payload = {
-        context: {
-          client,
-          thirdParty: { embedUrl: `https://www.youtube.com/watch?v=${videoId}` }
-        },
+        context: { client },
         videoId
       };
       const res = await fetch(endpoint, {
@@ -356,26 +309,17 @@ export async function fetchLiveStreamInfo(videoId: string) {
         headers: {
           'Content-Type': 'application/json',
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
-          'X-YouTube-Client-Name': client.clientName === 'WEB' ? '1' : '56',
-          'X-YouTube-Client-Version': client.clientVersion
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Origin': 'https://www.youtube.com',
+          'Referer': 'https://www.youtube.com/'
         },
         body: JSON.stringify(payload)
       });
       if (res.ok) {
         const data = await res.json();
         const parsed = parsePlayerJson(data);
-        if (parsed) {
-          if (!parsed.startTime && cachedStart && (Date.now() - cachedStart.cachedAt < 24 * 60 * 60 * 1000)) {
-            parsed.startTime = cachedStart.startTime;
-            parsed.isExact = cachedStart.isExact;
-            parsed.uptimeSeconds = Math.max(0, Math.floor((Date.now() - cachedStart.startTime) / 1000));
-          }
-          if (parsed.startTime && videoId) {
-            START_TIME_SERVER_CACHE.set(videoId, { startTime: parsed.startTime, isExact: !!parsed.isExact, cachedAt: Date.now() });
-          }
-          if (parsed.startTime || parsed.isLive) {
-            return parsed;
-          }
+        if (parsed && (parsed.startTime || parsed.isLive)) {
+          return parsed;
         }
       }
     } catch (e) {}
@@ -393,17 +337,7 @@ export async function fetchLiveStreamInfo(videoId: string) {
     if (watchRes.ok) {
       const html = await watchRes.text();
       const parsed = parseHtmlMetadata(html);
-      if (parsed) {
-        if (!parsed.startTime && cachedStart && (Date.now() - cachedStart.cachedAt < 24 * 60 * 60 * 1000)) {
-          parsed.startTime = cachedStart.startTime;
-          parsed.isExact = cachedStart.isExact;
-          parsed.uptimeSeconds = Math.max(0, Math.floor((Date.now() - cachedStart.startTime) / 1000));
-        }
-        if (parsed.startTime && videoId) {
-          START_TIME_SERVER_CACHE.set(videoId, { startTime: parsed.startTime, isExact: !!parsed.isExact, cachedAt: Date.now() });
-        }
-        return parsed;
-      }
+      if (parsed) return parsed;
     }
   } catch (e) {}
 
@@ -419,37 +353,9 @@ export async function fetchLiveStreamInfo(videoId: string) {
     if (chatRes.ok) {
       const html = await chatRes.text();
       const parsed = parseHtmlMetadata(html);
-      if (parsed) {
-        if (!parsed.startTime && cachedStart && (Date.now() - cachedStart.cachedAt < 24 * 60 * 60 * 1000)) {
-          parsed.startTime = cachedStart.startTime;
-          parsed.isExact = cachedStart.isExact;
-          parsed.uptimeSeconds = Math.max(0, Math.floor((Date.now() - cachedStart.startTime) / 1000));
-        }
-        if (parsed.startTime && videoId) {
-          START_TIME_SERVER_CACHE.set(videoId, { startTime: parsed.startTime, isExact: !!parsed.isExact, cachedAt: Date.now() });
-        }
-        return parsed;
-      }
+      if (parsed) return parsed;
     }
   } catch (e) {}
-
-  // 5. Last resort: If we have cached start time, return live metadata with cached start time
-  if (cachedStart && (Date.now() - cachedStart.cachedAt < 24 * 60 * 60 * 1000)) {
-    const uptimeSeconds = Math.max(0, Math.floor((Date.now() - cachedStart.startTime) / 1000));
-    return {
-      success: true,
-      isLive: true,
-      startTime: cachedStart.startTime,
-      isExact: cachedStart.isExact,
-      startTimestamp: new Date(cachedStart.startTime).toISOString(),
-      uptimeSeconds,
-      viewers: 0,
-      likes: 0,
-      title: '',
-      author: '',
-      isShorts: false
-    };
-  }
 
   return null;
 }
@@ -460,15 +366,17 @@ export async function GET(request: Request) {
     let videoId = searchParams.get('videoId') || searchParams.get('v') || searchParams.get('video_id');
     const channel = searchParams.get('channel') || searchParams.get('handle') || searchParams.get('channelId');
 
+    const cookie = await fetchUserCookieFromDB(channel);
+
     if (!videoId && channel) {
-      videoId = await resolveLiveVideoId(channel);
+      videoId = await resolveLiveVideoId(channel, cookie);
     }
 
     if (!videoId) {
       return NextResponse.json({ success: false, error: 'videoId or channel parameter is required' }, { status: 400, headers: corsHeaders });
     }
 
-    const info = await fetchLiveStreamInfo(videoId);
+    const info = await fetchLiveStreamInfo(videoId, cookie);
     if (!info) {
       return NextResponse.json({ success: false, error: 'Failed to fetch live stream info' }, { status: 404, headers: corsHeaders });
     }
@@ -485,15 +393,17 @@ export async function POST(request: Request) {
     let videoId = body.videoId || body.video_id || body.v;
     const channel = body.channel || body.handle || body.channelId;
 
+    const cookie = await fetchUserCookieFromDB(channel);
+
     if (!videoId && channel) {
-      videoId = await resolveLiveVideoId(channel);
+      videoId = await resolveLiveVideoId(channel, cookie);
     }
 
     if (!videoId) {
       return NextResponse.json({ success: false, error: 'videoId or channel is required in body' }, { status: 400, headers: corsHeaders });
     }
 
-    const info = await fetchLiveStreamInfo(videoId);
+    const info = await fetchLiveStreamInfo(videoId, cookie);
     if (!info) {
       return NextResponse.json({ success: false, error: 'Failed to fetch live stream info' }, { status: 404, headers: corsHeaders });
     }
