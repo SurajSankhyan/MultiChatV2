@@ -1,4 +1,8 @@
 import { NextResponse } from 'next/server';
+import { asSupabase } from '@/lib/supabase';
+import { decryptCookie } from '@/lib/cryptoCookie';
+import { formatInnertubeCookie } from '@/lib/innertubeSession';
+
 
 const DEFAULT_INNERTUBE_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
 
@@ -8,6 +12,48 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
   'Cache-Control': 'no-store, max-age=0'
 };
+
+
+async function fetchUserCookieFromDB(channel: string | null): Promise<string | undefined> {
+  let userCookie = undefined;
+  try {
+    const { data: rows } = await asSupabase
+      .from('Youtube')
+      .select('youtube_cookie, custom_handle, channel_id');
+
+    if (rows && rows.length > 0) {
+      let cookieRow: any = null;
+      if (channel) {
+        const cleanMod = channel.toLowerCase().replace(/^@+/, '').trim();
+        cookieRow = rows.find((r: any) =>
+          ((r.channel_id || '').toLowerCase().trim() === cleanMod ||
+           (r.custom_handle || '').toLowerCase().replace(/^@+/, '').trim() === cleanMod) &&
+          (r.youtube_cookie || '').includes('SAPISID=')
+        );
+      }
+      if (!cookieRow) {
+        cookieRow = rows.find((r: any) => (r.youtube_cookie || '').includes('SAPISID=')) || rows[0];
+      }
+
+      if (cookieRow?.youtube_cookie) {
+        const rawCookie = cookieRow.youtube_cookie;
+        const decryptedCookie = rawCookie.includes('=') ? rawCookie : (decryptCookie(rawCookie) || rawCookie);
+        userCookie = formatInnertubeCookie(decryptedCookie) || decryptedCookie;
+      }
+    }
+  } catch (e: any) {
+    console.warn('[Proxy API] Failed to fetch cookie from DB:', e.message);
+  }
+  return userCookie || process.env.YOUTUBE_COOKIE;
+}
+
+function extractChannelFromUrl(url: string): string | null {
+  try {
+    const match = url.match(/youtube\.com\/@([^/?]+)/) || url.match(/youtube\.com\/channel\/([^/?]+)/);
+    if (match && match[1]) return match[1];
+  } catch(e) {}
+  return null;
+}
 
 export async function OPTIONS() {
   return new NextResponse(null, {
@@ -34,7 +80,10 @@ export async function GET(request: Request) {
   headers.set('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8');
   headers.set('Accept-Language', 'en-US,en;q=0.9');
   headers.set('Referer', isMobile ? 'https://m.youtube.com/' : 'https://www.youtube.com/');
-  headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
+  const channel = extractChannelFromUrl(targetUrl);
+  const dbCookie = await fetchUserCookieFromDB(channel);
+  if (dbCookie) headers.set('Cookie', dbCookie);
+  else headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
 
   try {
     const res = await fetch(targetUrl, { headers });
@@ -74,7 +123,10 @@ export async function POST(request: Request) {
   headers.set('X-Origin', 'https://www.youtube.com');
   headers.set('Sec-Fetch-Mode', 'cors');
   headers.set('Sec-Fetch-Site', 'same-origin');
-  headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
+  const channel = extractChannelFromUrl(targetUrl);
+  const dbCookie = await fetchUserCookieFromDB(channel);
+  if (dbCookie) headers.set('Cookie', dbCookie);
+  else headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
 
   try {
     const incomingBody = await request.json().catch(() => ({}));
