@@ -1305,7 +1305,7 @@ export default function ChatDashboard({
             }
           } catch (e) {}
         }
-        if (metadata && metadata.viewers !== undefined && metadata.viewers !== null && metadata.viewers > 0) {
+        if (metadata && metadata.viewers !== undefined && metadata.viewers !== null) {
           setStreamViewers(prev => {
             const next = { 
               ...prev, 
@@ -1321,7 +1321,7 @@ export default function ChatDashboard({
             return next;
           });
         }
-        if (metadata && metadata.likes !== undefined && metadata.likes !== null && metadata.likes > 0) {
+        if (metadata && metadata.likes !== undefined && metadata.likes !== null) {
           setStreamLikes(prev => {
             const next = { 
               ...prev, 
@@ -2753,27 +2753,21 @@ export default function ChatDashboard({
   };
 
 
-  const totalConnectedViewers = activeChannels
-    .filter(ch => ch.enabled)
-    .reduce((sum, ch) => {
-      const clean = ch.name.toLowerCase().replace(/^@+/, '').trim();
-      const rawClean = ch.name.toLowerCase().replace('@', '').trim();
-      const lowerName = ch.name.toLowerCase();
-      const count = streamViewers[clean] ?? streamViewers[rawClean] ?? streamViewers[`@${clean}`] ?? streamViewers[ch.name] ?? streamViewers[lowerName] ?? 0;
-      return sum + (typeof count === 'number' && !isNaN(count) && count > 0 ? count : 0);
-    }, 0);
+  const totalConnectedViewers = Object.entries(streamViewers)
+    .filter(([chName]) => activeChannels.some(ch => ch.enabled && (
+      ch.name.toLowerCase().replace(/^@+/, '').trim() === chName ||
+      ch.name.toLowerCase().replace('@', '').trim() === chName
+    )))
+    .reduce((sum, [, count]) => sum + (count || 0), 0);
 
   const displayViewerCount = activeChannels.some(ch => ch.enabled) ? totalConnectedViewers : 0;
 
-  const totalConnectedLikes = activeChannels
-    .filter(ch => ch.enabled && ch.platform === 'youtube')
-    .reduce((sum, ch) => {
-      const clean = ch.name.toLowerCase().replace(/^@+/, '').trim();
-      const rawClean = ch.name.toLowerCase().replace('@', '').trim();
-      const lowerName = ch.name.toLowerCase();
-      const likes = streamLikes[clean] ?? streamLikes[rawClean] ?? streamLikes[`@${clean}`] ?? streamLikes[ch.name] ?? streamLikes[lowerName] ?? 0;
-      return sum + (typeof likes === 'number' && !isNaN(likes) && likes > 0 ? likes : 0);
-    }, 0);
+  const totalConnectedLikes = Object.entries(streamLikes)
+    .filter(([chName]) => activeChannels.some(ch => ch.enabled && ch.platform === 'youtube' && (
+      ch.name.toLowerCase().replace(/^@+/, '').trim() === chName ||
+      ch.name.toLowerCase().replace('@', '').trim() === chName
+    )))
+    .reduce((sum, [, count]) => sum + (count || 0), 0);
 
   const displayLikesCount = activeChannels.some(ch => ch.enabled && ch.platform === 'youtube') ? totalConnectedLikes : 0;
 

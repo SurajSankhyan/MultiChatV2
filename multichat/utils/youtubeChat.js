@@ -1278,85 +1278,58 @@ export class YoutubeChatClient {
       }
 
       // Periodic viewer and like count update for YouTube
-      let offlineFailureCount = 0;
       pollInstance.viewerIntervalId = setInterval(async () => {
-        if (!this.activePolls.has(pollKey)) return;
         try {
-          // 1. Query live-info / player metadata directly for current videoId
-          let updated = false;
-          try {
-            const pMeta = await this.fetchPlayerMetadata(pollInstance.videoId, pollInstance.apiKey);
-            if (pMeta) {
-              if (pMeta.isLive === false) {
-                offlineFailureCount++;
-                if (offlineFailureCount >= 5) {
-                  console.log(`YouTube client: channel ${pollKey} confirmed offline after 5 checks.`);
-                  this.onStatus(pollKey, 'offline', { startTime: pollInstance.startTimestamp, viewers: 0, likes: 0, displayName: pollInstance.displayName });
-                  this.leave(trimmedName);
-                  this.setupOfflinePoll(trimmedName, pollInstance.chatMode);
-                  return;
+          const liveUrl = this.getLiveUrl(trimmedName);
+          const html = await this.fetchWithProxyFallback(liveUrl);
+          if (html) {
+            const currentVideoId = this.extractLiveVideoId(html);
+            if (!currentVideoId) {
+              console.log(`YouTube client: channel ${pollKey} went offline during 15s poll.`);
+              this.onStatus(pollKey, 'offline', { startTime: null, viewers: 0, likes: 0, displayName: pollInstance.displayName });
+              this.leave(trimmedName);
+              this.setupOfflinePoll(trimmedName, pollInstance.chatMode);
+              return;
+            }
+
+            const meta = this.parseMetadataFromHtml(html);
+            if (meta) {
+              if (meta.startTime) {
+                // Never overwrite an already established timer with a rough estimate
+                if (!pollInstance.startTimestamp || (meta.isExact && !pollInstance.isExactStartTime)) {
+                  pollInstance.startTimestamp = meta.startTime;
+                  if (meta.isExact) pollInstance.isExactStartTime = true;
                 }
-              } else {
-                offlineFailureCount = 0;
-                if (pMeta.viewers && pMeta.viewers > 0) pollInstance.viewers = pMeta.viewers;
-                if (pMeta.likes && pMeta.likes > 0) pollInstance.likes = pMeta.likes;
-                if (pMeta.isShorts) pollInstance.isShorts = true;
-                if (pMeta.startTime) {
-                  const isStale = pollInstance.startTimestamp && (pollInstance.startTimestamp - pMeta.startTime > 24 * 3600 * 1000);
-                  if (!isStale && (!pollInstance.startTimestamp || (pMeta.isExact && !pollInstance.isExactStartTime))) {
+              }
+              if (meta.viewers !== null && meta.viewers !== undefined) pollInstance.viewers = meta.viewers;
+              if (meta.likes !== null && meta.likes !== undefined) pollInstance.likes = meta.likes;
+              if (meta.isShorts) pollInstance.isShorts = true;
+            }
+            if (!pollInstance.startTimestamp || !pollInstance.isShorts) {
+              try {
+                const pMeta = await this.fetchPlayerMetadata(pollInstance.videoId, pollInstance.apiKey);
+                if (pMeta) {
+                  if (pMeta.startTime && !pollInstance.startTimestamp) {
                     pollInstance.startTimestamp = pMeta.startTime;
-                    if (pMeta.isExact) pollInstance.isExactStartTime = true;
-                    try {
-                      const stored = localStorage.getItem('prochat_cached_stream_start_times') || '{}';
-                      const next = { ...JSON.parse(stored), [pollInstance.videoId]: pMeta.startTime, [trimmedName]: pMeta.startTime, [rawClean]: pMeta.startTime, [`@${rawClean}`]: pMeta.startTime };
-                      localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next));
-                    } catch (e) {}
+                    pollInstance.isExactStartTime = !!pMeta.isExact;
                   }
+                  if (pMeta.isShorts) pollInstance.isShorts = true;
+                  if (pMeta.viewers && pollInstance.viewers === null) pollInstance.viewers = pMeta.viewers;
                 }
-                updated = true;
-              }
+              } catch (e) {}
             }
-          } catch (e) {}
 
-          // 2. Fallback to scraping watch page if direct player metadata didn't provide metrics
-          if (!updated) {
-            const targetUrl = pollInstance.videoId ? `https://www.youtube.com/watch?v=${pollInstance.videoId}` : this.getLiveUrl(trimmedName);
-            const html = await this.fetchWithProxyFallback(targetUrl);
-            if (html) {
-              const meta = this.parseMetadataFromHtml(html);
-              if (meta) {
-                offlineFailureCount = 0;
-                if (meta.startTime) {
-                  const isStale = pollInstance.startTimestamp && (pollInstance.startTimestamp - meta.startTime > 24 * 3600 * 1000);
-                  if (!isStale && (!pollInstance.startTimestamp || (meta.isExact && !pollInstance.isExactStartTime))) {
-                    pollInstance.startTimestamp = meta.startTime;
-                    if (meta.isExact) pollInstance.isExactStartTime = true;
-                    try {
-                      const stored = localStorage.getItem('prochat_cached_stream_start_times') || '{}';
-                      const next = { ...JSON.parse(stored), [pollInstance.videoId]: meta.startTime, [trimmedName]: meta.startTime, [rawClean]: meta.startTime, [`@${rawClean}`]: meta.startTime };
-                      localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next));
-                    } catch (e) {}
-                  }
-                }
-                if (meta.viewers && meta.viewers > 0) pollInstance.viewers = meta.viewers;
-                if (meta.likes && meta.likes > 0) pollInstance.likes = meta.likes;
-                if (meta.isShorts) pollInstance.isShorts = true;
-              }
-            }
+            this.onStatus(pollKey, 'connected', { 
+              startTime: pollInstance.startTimestamp,
+              isExact: pollInstance.isExactStartTime,
+              viewers: pollInstance.viewers,
+              likes: pollInstance.likes,
+              isShorts: pollInstance.isShorts,
+              displayName: pollInstance.displayName || pollInstance.trimmedName.replace('@', '')
+            });
           }
-
-          this.onStatus(pollKey, 'connected', { 
-            startTime: pollInstance.startTimestamp,
-            isExact: !!pollInstance.isExactStartTime,
-            viewers: pollInstance.viewers,
-            likes: pollInstance.likes,
-            isShorts: pollInstance.isShorts,
-            displayName: pollInstance.displayName || pollInstance.trimmedName.replace('@', '')
-          });
-        } catch (e) {
-          console.warn(`YouTube client: failed to update viewers/likes for ${pollKey}:`, e.message);
-        }
-      }, 15000); // refresh metrics every 15 seconds
+        } catch (e) {}
+      }, 15000);
 
     } catch (err) {
       console.error(`Failed to join YouTube stream "${trimmedName}":`, err);
