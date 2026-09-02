@@ -62,14 +62,7 @@ export class YoutubeChatClient {
   }
 
   mapToLocalProxy(url) {
-    if (!url.startsWith('https://www.youtube.com')) return url;
-    const path = url.replace('https://www.youtube.com', '');
-    
-    // Obfuscate /live_chat to avoid adblockers blocking the request
-    if (path.startsWith('/live_chat')) {
-      return path.replace('/live_chat', '/ytproxy/chat');
-    }
-    return '/ytproxy' + path;
+    return url;
   }
 
   getLiveUrl(channelName) {
@@ -116,38 +109,7 @@ export class YoutubeChatClient {
       }
     };
 
-    // 1. Try local proxy first
-    if (false) {
-      const localProxyUrl = this.mapToLocalProxy(url);
-      try {
-        console.log(`YouTube client: trying local proxy: ${localProxyUrl}`);
-        const res = await fetchTimeout(localProxyUrl);
-        if (res.ok) {
-          const text = await res.text();
-          if (isValidYoutubeHtml(text)) {
-            return text;
-          }
-        }
-      } catch (err) {
-        lastError = err;
-        console.warn('Local proxy fetch failed, trying query proxy:', err.message);
-      }
-
-      // 1b. Try dedicated query proxy (/api/youtube/proxy?url=...)
-      try {
-        const queryProxyUrl = `/api/youtube/proxy?url=${encodeURIComponent(url)}`;
-        const res2 = await fetchTimeout(queryProxyUrl);
-        if (res2.ok) {
-          const text2 = await res2.text();
-          if (isValidYoutubeHtml(text2)) {
-            return text2;
-          }
-        }
-      } catch (err2) {
-        lastError = err2;
-        console.warn('Query proxy fetch failed, falling back to public proxies:', err2.message);
-      }
-    }
+    // Skip /ytproxy/ completely and go straight to rotating public CORS proxies (HTML scraper page fetch)
 
     // 2. Fall back to rotating public proxies
     for (let i = 0; i < this.proxies.length; i++) {
@@ -187,7 +149,6 @@ export class YoutubeChatClient {
 
     const keyToUse = apiKey || 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
     const endpoint = `https://www.youtube.com/youtubei/v1/player?key=${keyToUse}`;
-    const localEndpoint = `/ytproxy/youtubei/v1/player?key=${keyToUse}`;
 
     const parsePlayerJson = (json) => {
       if (!json || json.error || (!json.microformat && !json.videoDetails)) return null;
@@ -473,7 +434,6 @@ export class YoutubeChatClient {
       if (apiKey) {
         try {
           const endpoint = `https://www.youtube.com/youtubei/v1/browse?key=${apiKey}`;
-          const localEndpoint = `/ytproxy/youtubei/v1/browse?key=${apiKey}`;
           const payload = {
             context: {
               client: {
@@ -486,19 +446,12 @@ export class YoutubeChatClient {
 
           console.log(`YouTube client: resolving channel name via InnerTube browse API for ${channelId}`);
           
-          let response;
-          try {
-            throw new Error('Skipped /ytproxy/ as requested');
-            if (!response.ok) throw new Error(`Local proxy returned ${response.status}`);
-          } catch (e) {
-            console.warn('Local proxy InnerTube browse failed, trying public proxy:', e.message);
-            const publicProxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(endpoint)}`;
-            response = await fetch(publicProxyUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload)
-            });
-          }
+          const publicProxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(endpoint)}`;
+          const response = await fetch(publicProxyUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
 
           if (response && response.ok) {
             const data = await response.json();
@@ -1369,29 +1322,21 @@ export class YoutubeChatClient {
         continuation: poll.continuationToken
       };
 
-      // 1. Try local proxy first for the POST request
+      // 1. Try dedicated query proxy (/api/youtube/proxy)
       let response;
       try {
-        const localEndpoint = `/ytproxy/get_chat?key=${poll.apiKey}`;
-        throw new Error('Skipped /ytproxy/ as requested');
+        const queryEndpoint = `/api/youtube/proxy?url=${encodeURIComponent(endpoint)}`;
+        response = await fetch(queryEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        });
         if (!response.ok) {
-          throw new Error(`Local proxy responded with status ${response.status}`);
+          throw new Error(`Query proxy responded with status ${response.status}`);
         }
-      } catch (err) {
-        // 1b. Fallback to secondary query proxy
-        try {
-          const queryEndpoint = `/api/youtube/proxy?url=${encodeURIComponent(endpoint)}`;
-          response = await fetch(queryEndpoint, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(payload)
-          });
-          if (!response.ok) {
-            throw new Error(`Query proxy responded with status ${response.status}`);
-          }
-        } catch (err2) {
+      } catch (err2) {
           // 2. Fall back to public CORS proxy
           try {
             const publicProxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(endpoint)}`;
@@ -1410,7 +1355,6 @@ export class YoutubeChatClient {
             return;
           }
         }
-      }
 
       const data = await response.json();
       poll.retryCount = 0; // reset on success
