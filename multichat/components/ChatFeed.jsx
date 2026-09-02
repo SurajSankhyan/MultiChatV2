@@ -2622,7 +2622,7 @@ export default function ChatFeed({
         onMouseDown={handleUserInteraction}
         style={{ 
           position: 'relative',
-          fontSize: `${settings.textSize || 15}px`,
+          fontSize: `${settings.textSize || 16}px`,
           fontFamily: settings.fontFamily === 'inherit' ? 'inherit' : settings.fontFamily || 'inherit'
         }}
       >

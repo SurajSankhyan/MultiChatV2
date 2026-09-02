@@ -572,7 +572,7 @@ export default function SettingsDrawer({
         <div 
           className="feed-messages" 
           style={{ 
-            fontSize: `${settings.textSize || 15}px`, 
+            fontSize: `${settings.textSize || 16}px`, 
             fontFamily: settings.fontFamily === 'inherit' ? 'inherit' : settings.fontFamily || 'inherit',
             background: 'rgba(0,0,0,0.3)', 
             borderRadius: '6px',
@@ -872,12 +872,12 @@ export default function SettingsDrawer({
                           type="range" 
                           min="12" 
                           max="24" 
-                          value={settings.textSize || 15}
+                          value={settings.textSize || 16}
                           onChange={(e) => updateSettings({ textSize: parseInt(e.target.value) })}
                           style={{ flex: 1 }}
                         />
                         <span style={{ minWidth: 40, textAlign: 'right', fontWeight: 600, color: '#fff' }}>
-                          {settings.textSize || 15}px
+                          {settings.textSize || 16}px
                         </span>
                       </div>
                     </div>
@@ -1285,6 +1285,21 @@ export default function SettingsDrawer({
                     </label>
                   </div>
 
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontSize: 14, color: '#d4d4d4' }}>Anti-Spam Filter (TTS)</span>
+                      <span style={{ fontSize: 11, color: '#71717a' }}>Block repeated words, character floods, bot commands, and duplicate spam</span>
+                    </div>
+                    <label className="switch">
+                      <input 
+                        type="checkbox" 
+                        checked={settings.ttsAntiSpam !== false}
+                        onChange={(e) => updateSettings({ ttsAntiSpam: e.target.checked })}
+                      />
+                      <span className="slider"></span>
+                    </label>
+                  </div>
+
                   <div className="setting-section">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                       <label style={{ fontSize: 13, fontWeight: 600, color: '#d4d4d4' }}>TTS Volume</label>
@@ -1319,6 +1334,26 @@ export default function SettingsDrawer({
                         step="0.1"
                         value={settings.ttsSpeed !== undefined ? settings.ttsSpeed : 1.0}
                         onChange={(e) => updateSettings({ ttsSpeed: parseFloat(e.target.value) })}
+                        style={{ flex: 1 }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="setting-section">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <label style={{ fontSize: 13, fontWeight: 600, color: '#d4d4d4' }}>Max Message Length (TTS)</label>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent-color, #ff6060)' }}>
+                        {settings.ttsMaxChars !== undefined ? settings.ttsMaxChars : 150} chars
+                      </span>
+                    </div>
+                    <div className="size-slider-row" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input 
+                        type="range" 
+                        min="50" 
+                        max="300" 
+                        step="10"
+                        value={settings.ttsMaxChars !== undefined ? settings.ttsMaxChars : 150}
+                        onChange={(e) => updateSettings({ ttsMaxChars: parseInt(e.target.value) })}
                         style={{ flex: 1 }}
                       />
                     </div>
