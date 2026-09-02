@@ -922,7 +922,7 @@ export default function ChatDashboard({
   const [streamStartTimes, setStreamStartTimes] = useState(() => {
     if (typeof window !== 'undefined') {
       try {
-        const stored = localStorage.getItem('prochat_cached_stream_start_times');
+        const stored = localStorage.getItem('multichat_stream_start_times_v2');
         if (stored) {
           const parsed = JSON.parse(stored);
           if (parsed && typeof parsed === 'object') return parsed;
@@ -935,7 +935,7 @@ export default function ChatDashboard({
   const [uptime, setUptime] = useState(() => {
     if (typeof window !== 'undefined') {
       try {
-        const stored = localStorage.getItem('prochat_cached_stream_start_times');
+        const stored = localStorage.getItem('multichat_stream_start_times_v2');
         if (stored) {
           const parsed = JSON.parse(stored);
           if (parsed && typeof parsed === 'object') {
@@ -1285,14 +1285,14 @@ export default function ChatDashboard({
                 [lowerRaw]: startTimeVal,
                 [lowerAt]: startTimeVal
               };
-              try { localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next)); } catch (e) {}
+              try { localStorage.setItem('multichat_stream_start_times_v2', JSON.stringify(next)); } catch (e) {}
               return next;
             });
           }
         } else {
           // If startTimeVal was not provided in this payload, restore from existing cache if available
           try {
-            const stored = localStorage.getItem('prochat_cached_stream_start_times');
+            const stored = localStorage.getItem('multichat_stream_start_times_v2');
             if (stored) {
               const parsed = JSON.parse(stored);
               const cached = parsed[ch] || parsed[rawClean] || parsed[atClean] || parsed[justClean] || parsed[lowerCh] || parsed[lowerRaw] || parsed[lowerAt];
@@ -1540,7 +1540,7 @@ export default function ChatDashboard({
                 if (startTime) {
                   setStreamStartTimes(prev => {
                     const next = { ...prev, [cleanName]: startTime, [ch.name]: startTime, [`@${cleanName}`]: startTime };
-                    try { localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next)); } catch (e) {}
+                    try { localStorage.setItem('multichat_stream_start_times_v2', JSON.stringify(next)); } catch (e) {}
                     return next;
                   });
                 }
@@ -1560,7 +1560,7 @@ export default function ChatDashboard({
                   delete next[cleanName];
                   delete next[ch.name];
                   delete next[`@${cleanName}`];
-                  try { localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next)); } catch (e) {}
+                  try { localStorage.setItem('multichat_stream_start_times_v2', JSON.stringify(next)); } catch (e) {}
                   return next;
                 });
                 if (kickClientRef.current && kickClientRef.current.isConnected) {
@@ -1711,7 +1711,7 @@ export default function ChatDashboard({
           changed = true;
         }
       });
-      if (changed) localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next));
+      if (changed) localStorage.setItem('multichat_stream_start_times_v2', JSON.stringify(next));
       return changed ? next : prev;
     });
 
@@ -3648,3 +3648,4 @@ export default function ChatDashboard({
     </div>
   );
 }
+

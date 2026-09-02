@@ -103,6 +103,7 @@ export class YoutubeChatClient {
     };
 
     const fetchTimeout = async (target, opts = {}) => {
+      opts = { cache: 'no-store', ...opts };
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
@@ -249,8 +250,9 @@ export class YoutubeChatClient {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 8500);
       const res = await fetch(`/api/youtube/live-info?videoId=${encodeURIComponent(videoId)}`, {
-        signal: controller.signal
-      });
+        cache: 'no-store',
+          signal: controller.signal
+        });
       clearTimeout(timer);
       if (res.ok) {
         const data = await res.json();
@@ -277,8 +279,9 @@ export class YoutubeChatClient {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'live_info', videoId }),
-        signal: controller.signal
-      });
+        cache: 'no-store',
+          signal: controller.signal
+        });
       clearTimeout(timer);
       if (res.ok) {
         const data = await res.json();
@@ -305,8 +308,9 @@ export class YoutubeChatClient {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-        signal: controller.signal
-      });
+        cache: 'no-store',
+          signal: controller.signal
+        });
       clearTimeout(timer);
       if (res.ok) {
         const data = await res.json();
@@ -324,8 +328,9 @@ export class YoutubeChatClient {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-        signal: controller.signal
-      });
+        cache: 'no-store',
+          signal: controller.signal
+        });
       clearTimeout(timer);
       if (res.ok) {
         const data = await res.json();
@@ -344,6 +349,7 @@ export class YoutubeChatClient {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
+          cache: 'no-store',
           signal: controller.signal
         });
         clearTimeout(timer);
@@ -1240,9 +1246,9 @@ export class YoutubeChatClient {
             pollInstance.startTimestamp = iStartTime;
             pollInstance.isExactStartTime = true;
             try {
-                const stored = localStorage.getItem('prochat_cached_stream_start_times') || '{}';
+                const stored = localStorage.getItem('multichat_stream_start_times_v2') || '{}';
                 const next = { ...JSON.parse(stored), [pollInstance.videoId]: iStartTime };
-                localStorage.setItem('prochat_cached_stream_start_times', JSON.stringify(next));
+                localStorage.setItem('multichat_stream_start_times_v2', JSON.stringify(next));
             } catch (e) {}
             this.onStatus(pollKey, 'connected', {
               startTime: iStartTime,
@@ -2414,4 +2420,6 @@ export function calculateYoutubeTop3Ranks(messages) {
 
   return top3Map;
 }
+
+
 
