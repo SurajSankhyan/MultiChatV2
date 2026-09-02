@@ -49,12 +49,8 @@ export class YoutubeChatClient {
     this.onMessageDeleted = onMessageDeletedCallback;
     this.activePolls = new Map(); // channelName -> { intervalId, videoId, apiKey, continuationToken }
     
-    // Rotating public CORS proxies as fallback
-    this.proxies = [
-      (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
-      (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-      (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
-    ];
+    // Direct HTML scraper fallback only (no third-party proxy URLs)
+    this.proxies = [];
   }
 
   connect() {
@@ -109,26 +105,36 @@ export class YoutubeChatClient {
       }
     };
 
-    // Skip /ytproxy/ completely and go straight to rotating public CORS proxies (HTML scraper page fetch)
-
-    // 2. Fall back to rotating public proxies
-    for (let i = 0; i < this.proxies.length; i++) {
-      const proxiedUrl = this.proxies[i](url);
-      try {
-        console.log(`YouTube client: trying public proxy index ${i} for ${url}`);
-        const res = await fetchTimeout(proxiedUrl);
-        if (res.ok) {
-          const text = await res.text();
-          if (isValidYoutubeHtml(text)) {
-            return text;
-          }
+    // Direct HTML scraper fallback (internal backend scraper, no public proxy URLs)
+    try {
+      console.log(`YouTube client: fetching HTML via direct scraper for ${url}`);
+      const scraperUrl = `/api/youtube/proxy?url=${encodeURIComponent(url)}`;
+      const res = await fetchTimeout(scraperUrl);
+      if (res.ok) {
+        const text = await res.text();
+        if (isValidYoutubeHtml(text)) {
+          return text;
         }
-      } catch (err) {
-        lastError = err;
-        console.warn(`Public proxy ${i} failed:`, err.message);
       }
+    } catch (err) {
+      lastError = err;
+      console.warn('Direct HTML scraper fetch failed:', err.message);
     }
-    throw lastError || new Error('All CORS proxies failed to load page');
+
+    // Direct fetch fallback
+    try {
+      const res = await fetchTimeout(url);
+      if (res.ok) {
+        const text = await res.text();
+        if (isValidYoutubeHtml(text)) {
+          return text;
+        }
+      }
+    } catch (err) {
+      lastError = err;
+    }
+
+    throw lastError || new Error('Direct HTML scraper failed to load page');
   }
 
   // Fetch structured player metadata directly via Innertube Player API
@@ -283,29 +289,7 @@ export class YoutubeChatClient {
       }
     } catch (e) {}
 
-    // 4. Try rotating public CORS proxies directly (fallback for static hosting)
-    for (const proxyFn of this.proxies) {
-      try {
-        const proxiedUrl = proxyFn(endpoint);
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 4000);
-        const res = await fetch(proxiedUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-          cache: 'no-store',
-          signal: controller.signal
-        });
-        clearTimeout(timer);
-        if (res.ok) {
-          const data = await res.json();
-          const parsed = parsePlayerJson(data);
-          if (parsed && parsed.startTime) return parsed;
-        }
-      } catch (e) {}
-    }
-
-    // 5. Fallback: fetch watch page HTML directly via proxy fallback (which contains itemprop="startDate" and startTimestamp)
+    // 4. Fallback: fetch watch page HTML directly via HTML scraper (which contains itemprop="startDate" and startTimestamp)
     try {
       const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
       const watchHtml = await this.fetchWithProxyFallback(watchUrl);
@@ -446,8 +430,8 @@ export class YoutubeChatClient {
 
           console.log(`YouTube client: resolving channel name via InnerTube browse API for ${channelId}`);
           
-          const publicProxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(endpoint)}`;
-          const response = await fetch(publicProxyUrl, {
+          const queryProxyUrl = `/api/youtube/proxy?url=${encodeURIComponent(endpoint)}`;
+          const response = await fetch(queryProxyUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -1337,24 +1321,9 @@ export class YoutubeChatClient {
           throw new Error(`Query proxy responded with status ${response.status}`);
         }
       } catch (err2) {
-          // 2. Fall back to public CORS proxy
-          try {
-            const publicProxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(endpoint)}`;
-            response = await fetch(publicProxyUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(payload)
-            });
-            if (!response.ok) {
-              throw new Error(`Public proxy responded with status ${response.status}`);
-            }
-          } catch (e3) {
-            poll.retryCount = (poll.retryCount || 0) + 1;
-            return;
-          }
-        }
+        poll.retryCount = (poll.retryCount || 0) + 1;
+        return;
+      }
 
       const data = await response.json();
       poll.retryCount = 0; // reset on success
