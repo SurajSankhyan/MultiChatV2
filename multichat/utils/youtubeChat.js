@@ -92,7 +92,7 @@ export class YoutubeChatClient {
   }
 
   // Helper to fetch from url trying local proxy first, and falling back to CORS proxies
-  async fetchWithProxyFallback(url, timeoutMs = 8000) {
+  async fetchWithProxyFallback(url, timeoutMs = 8000, channelName = null) {
     let lastError = null;
     const isValidYoutubeHtml = (text) => {
       if (!text || typeof text !== 'string' || text.length < 500) return false;
@@ -134,7 +134,7 @@ export class YoutubeChatClient {
 
       // 1b. Try dedicated query proxy (/api/youtube/proxy?url=...)
       try {
-        const queryProxyUrl = `/api/youtube/proxy?url=${encodeURIComponent(url)}`;
+        const queryProxyUrl = `/api/youtube/proxy?url=${encodeURIComponent(url)}${channelName ? '&channel=' + encodeURIComponent(channelName) : ''}`;
         const res2 = await fetchTimeout(queryProxyUrl);
         if (res2.ok) {
           const text2 = await res2.text();
@@ -1109,7 +1109,7 @@ export class YoutubeChatClient {
         try {
           const chatPageUrl = `https://www.youtube.com/live_chat?v=${videoId}`;
           console.log(`YouTube client: fetching live chat page for tokens: ${chatPageUrl}`);
-          const chatHtml = await this.fetchWithProxyFallback(chatPageUrl);
+          const chatHtml = await this.fetchWithProxyFallback(chatPageUrl, 8000, trimmedName);
           if (chatHtml) {
             const chatParams = this.extractInnertubeParams(chatHtml);
             if (!apiKey && chatParams.apiKey) apiKey = chatParams.apiKey;
@@ -1399,7 +1399,7 @@ export class YoutubeChatClient {
       } catch (err) {
         // 1b. Fallback to secondary query proxy
         try {
-          const queryEndpoint = `/api/youtube/proxy?url=${encodeURIComponent(endpoint)}`;
+          const queryEndpoint = `/api/youtube/proxy?url=${encodeURIComponent(endpoint)}&channel=${encodeURIComponent(pollKey)}`;
           response = await fetch(queryEndpoint, {
             method: 'POST',
             headers: {
