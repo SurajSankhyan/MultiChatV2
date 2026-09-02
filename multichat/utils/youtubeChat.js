@@ -117,7 +117,7 @@ export class YoutubeChatClient {
     };
 
     // 1. Try local proxy first
-    if (url.startsWith('https://www.youtube.com') || url.startsWith('https://m.youtube.com')) {
+    if (false) {
       const localProxyUrl = this.mapToLocalProxy(url);
       try {
         console.log(`YouTube client: trying local proxy: ${localProxyUrl}`);
@@ -300,24 +300,7 @@ export class YoutubeChatClient {
       }
     } catch (e) {}
 
-    // 2. Try local Next.js proxy (/ytproxy/youtubei/v1/player)
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 4000);
-      const res = await fetch(localEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        cache: 'no-store',
-          signal: controller.signal
-        });
-      clearTimeout(timer);
-      if (res.ok) {
-        const data = await res.json();
-        const parsed = parsePlayerJson(data);
-        if (parsed) return parsed;
-      }
-    } catch (e) {}
+    
 
     // 3. Try query proxy (/api/youtube/proxy)
     try {
@@ -505,11 +488,7 @@ export class YoutubeChatClient {
           
           let response;
           try {
-            response = await fetch(localEndpoint, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload)
-            });
+            throw new Error('Skipped /ytproxy/ as requested');
             if (!response.ok) throw new Error(`Local proxy returned ${response.status}`);
           } catch (e) {
             console.warn('Local proxy InnerTube browse failed, trying public proxy:', e.message);
@@ -1394,13 +1373,7 @@ export class YoutubeChatClient {
       let response;
       try {
         const localEndpoint = `/ytproxy/get_chat?key=${poll.apiKey}`;
-        response = await fetch(localEndpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(payload)
-        });
+        throw new Error('Skipped /ytproxy/ as requested');
         if (!response.ok) {
           throw new Error(`Local proxy responded with status ${response.status}`);
         }
