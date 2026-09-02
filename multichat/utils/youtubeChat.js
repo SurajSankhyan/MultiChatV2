@@ -92,7 +92,7 @@ export class YoutubeChatClient {
   }
 
   // Helper to fetch from url trying local proxy first, and falling back to CORS proxies
-  async fetchWithProxyFallback(url, timeoutMs = 8000, channelName = null) {
+  async fetchWithProxyFallback(url, timeoutMs = 8000) {
     let lastError = null;
     const isValidYoutubeHtml = (text) => {
       if (!text || typeof text !== 'string' || text.length < 500) return false;
@@ -134,7 +134,7 @@ export class YoutubeChatClient {
 
       // 1b. Try dedicated query proxy (/api/youtube/proxy?url=...)
       try {
-        const queryProxyUrl = `/api/youtube/proxy?url=${encodeURIComponent(url)}${channelName ? '&channel=' + encodeURIComponent(channelName) : ''}`;
+        const queryProxyUrl = `/api/youtube/proxy?url=${encodeURIComponent(url)}`;
         const res2 = await fetchTimeout(queryProxyUrl);
         if (res2.ok) {
           const text2 = await res2.text();
@@ -695,7 +695,9 @@ export class YoutubeChatClient {
     // Fallback for startTime if not found: prioritize actualStartTime and startTimestamp first
     if (!startTime) {
        const priorityRegexes = [
-         /"(?:actualStartTime|startTimestamp|startDate)"\s*:\s*"([^"]+)"/gi,
+         /"actualStartTime"\s*:\s*"([^"]+)"/gi,
+         /"startTimestamp"\s*:\s*"([^"]+)"/gi,
+         /"startDate"\s*:\s*"([^"]+)"/gi,
          /itemprop="startDate"\s+content="([^"]+)"/gi
        ];
        for (const rgx of priorityRegexes) {
@@ -1109,7 +1111,7 @@ export class YoutubeChatClient {
         try {
           const chatPageUrl = `https://www.youtube.com/live_chat?v=${videoId}`;
           console.log(`YouTube client: fetching live chat page for tokens: ${chatPageUrl}`);
-          const chatHtml = await this.fetchWithProxyFallback(chatPageUrl, 8000, trimmedName);
+          const chatHtml = await this.fetchWithProxyFallback(chatPageUrl);
           if (chatHtml) {
             const chatParams = this.extractInnertubeParams(chatHtml);
             if (!apiKey && chatParams.apiKey) apiKey = chatParams.apiKey;
@@ -1399,7 +1401,7 @@ export class YoutubeChatClient {
       } catch (err) {
         // 1b. Fallback to secondary query proxy
         try {
-          const queryEndpoint = `/api/youtube/proxy?url=${encodeURIComponent(endpoint)}&channel=${encodeURIComponent(pollKey)}`;
+          const queryEndpoint = `/api/youtube/proxy?url=${encodeURIComponent(endpoint)}`;
           response = await fetch(queryEndpoint, {
             method: 'POST',
             headers: {
@@ -2110,6 +2112,7 @@ export class YoutubeChatClient {
 
       const menuEndpoint = renderer.menu_endpoint || renderer.menuEndpoint || renderer.contextMenuEndpoint;
       const menuParams = menuEndpoint?.payload?.params ||
+                         menuEndpoint?.command?.liveChatItemContextMenuEndpoint?.params ||
                          menuEndpoint?.liveChatItemContextMenuEndpoint?.params ||
                          menuEndpoint?.contextMenuEndpoint?.params ||
                          menuEndpoint?.params ||

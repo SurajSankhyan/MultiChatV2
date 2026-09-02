@@ -80,7 +80,7 @@ export async function GET(request: Request) {
   headers.set('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8');
   headers.set('Accept-Language', 'en-US,en;q=0.9');
   headers.set('Referer', isMobile ? 'https://m.youtube.com/' : 'https://www.youtube.com/');
-  const channel = searchParams.get('channel') || extractChannelFromUrl(targetUrl);
+  const channel = extractChannelFromUrl(targetUrl);
   const dbCookie = await fetchUserCookieFromDB(channel);
   if (dbCookie) headers.set('Cookie', dbCookie);
   else headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
@@ -123,7 +123,7 @@ export async function POST(request: Request) {
   headers.set('X-Origin', 'https://www.youtube.com');
   headers.set('Sec-Fetch-Mode', 'cors');
   headers.set('Sec-Fetch-Site', 'same-origin');
-  const channel = searchParams.get('channel') || extractChannelFromUrl(targetUrl);
+  const channel = extractChannelFromUrl(targetUrl);
   const dbCookie = await fetchUserCookieFromDB(channel);
   if (dbCookie) headers.set('Cookie', dbCookie);
   else headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
