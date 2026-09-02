@@ -1,3 +1,6 @@
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import { NextResponse } from 'next/server';
 
 const DEFAULT_INNERTUBE_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
@@ -41,7 +44,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
   let html = '';
   let status = 200;
   try {
-    const res = await fetch(targetUrl, { headers });
+    const res = await fetch(targetUrl, { cache: 'no-store', headers });
     if (res.ok) {
       html = await res.text();
       status = res.status;
@@ -132,7 +135,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pat
     let resStatus = 200;
 
     try {
-      const res = await fetch(targetUrl, { method: 'POST', headers, body: JSON.stringify(body) });
+      const res = await fetch(targetUrl, { cache: 'no-store', method: 'POST', headers, body: JSON.stringify(body) });
       if (res.ok) {
         data = await res.json();
         resStatus = res.status;

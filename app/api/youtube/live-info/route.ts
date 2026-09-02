@@ -1,3 +1,6 @@
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import { NextResponse } from 'next/server';
 import { getInnertubeInstance, formatInnertubeCookie } from '@/lib/innertubeSession';
 import { asSupabase } from '@/lib/supabase';
@@ -226,6 +229,7 @@ async function resolveLiveVideoId(channelOrHandle: string, cookie?: string): Pro
   // 1. Direct fetch
   try {
     const res = await fetch(url, {
+      cache: 'no-store',
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36' }
     });
     if (res.ok) {
@@ -305,6 +309,7 @@ export async function fetchLiveStreamInfo(videoId: string, cookie?: string) {
         videoId
       };
       const res = await fetch(endpoint, {
+        cache: 'no-store',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -329,6 +334,7 @@ export async function fetchLiveStreamInfo(videoId: string, cookie?: string) {
   try {
     const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
     const watchRes = await fetch(watchUrl, {
+      cache: 'no-store',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
         'Accept-Language': 'en-US,en;q=0.9'
@@ -345,6 +351,7 @@ export async function fetchLiveStreamInfo(videoId: string, cookie?: string) {
   try {
     const chatUrl = `https://www.youtube.com/live_chat?v=${videoId}`;
     const chatRes = await fetch(chatUrl, {
+      cache: 'no-store',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
         'Accept-Language': 'en-US,en;q=0.9'

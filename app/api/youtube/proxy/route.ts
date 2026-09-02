@@ -1,3 +1,6 @@
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import { NextResponse } from 'next/server';
 import { asSupabase } from '@/lib/supabase';
 import { decryptCookie } from '@/lib/cryptoCookie';
@@ -86,7 +89,7 @@ export async function GET(request: Request) {
   else headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
 
   try {
-    const res = await fetch(targetUrl, { headers });
+    const res = await fetch(targetUrl, { headers, cache: 'no-store' });
     const text = await res.text();
     return new NextResponse(text, {
       status: res.status,

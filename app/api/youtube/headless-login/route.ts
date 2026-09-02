@@ -1,3 +1,6 @@
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import { NextResponse } from 'next/server';
 import { asSupabase } from '@/lib/supabase';
 import { formatInnertubeCookie } from '@/lib/innertubeSession';

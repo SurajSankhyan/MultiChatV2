@@ -1,0 +1,22 @@
+with open('multichat/utils/youtubeChat.js', 'r', encoding='utf-8') as f:
+    code = f.read()
+
+target = '''       const priorityRegexes = [
+         /"(?:actualStartTime|startTimestamp|startDate)"\s*:\s*"([^"]+)"/gi,
+         /itemprop="startDate"\s+content="([^"]+)"/gi
+       ];'''
+
+replacement = '''       const priorityRegexes = [
+         /"actualStartTime"\s*:\s*"([^"]+)"/gi,
+         /"startTimestamp"\s*:\s*"([^"]+)"/gi,
+         /"startDate"\s*:\s*"([^"]+)"/gi,
+         /itemprop="startDate"\s+content="([^"]+)"/gi
+       ];'''
+
+if target in code:
+    code = code.replace(target, replacement)
+    with open('multichat/utils/youtubeChat.js', 'w', encoding='utf-8') as f:
+        f.write(code)
+    print("Fixed priorityRegexes!")
+else:
+    print("Target not found!")
