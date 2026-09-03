@@ -38,7 +38,14 @@ const YOUTUBE_GIFT_JEWELS_MAP = {
   'sports car': 2500,
   'sportscar': 2500,
   'spaceship': 5000,
-  'rocket': 5000
+  'rocket': 5000,
+  'goat trophy': 500,
+  'goat': 500,
+  'gg': 10,
+  'paper airplane': 20,
+  'hot dog': 20,
+  'pizza': 20,
+  'burger': 20
 };
 
 export class YoutubeChatClient {
@@ -1794,15 +1801,16 @@ export class YoutubeChatClient {
         }
       }
 
-      // Check text for sent gifts (e.g. "@heliqx sent Star")
-      if (!isGift && text) {
-        const giftMatch = text.match(/sent\s+([A-Za-z0-9_.\s]+)/i);
-        if (giftMatch) {
-          const rawGiftName = giftMatch[1].replace(/[:*]/g, '').trim();
-          const cleanKey = rawGiftName.toLowerCase().replace(/\.+$/, '').trim();
-          if (YOUTUBE_GIFT_JEWELS_MAP[cleanKey] || YOUTUBE_GIFT_JEWELS_MAP[rawGiftName.toLowerCase()]) {
+        // Check text for sent gifts (e.g. "@heliqx sent Star" or "sent Goat trophy")
+        if (!isGift && text) {
+          const giftMatch = text.match(/sent\s+([A-Za-z0-9_.\s]+)/i);
+          if (giftMatch) {
+            const rawGiftName = giftMatch[1].replace(/[:*]/g, '').trim();
+            const cleanKey = rawGiftName.toLowerCase().replace(/\.+$/, '').trim();
             isGift = true;
-            const jewels = String(YOUTUBE_GIFT_JEWELS_MAP[cleanKey] || YOUTUBE_GIFT_JEWELS_MAP[rawGiftName.toLowerCase()] || 10);
+            isSystemEvent = true;
+            eventType = 'gift';
+            const jewels = String(YOUTUBE_GIFT_JEWELS_MAP[cleanKey] || YOUTUBE_GIFT_JEWELS_MAP[rawGiftName.toLowerCase()] || 50);
             const emotePart = parts.find(p => p.type === 'emote');
             giftDetails = {
               name: rawGiftName,
@@ -1811,7 +1819,6 @@ export class YoutubeChatClient {
             };
           }
         }
-      }
 
       if (isSystemEvent && eventType === 'subscription' && !renderer.message) {
         text = text || (eventDetails?.tier || 'Joined Channel Membership!');
