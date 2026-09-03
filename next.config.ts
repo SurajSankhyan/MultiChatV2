@@ -7,9 +7,6 @@ const nextConfig: NextConfig = {
   ...(isFrontendOnly ? { output: "export" } : {}),
 
   serverExternalPackages: [
-    "puppeteer",
-    "puppeteer-extra",
-    "puppeteer-extra-plugin-stealth",
     "youtubei.js"
   ],
   typescript: {
