@@ -1213,8 +1213,14 @@ export default function ChatDashboard({
         return;
       }
 
-      // Adaptive batch size: if buffer is small, process 1-2 msgs; if flooded, process up to 50 msgs per tick
-      const batchSize = Math.min(messageBuffer.length, messageBuffer.length > 50 ? 50 : (messageBuffer.length > 20 ? 20 : (messageBuffer.length > 5 ? 5 : 1)));
+      // Smooth adaptive batch flush (designed to trickle messages over 3-second polling gaps)
+      let batchSize = 1;
+      if (messageBuffer.length > 150) batchSize = 10;
+      else if (messageBuffer.length > 80) batchSize = 5;
+      else if (messageBuffer.length > 40) batchSize = 3;
+      else if (messageBuffer.length > 20) batchSize = 2;
+      
+      batchSize = Math.min(messageBuffer.length, batchSize);
       const batch = messageBuffer.splice(0, batchSize);
 
       setMessages(prev => {
@@ -1309,7 +1315,7 @@ export default function ChatDashboard({
     const startDrip = () => {
       if (dripTimer) return;
       drainBuffer();
-      dripTimer = setInterval(drainBuffer, 40);
+      dripTimer = setInterval(drainBuffer, 100);
     };
 
     // Callback for incoming messages — never drops messages & deduplicates optimistic/sent messages
