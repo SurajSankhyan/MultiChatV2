@@ -430,7 +430,7 @@ export async function POST(request: Request) {
             const headers: Record<string, string> = {
               'Content-Type': 'application/json',
               'X-YouTube-Client-Name': '1',
-              'X-YouTube-Client-Version': '2.20240301.00.00',
+              'X-YouTube-Client-Version': '2.20250201.01.00',
               'Origin': 'https://www.youtube.com',
               'Referer': 'https://www.youtube.com/'
             };
@@ -457,7 +457,7 @@ export async function POST(request: Request) {
               method: 'POST',
               headers,
               body: JSON.stringify({
-                context: { client: { clientName: 'WEB', clientVersion: '2.20240301.00.00' } },
+                context: { client: { clientName: 'WEB', clientVersion: '2.20250201.01.00' } },
                 params: liveChatId || targetVideoId,
                 richMessage: { textSegments: [{ text: message }] }
               })

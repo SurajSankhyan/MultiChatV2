@@ -296,7 +296,7 @@ export async function fetchLiveStreamInfo(videoId: string, cookie?: string) {
 
   // 2. Secondary: InnerTube REST POST with multiple client contexts (WEB_EMBEDDED_PLAYER, WEB, TVHTML5)
   const clientConfigs = [
-    { clientName: 'WEB', clientVersion: '2.20240404.01.00', hl: 'en', gl: 'US' },
+    { clientName: 'WEB', clientVersion: '2.20250201.01.00', hl: 'en', gl: 'US' },
     { clientName: 'WEB_EMBEDDED_PLAYER', clientVersion: '1.20240404.01.00', hl: 'en', gl: 'US' },
     { clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER', clientVersion: '2.0', hl: 'en', gl: 'US' }
   ];

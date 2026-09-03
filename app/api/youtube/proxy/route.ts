@@ -122,7 +122,7 @@ export async function POST(request: Request) {
   headers.set('Referer', 'https://www.youtube.com/');
   headers.set('Origin', 'https://www.youtube.com');
   headers.set('X-YouTube-Client-Name', '1');
-  headers.set('X-YouTube-Client-Version', '2.20240404.01.00');
+  headers.set('X-YouTube-Client-Version', '2.20250201.01.00');
   headers.set('X-Origin', 'https://www.youtube.com');
   headers.set('Sec-Fetch-Mode', 'cors');
   headers.set('Sec-Fetch-Site', 'same-origin');
@@ -139,7 +139,7 @@ export async function POST(request: Request) {
         ...(incomingBody.context || {}),
         client: {
           clientName: 'WEB',
-          clientVersion: '2.20240404.01.00',
+          clientVersion: '2.20250201.01.00',
           hl: 'en',
           gl: 'US',
           ...(incomingBody.context?.client || {})
