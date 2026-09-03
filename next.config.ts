@@ -15,9 +15,6 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
 
   // Apply CORS rules so Cloudflare can securely talk to Render Backend
   async headers() {
