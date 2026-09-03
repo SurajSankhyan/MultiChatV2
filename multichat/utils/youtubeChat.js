@@ -843,7 +843,7 @@ export class YoutubeChatClient {
       }
     };
     
-    pollInstance.viewerIntervalId = setInterval(checkLive, 10000);
+    pollInstance.viewerIntervalId = setInterval(checkLive, 30000);
   }
 
   extractInnertubeParams(html) {
@@ -1182,7 +1182,7 @@ export class YoutubeChatClient {
       let consecutiveErrors = 0;
       let isPollActive = false;
 
-      const scheduleNextPoll = (delay = 1000) => {
+      const scheduleNextPoll = (delay = 3000) => {
         if (!this.activePolls.has(pollKey)) return;
         if (pollInstance.timeoutId) clearTimeout(pollInstance.timeoutId);
         pollInstance.timeoutId = setTimeout(async () => {
@@ -1198,7 +1198,7 @@ export class YoutubeChatClient {
             isPollActive = false;
           }
           if (!this.activePolls.has(pollKey)) return;
-          scheduleNextPoll(1000);
+          scheduleNextPoll(3000);
         }, delay);
       };
 
@@ -1259,7 +1259,7 @@ export class YoutubeChatClient {
             });
           }
         } catch (e) {}
-      }, 15000);
+      }, 30000);
 
     } catch (err) {
       console.error(`Failed to join YouTube stream "${trimmedName}":`, err);
