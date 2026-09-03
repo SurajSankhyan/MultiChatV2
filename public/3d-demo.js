@@ -2576,7 +2576,7 @@ function setupLocalAuth() {
       connectBtn.innerText = 'Connecting...';
 
       try {
-        const res = await fetch('/api/youtube/headless-login', {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/youtube/headless-login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: userEmail, userId: userId })

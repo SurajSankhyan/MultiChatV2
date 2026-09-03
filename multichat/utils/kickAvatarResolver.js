@@ -110,7 +110,7 @@ async function resolveSingleAvatar(cleanUser, userId) {
       userId: userId ? String(userId) : '',
       json: 'true'
     });
-    const res = await fetch(`/api/kick/avatar?${query.toString()}`, {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/kick/avatar?${query.toString()}`, {
       headers: { 'Accept': 'application/json' },
       cache: 'no-store'
     });
@@ -124,7 +124,7 @@ async function resolveSingleAvatar(cleanUser, userId) {
 
   // Strategy 2: Direct Kick public channels API via local /api/kick proxy
   try {
-    const res = await fetch(`/api/kick/api/v1/channels/${cleanUser}`, {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/kick/api/v1/channels/${cleanUser}`, {
       headers: { 'Accept': 'application/json' },
       cache: 'no-store'
     });

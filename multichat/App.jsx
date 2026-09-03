@@ -654,7 +654,7 @@ export default function App({ logout }) {
                 }
 
                 // 1. Post payload to /api/kick/save API
-                fetch('/api/kick/save', {
+                fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/kick/save`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({

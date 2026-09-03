@@ -186,7 +186,7 @@ export default function ChatterInsights({
         
         // 2.1 Local Vite proxy to KickStats HTML scraper
         try {
-          const res = await fetch(`/api/kickstats/channels/${username}`, {
+          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/kickstats/channels/${username}`, {
             cache: 'no-store',
             headers: {
               'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',

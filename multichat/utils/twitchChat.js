@@ -228,7 +228,7 @@ export class TwitchChatClient {
   async fetchGlobalBadges() {
     // 1. Try local dev proxy (bypasses browser adblockers and CORS locally)
     try {
-      const res = await fetch('/api/twitch-badges/v2/twitch/badges/global');
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/twitch-badges/v2/twitch/badges/global`);
       if (res.ok) {
         const data = await res.json();
         this.globalBadges = this.transformIvrBadges(data);
@@ -273,7 +273,7 @@ export class TwitchChatClient {
 
     // 1. Try local dev proxy (bypasses browser adblockers and CORS locally)
     try {
-      const res = await fetch(`/api/twitch-badges/v2/twitch/badges/channel?login=${cleanChan}`);
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/twitch-badges/v2/twitch/badges/channel?login=${cleanChan}`);
       if (res.ok) {
         const data = await res.json();
         const badgeSets = this.transformIvrBadges(data);

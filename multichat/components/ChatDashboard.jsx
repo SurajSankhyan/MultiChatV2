@@ -522,7 +522,7 @@ export default function ChatDashboard({
 
   // 1. Fetch channel database mappings on mount to populate display names (e.g. "@duplicatebunnysank9" -> "Duplicate Bunny Sank")
   useEffect(() => {
-    fetch('/api/youtube/channels')
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/youtube/channels`)
       .then(res => res.ok ? res.json() : null)
       .then(data => {
         if (data && data.success && Array.isArray(data.channels)) {
@@ -1665,7 +1665,7 @@ export default function ChatDashboard({
           kickClientRef.current.join(ch.name);
 
           // Fetch real-time Kick stream status (LIVE vs OFFLINE)
-          fetch(`/api/kick/api/v2/channels/${cleanName}`)
+          fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/kick/api/v2/channels/${cleanName}`)
             .then(res => res.ok ? res.json() : null)
             .then(data => {
               const kickUser = data?.user;
@@ -1925,7 +1925,7 @@ export default function ChatDashboard({
 
         try {
           console.log('[MultiChat] Posting YouTube chat message with auto-detected live broadcast...');
-          const res = await fetch('/api/youtube/chat', {
+          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/youtube/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1960,7 +1960,7 @@ export default function ChatDashboard({
           const cachedChatroomId = (typeof window !== 'undefined' ? localStorage.getItem(`prochat_kick_chatroom_id_${cleanName}`) : null) ||
                                     kickClientRef.current?.channelsMap?.get(cleanName) || '';
 
-          const res = await fetch('/api/kick/chat', {
+          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/kick/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -2011,7 +2011,7 @@ export default function ChatDashboard({
   const handleHeadlessConnectYouTube = async () => {
     try {
       alert('Opening Google Account Picker window... Please select your account in the window.');
-      const res = await fetch('/api/youtube/headless-login', {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/youtube/headless-login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: user?.email })
@@ -2141,7 +2141,7 @@ export default function ChatDashboard({
       const activeVideoId = settings?.youtubeVideoId || (liveChatId && /^[a-zA-Z0-9_-]{11}$/.test(liveChatId.trim()) ? liveChatId.trim() : (msgObj?.videoId || ''));
       console.log('[MultiChat] Executing YouTube API delete message:', msgId, 'videoId:', activeVideoId);
       try {
-        const res = await fetch('/api/youtube/chat', {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/youtube/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2249,7 +2249,7 @@ export default function ChatDashboard({
 
     console.log('[MultiChat] Executing YouTube API timeout user:', cleanUser, 'videoId:', activeVideoId, 'durationSeconds:', durationSeconds);
     try {
-      const res = await fetch('/api/youtube/chat', {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/youtube/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2331,7 +2331,7 @@ export default function ChatDashboard({
 
     console.log('[MultiChat] Executing YouTube API ban user:', cleanUser, 'videoId:', activeVideoId);
     try {
-      const res = await fetch('/api/youtube/chat', {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/youtube/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2441,7 +2441,7 @@ export default function ChatDashboard({
       const targetChannelId = resolveTargetChannelId(msgObj) || cleanUser;
       console.log('[MultiChat] Executing YouTube API unban user:', cleanUser, 'targetChannelId:', targetChannelId);
       try {
-        const res = await fetch('/api/youtube/chat', {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/youtube/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2475,7 +2475,7 @@ export default function ChatDashboard({
     console.log('[MultiChat] Executing YouTube API toggle moderator:', action, 'cleanUser:', cleanUser, 'targetChannelId:', targetChannelId);
 
     try {
-      const res = await fetch('/api/youtube/chat', {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/youtube/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

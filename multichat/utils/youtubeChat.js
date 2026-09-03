@@ -216,7 +216,7 @@ export class YoutubeChatClient {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 8500);
-      const res = await fetch(`/api/youtube/live-info?videoId=${encodeURIComponent(videoId)}`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/youtube/live-info?videoId=${encodeURIComponent(videoId)}`, {
         cache: 'no-store',
           signal: controller.signal
         });
@@ -242,7 +242,7 @@ export class YoutubeChatClient {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 8000);
-      const res = await fetch('/api/youtube/innertube', {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/youtube/innertube`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'live_info', videoId }),
