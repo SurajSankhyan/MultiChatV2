@@ -151,8 +151,8 @@ export class YoutubeChatClient {
     const payload = {
       context: {
         client: {
-          clientName: 'WEB',
-          clientVersion: '2.20250201.01.00',
+          clientName: 'ANDROID',
+          clientVersion: '19.09.38',
           hl: 'en',
           gl: 'US'
         }
@@ -413,7 +413,7 @@ export class YoutubeChatClient {
     const promise = (async () => {
       // Find API key and client version from active polls
       let apiKey = '';
-      let clientVersion = '2.20250201.01.00';
+      let clientVersion = '19.09.38';
       for (const poll of this.activePolls.values()) {
         if (poll.apiKey) {
           apiKey = poll.apiKey;
@@ -428,7 +428,7 @@ export class YoutubeChatClient {
           const payload = {
             context: {
               client: {
-                clientName: 'WEB',
+                clientName: 'ANDROID',
                 clientVersion: clientVersion
               }
             },
@@ -869,7 +869,7 @@ export class YoutubeChatClient {
       }
     }
 
-    let clientVersion = '2.20250201.01.00';
+    let clientVersion = '19.09.38';
     const versionMatchers = [
       /"INNERTUBE_CONTEXT_CLIENT_VERSION"\s*:\s*"([^"]+)"/,
       /"clientVersion"\s*:\s*"([^"]+)"/,
@@ -1094,7 +1094,7 @@ export class YoutubeChatClient {
         liveChatId,
         apiKey,
         continuationToken,
-        clientVersion: clientVersion || '2.20250201.01.00',
+        clientVersion: clientVersion || '19.09.38',
         timeoutId: null,
         viewerIntervalId: null,
         seenIds: existingSeenIds,
@@ -1306,8 +1306,8 @@ export class YoutubeChatClient {
       const payload = {
         context: {
           client: {
-            clientName: 'WEB',
-            clientVersion: poll.clientVersion || '2.20250201.01.00'
+            clientName: 'ANDROID',
+            clientVersion: poll.clientVersion || '19.09.38'
           }
         },
         continuation: poll.continuationToken
