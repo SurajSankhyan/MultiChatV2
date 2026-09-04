@@ -122,7 +122,7 @@ export async function POST(request: Request) {
   headers.set('Referer', 'https://www.youtube.com/');
   headers.set('Origin', 'https://www.youtube.com');
   headers.set('X-YouTube-Client-Name', '1');
-  headers.set('X-YouTube-Client-Version', '19.09.38');
+  headers.set('X-YouTube-Client-Version', '2.20250201.01.00');
   headers.set('X-Origin', 'https://www.youtube.com');
   headers.set('Sec-Fetch-Mode', 'cors');
   headers.set('Sec-Fetch-Site', 'same-origin');
@@ -138,8 +138,8 @@ export async function POST(request: Request) {
       context: {
         ...(incomingBody.context || {}),
         client: {
-          clientName: 'ANDROID',
-          clientVersion: '19.09.38',
+          clientName: 'WEB',
+          clientVersion: '2.20250201.01.00',
           hl: 'en',
           gl: 'US',
           ...(incomingBody.context?.client || {})
@@ -148,7 +148,35 @@ export async function POST(request: Request) {
     };
 
     const res = await fetch(targetUrl, { method: 'POST', headers, body: JSON.stringify(body) });
-    const data = await res.json();
+    let data = await res.json();
+    
+    // --- DELTA FILTERING OPTIMIZATION ---
+    // Strip massive unnecessary YouTube tracking/framework data to save bandwidth (~90% reduction)
+    if (targetUrl.includes('get_live_chat')) {
+      if (data.frameworkUpdates) delete data.frameworkUpdates;
+      if (data.responseContext) delete data.responseContext;
+      if (data.trackingParams) delete data.trackingParams;
+      if (data.mutations) delete data.mutations;
+      
+      const actions = data.continuationContents?.liveChatContinuation?.actions;
+      if (actions) {
+        data.continuationContents.liveChatContinuation.actions = actions.map((action: any) => {
+          if (action.addChatItemAction?.item) {
+            const itemKey = Object.keys(action.addChatItemAction.item)[0];
+            const item = action.addChatItemAction.item[itemKey];
+            if (item) {
+              // Delete heavy accessibility and tracking nodes that the frontend parser ignores
+              delete item.contextMenuEndpoint;
+              delete item.contextMenuAccessibility;
+              delete item.trackingParams;
+            }
+          }
+          return action;
+        });
+      }
+    }
+    // ------------------------------------
+
     return NextResponse.json(data, {
       status: res.status,
       headers: corsHeaders

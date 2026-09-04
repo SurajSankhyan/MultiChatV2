@@ -59,7 +59,33 @@ export async function POST(request: Request) {
       body: JSON.stringify(body),
     });
 
-    const data = await res.json();
+    let data = await res.json();
+    
+    // --- DELTA FILTERING OPTIMIZATION ---
+    if (targetUrl.includes('get_live_chat')) {
+      if (data.frameworkUpdates) delete data.frameworkUpdates;
+      if (data.responseContext) delete data.responseContext;
+      if (data.trackingParams) delete data.trackingParams;
+      if (data.mutations) delete data.mutations;
+      
+      const actions = data.continuationContents?.liveChatContinuation?.actions;
+      if (actions) {
+        data.continuationContents.liveChatContinuation.actions = actions.map((action: any) => {
+          if (action.addChatItemAction?.item) {
+            const itemKey = Object.keys(action.addChatItemAction.item)[0];
+            const item = action.addChatItemAction.item[itemKey];
+            if (item) {
+              delete item.contextMenuEndpoint;
+              delete item.contextMenuAccessibility;
+              delete item.trackingParams;
+            }
+          }
+          return action;
+        });
+      }
+    }
+    // ------------------------------------
+
     return NextResponse.json(data, { 
       status: res.status,
       headers: corsHeaders

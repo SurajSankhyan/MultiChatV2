@@ -151,8 +151,8 @@ export class YoutubeChatClient {
     const payload = {
       context: {
         client: {
-          clientName: 'ANDROID',
-          clientVersion: '19.09.38',
+          clientName: 'WEB',
+          clientVersion: '2.20250201.01.00',
           hl: 'en',
           gl: 'US'
         }
@@ -413,7 +413,7 @@ export class YoutubeChatClient {
     const promise = (async () => {
       // Find API key and client version from active polls
       let apiKey = '';
-      let clientVersion = '19.09.38';
+      let clientVersion = '2.20250201.01.00';
       for (const poll of this.activePolls.values()) {
         if (poll.apiKey) {
           apiKey = poll.apiKey;
@@ -428,7 +428,7 @@ export class YoutubeChatClient {
           const payload = {
             context: {
               client: {
-                clientName: 'ANDROID',
+                clientName: 'WEB',
                 clientVersion: clientVersion
               }
             },
@@ -869,7 +869,7 @@ export class YoutubeChatClient {
       }
     }
 
-    let clientVersion = '19.09.38';
+    let clientVersion = '2.20250201.01.00';
     const versionMatchers = [
       /"INNERTUBE_CONTEXT_CLIENT_VERSION"\s*:\s*"([^"]+)"/,
       /"clientVersion"\s*:\s*"([^"]+)"/,
@@ -1094,7 +1094,7 @@ export class YoutubeChatClient {
         liveChatId,
         apiKey,
         continuationToken,
-        clientVersion: clientVersion || '19.09.38',
+        clientVersion: clientVersion || '2.20250201.01.00',
         timeoutId: null,
         viewerIntervalId: null,
         seenIds: existingSeenIds,
@@ -1306,8 +1306,8 @@ export class YoutubeChatClient {
       const payload = {
         context: {
           client: {
-            clientName: 'ANDROID',
-            clientVersion: poll.clientVersion || '19.09.38'
+            clientName: 'WEB',
+            clientVersion: poll.clientVersion || '2.20250201.01.00'
           }
         },
         continuation: poll.continuationToken
@@ -1494,7 +1494,18 @@ export class YoutubeChatClient {
 
   parseChatAction(channelName, action) {
     try {
-      const item = action.addChatItemAction?.item;
+      let item = action.addChatItemAction?.item;
+      
+      if (!item) {
+        // If YouTube is using a brand new action wrapper for Jewels (e.g. addLiveChatJewelsGiftAction)
+        const actionKeys = Object.keys(action).join(',');
+        if (actionKeys.toLowerCase().includes('jewel') || actionKeys.toLowerCase().includes('gift')) {
+            console.warn('🚨 [MULTICHAT DEBUG] FOUND RAW JEWEL ACTION:', JSON.stringify(action, null, 2));
+            // Attempt to extract item if it's wrapped in a jewel action
+            item = action[Object.keys(action).find(k => k.toLowerCase().includes('jewel') || k.toLowerCase().includes('gift'))]?.item;
+        }
+      }
+      
       if (!item) return;
 
       let renderer = null;
@@ -1686,6 +1697,7 @@ export class YoutubeChatClient {
                    item.liveChatJewelsGiftRenderer;
         isSystemEvent = true;
         eventType = 'gift';
+        console.warn('🚨 [MULTICHAT DEBUG] CAUGHT RENDERER:', JSON.stringify(renderer, null, 2));
       }
 
       if (!renderer) return;
