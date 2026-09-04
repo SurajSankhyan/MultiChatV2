@@ -66,17 +66,19 @@ function parsePlayerJson(json: any) {
   
   const { startTime, isExact } = parseCandidateTimestamp(candidateTime);
 
-  const viewers = parseInt(json.videoDetails?.viewCount, 10) || 0;
   const isLive = !!json.videoDetails?.isLive || !!json.videoDetails?.isLiveContent || liveDetails?.isLiveNow !== false;
+  const viewers = parseInt(liveDetails?.viewerCount || liveDetails?.concurrentViewers, 10) || 0;
   const title = json.videoDetails?.title || '';
   const author = json.videoDetails?.author || '';
 
-  let isShorts = false;
-  const formats = json.streamingData?.adaptiveFormats || json.streamingData?.formats || [];
-  for (const fmt of formats) {
-    if (fmt.width && fmt.height && fmt.height > fmt.width) {
-      isShorts = true;
-      break;
+  let isShorts = json.microformat?.playerMicroformatRenderer?.isShortsEligible || false;
+  if (!isShorts) {
+    const formats = json.streamingData?.adaptiveFormats || json.streamingData?.formats || [];
+    for (const fmt of formats) {
+      if (fmt.width && fmt.height && fmt.height > fmt.width) {
+        isShorts = true;
+        break;
+      }
     }
   }
 
@@ -114,16 +116,34 @@ function parseHtmlMetadata(html: string) {
   if (origMatch && origMatch[1]) {
     const val = parseInt(origMatch[1].replace(/[^0-9]/g, ''), 10);
     if (!isNaN(val)) viewers = val;
-  } else {
-    const shortViewMatch = html.match(/"viewCount"\s*:\s*"([^"]+)"/);
-    if (shortViewMatch && shortViewMatch[1]) {
-      const val = parseInt(shortViewMatch[1].replace(/[^0-9]/g, ''), 10);
-      if (!isNaN(val)) viewers = val;
+  }
+  if (!viewers) {
+    const watchingMatch = html.match(/([0-9.,KMBkmb]+)\s+watching/i);
+    if (watchingMatch && watchingMatch[1]) {
+      const text = watchingMatch[1].toLowerCase().replace(/,/g, '');
+      if (text.includes('k')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
+      else if (text.includes('m')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
+      else viewers = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
+    }
+  }
+  if (!viewers) {
+    const shortIdx = html.indexOf('"shortViewCountText"');
+    if (shortIdx !== -1) {
+      const sub = html.substring(shortIdx, shortIdx + 300);
+      const runTextMatch = sub.match(/"text"\s*:\s*"([^"]+)"/);
+      if (runTextMatch && runTextMatch[1] && sub.includes('watching')) {
+        const text = runTextMatch[1].toLowerCase().replace(/,/g, '');
+        if (text.includes('k')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
+        else if (text.includes('m')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
+        else viewers = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
+      }
     }
   }
 
   let likes = 0;
-  const likeMatch = html.match(/"likeCount"\s*:\s*"([0-9.,KMBkmb]+)"/i) || html.match(/"likeCount"\s*:\s*([0-9]+)/i);
+  const likeMatch = html.match(/"likeCount"\s*:\s*"([0-9.,KMBkmb]+)"/i) || 
+                    html.match(/"likeCount"\s*:\s*([0-9]+)/i) ||
+                    html.match(/"label"\s*:\s*"([0-9.,KMBkmb]+)\s+likes?"/i);
   if (likeMatch && likeMatch[1]) {
     const text = String(likeMatch[1]).toLowerCase().replace(/,/g, '');
     if (text.includes('k')) likes = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
@@ -139,14 +159,16 @@ function parseHtmlMetadata(html: string) {
 
   const isLive = html.includes('"isLive":true') || html.includes('"isLiveNow":true') || html.includes('liveChatRenderer') || html.includes('itemprop="startDate"');
 
-  let isShorts = false;
-  const formatMatches = [...html.matchAll(/"width"\s*:\s*(\d+)\s*,\s*"height"\s*:\s*(\d+)/g)];
-  for (const m of formatMatches) {
-    const w = parseInt(m[1], 10);
-    const h = parseInt(m[2], 10);
-    if (w > 0 && h > 0 && h > w) {
-      isShorts = true;
-      break;
+  let isShorts = html.includes('"isShortsEligible":true');
+  if (!isShorts) {
+    const formatMatches = [...html.matchAll(/"width"\s*:\s*(\d+)\s*,\s*"height"\s*:\s*(\d+)[^}]*?(?:"qualityLabel"|"fps")/g)];
+    for (const m of formatMatches) {
+      const w = parseInt(m[1], 10);
+      const h = parseInt(m[2], 10);
+      if (w > 0 && h > 0 && h > w) {
+        isShorts = true;
+        break;
+      }
     }
   }
 
@@ -256,7 +278,27 @@ async function resolveLiveVideoId(channelOrHandle: string, cookie?: string): Pro
 export async function fetchLiveStreamInfo(videoId: string, cookie?: string) {
   if (!videoId) return null;
 
-  // 1. Primary: InnerTube Engine via youtubei.js (Best for Netlify & Datacenter Serverless)
+  // 1. Primary: Watch page HTML GET (most accurate for live concurrent viewers, likes, and exact start time)
+  try {
+    const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const watchRes = await fetch(watchUrl, {
+      cache: 'no-store',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        ...(cookie ? { 'Cookie': cookie } : {})
+      }
+    });
+    if (watchRes.ok) {
+      const html = await watchRes.text();
+      const parsed = parseHtmlMetadata(html);
+      if (parsed && (parsed.startTime || parsed.isLive)) {
+        return parsed;
+      }
+    }
+  } catch (e) {}
+
+  // 2. Secondary: InnerTube Engine via youtubei.js
   try {
     const yt = await getInnertubeInstance(undefined, cookie);
     const basicInfo = await yt.getBasicInfo(videoId);
@@ -294,7 +336,7 @@ export async function fetchLiveStreamInfo(videoId: string, cookie?: string) {
     console.warn('[Live-Info API] youtubei.js getBasicInfo notice:', err.message);
   }
 
-  // 2. Secondary: InnerTube REST POST with multiple client contexts (WEB_EMBEDDED_PLAYER, WEB, TVHTML5)
+  // 3. Tertiary: InnerTube REST POST with multiple client contexts (WEB_EMBEDDED_PLAYER, WEB, TVHTML5)
   const clientConfigs = [
     { clientName: 'WEB', clientVersion: '2.20250201.01.00', hl: 'en', gl: 'US' },
     { clientName: 'WEB_EMBEDDED_PLAYER', clientVersion: '1.20240404.01.00', hl: 'en', gl: 'US' },
@@ -329,23 +371,6 @@ export async function fetchLiveStreamInfo(videoId: string, cookie?: string) {
       }
     } catch (e) {}
   }
-
-  // 3. Tertiary: Watch page HTML GET
-  try {
-    const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    const watchRes = await fetch(watchUrl, {
-      cache: 'no-store',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9'
-      }
-    });
-    if (watchRes.ok) {
-      const html = await watchRes.text();
-      const parsed = parseHtmlMetadata(html);
-      if (parsed) return parsed;
-    }
-  } catch (e) {}
 
   // 4. Quaternary: Live chat HTML GET
   try {

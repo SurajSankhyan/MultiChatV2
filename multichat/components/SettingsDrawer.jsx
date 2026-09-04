@@ -1597,11 +1597,19 @@ export default function SettingsDrawer({
                     return (
                       <div key={ch.id} className="channel-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '10px', marginBottom: 8 }}>
                         <div className="channel-info" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <PlatformLogo platform={ch.platform} isShorts={ch.platform === 'youtube' && (youtubeShortsChannels.has(cleanName) || youtubeShortsChannels.has(rawClean) || youtubeShortsChannels.has(ch.name))} size={18} />
+                          <PlatformLogo platform={ch.platform} isShorts={ch.platform === 'youtube' && (ch.isShorts || youtubeShortsChannels.has(cleanName) || youtubeShortsChannels.has(rawClean) || youtubeShortsChannels.has(ch.name))} size={18} />
                           <div>
-                            <div className="channel-name" style={{ fontWeight: 600, fontSize: 14, color: '#ffffff' }}>{ch.name}</div>
+                            <div className="channel-name" style={{ fontWeight: 600, fontSize: 14, color: '#ffffff' }}>
+                              {ch.displayName || ch.name}
+                            </div>
                             <div className="channel-platform" style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
                               <span style={{ textTransform: 'capitalize' }}>{ch.platform}</span>
+                              {ch.channelHandle && (
+                                <>
+                                  <span>•</span>
+                                  <span style={{ opacity: 0.7 }}>{ch.channelHandle}</span>
+                                </>
+                              )}
                               <span>•</span>
                               <span style={{ display: 'inline-flex', alignItems: 'center' }}>
                                 <span style={{

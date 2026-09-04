@@ -3990,8 +3990,13 @@ html[data-appearance-theme="twitch"] .kick-reply-to-message {
 }
 
 /* Animations for Tooltip content entry */
-[data-slot="tooltip-content"][data-state="delayed-open"] {
-  animation: tooltipEnter 0.15s ease-out;
+[data-slot="tooltip-content"][data-state="delayed-open"],
+[data-slot="tooltip-content"][data-state="open"] {
+  animation: tooltipEnter 0.15s ease-out forwards;
+}
+
+[data-slot="tooltip-content"][data-state="closed"] {
+  animation: tooltipExit 0.15s ease-in forwards !important;
 }
 
 @keyframes tooltipEnter {
@@ -4002,6 +4007,17 @@ html[data-appearance-theme="twitch"] .kick-reply-to-message {
   to {
     opacity: 1;
     transform: scale(1);
+  }
+}
+
+@keyframes tooltipExit {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95);
   }
 }
 

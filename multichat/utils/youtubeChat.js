@@ -198,12 +198,14 @@ export class YoutubeChatClient {
           }
         }
       }
-      let isShorts = false;
-      const formats = json.streamingData?.adaptiveFormats || json.streamingData?.formats || [];
-      for (const fmt of formats) {
-        if (fmt.width && fmt.height && fmt.height > fmt.width) {
-          isShorts = true;
-          break;
+      let isShorts = json.microformat?.playerMicroformatRenderer?.isShortsEligible || false;
+      if (!isShorts) {
+        const formats = json.streamingData?.adaptiveFormats || json.streamingData?.formats || [];
+        for (const fmt of formats) {
+          if (fmt.width && fmt.height && fmt.height > fmt.width) {
+            isShorts = true;
+            break;
+          }
         }
       }
       const viewers = parseInt(json.videoDetails?.viewCount, 10) || 0;
@@ -617,8 +619,14 @@ export class YoutubeChatClient {
     }
 
     // Fallback for viewers if still not found
-    if (!viewers && isLive && playerJson && playerJson.videoDetails && playerJson.videoDetails.viewCount) {
-       viewers = parseInt(playerJson.videoDetails.viewCount, 10) || 0;
+    if (!viewers) {
+      const watchingMatch = html.match(/([0-9.,KMBkmb]+)\s+watching/i);
+      if (watchingMatch && watchingMatch[1]) {
+        const text = watchingMatch[1].toLowerCase().replace(/,/g, '');
+        if (text.includes('k')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
+        else if (text.includes('m')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
+        else viewers = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
+      }
     }
 
     // Fallback for startTime if not found: prioritize actualStartTime and startTimestamp first
@@ -656,24 +664,30 @@ export class YoutubeChatClient {
 
     // Check aspect ratio for Shorts
     if (playerJson && playerJson.streamingData) {
-      const formats = playerJson.streamingData.adaptiveFormats || playerJson.streamingData.formats || [];
-      for (const format of formats) {
-        if (format && format.width && format.height) {
-          if (format.height > format.width) {
-            isShorts = true;
-            break;
+      isShorts = playerJson.microformat?.playerMicroformatRenderer?.isShortsEligible || false;
+      if (!isShorts) {
+        const formats = playerJson.streamingData.adaptiveFormats || playerJson.streamingData.formats || [];
+        for (const format of formats) {
+          if (format && format.width && format.height) {
+            if (format.height > format.width) {
+              isShorts = true;
+              break;
+            }
           }
         }
       }
     }
     if (!isShorts && html) {
-      const formatMatches = [...html.matchAll(/"width"\s*:\s*(\d+)\s*,\s*"height"\s*:\s*(\d+)/g)];
-      for (const m of formatMatches) {
-        const w = parseInt(m[1], 10);
-        const h = parseInt(m[2], 10);
-        if (w > 0 && h > 0 && h > w) {
-          isShorts = true;
-          break;
+      isShorts = html.includes('"isShortsEligible":true');
+        if (!isShorts) {
+          const formatMatches = [...html.matchAll(/"width"\s*:\s*(\d+)\s*,\s*"height"\s*:\s*(\d+)[^}]*?(?:"qualityLabel"|"fps")/g)];
+          for (const m of formatMatches) {
+          const w = parseInt(m[1], 10);
+          const h = parseInt(m[2], 10);
+          if (w > 0 && h > 0 && h > w) {
+            isShorts = true;
+            break;
+          }
         }
       }
     }
@@ -1024,6 +1038,31 @@ export class YoutubeChatClient {
             if (resolved) this.onNameResolved(pollKey, resolved);
           }).catch(() => {});
         }
+      } else {
+        // videoId is already known! Fetch the watch page HTML immediately to get exact concurrent viewers, likes, and tokens!
+        try {
+          const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+          pageHtml = await this.fetchWithProxyFallback(watchUrl);
+          if (pageHtml) {
+            const meta = this.parseMetadataFromHtml(pageHtml);
+            if (meta) {
+              if (meta.startTime) {
+                localStartTime = meta.startTime;
+                isExactStartTime = !!meta.isExact;
+              }
+              if (meta.viewers !== null && meta.viewers !== undefined) localViewers = meta.viewers;
+              if (meta.likes !== null && meta.likes !== undefined) localLikes = meta.likes;
+              if (meta.isShorts) isShorts = true;
+            }
+            const extractedChannelName = this.extractChannelNameFromHtml(pageHtml);
+            if (extractedChannelName) {
+              resolvedDisplayName = extractedChannelName;
+              YOUTUBE_NAME_CACHE.set(pollKey, extractedChannelName);
+            }
+          }
+        } catch (e) {
+          console.warn("YouTube client: error fetching watch page for videoId:", e.message);
+        }
       }
 
       if (!videoId) {
@@ -1076,7 +1115,8 @@ export class YoutubeChatClient {
               isExactStartTime = !!pMeta.isExact;
             }
             if (pMeta.isShorts) isShorts = true;
-            if (pMeta.viewers !== null && pMeta.viewers !== undefined && localViewers === null) localViewers = pMeta.viewers;
+            if (pMeta.viewers !== null && pMeta.viewers !== undefined && localViewers === null && pMeta.viewers > 0) localViewers = pMeta.viewers;
+            if (pMeta.likes !== null && pMeta.likes !== undefined && localLikes === null && pMeta.likes > 0) localLikes = pMeta.likes;
           }
         } catch (e) {
           console.warn("YouTube client: fetchPlayerMetadata error:", e.message);

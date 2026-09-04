@@ -510,14 +510,8 @@ export default function ChatDashboard({
     const stored = localStorage.getItem('prochat_blocked_users');
     return stored ? new Set(JSON.parse(stored)) : new Set();
   });
-  const [streamViewers, setStreamViewers] = useState(() => {
-    const cached = localStorage.getItem('prochat_cached_stream_viewers');
-    return cached ? JSON.parse(cached) : {};
-  });
-  const [streamLikes, setStreamLikes] = useState(() => {
-    const cached = localStorage.getItem('prochat_cached_stream_likes');
-    return cached ? JSON.parse(cached) : {};
-  });
+  const [streamViewers, setStreamViewers] = useState({});
+  const [streamLikes, setStreamLikes] = useState({});
   const [resolvedStreamerNames, setResolvedStreamerNames] = useState({});
 
   // 1. Fetch channel database mappings on mount to populate display names (e.g. "@duplicatebunnysank9" -> "Duplicate Bunny Sank")
@@ -580,15 +574,15 @@ export default function ChatDashboard({
       }
     }
 
-    // 2. Check resolvedStreamerNames map
+    // 2. Check explicit ch.displayName (e.g. "DaddyJiPlayz (Vertical)" or "DaddyJiPlayz (Horizontal)")
+    if (ch.displayName && !ch.displayName.toLowerCase().includes('404') && !ch.displayName.startsWith('@')) {
+      return ch.displayName.replace(/^@+/, '');
+    }
+
+    // 3. Check resolvedStreamerNames map
     const resolved = resolvedStreamerNames[cleanName];
     if (resolved && !resolved.toLowerCase().includes('404') && !resolved.toLowerCase().includes('not found') && resolved.toLowerCase() !== 'youtube') {
       return resolved.replace(/^@+/, '');
-    }
-
-    // 3. Fallback to ch.displayName
-    if (ch.displayName && !ch.displayName.toLowerCase().includes('404') && !ch.displayName.startsWith('@')) {
-      return ch.displayName.replace(/^@+/, '');
     }
 
     return ch.name.replace(/^@+/, '');
@@ -1012,6 +1006,108 @@ export default function ChatDashboard({
       }
       if (!cleanName.startsWith('@') && !cleanName.startsWith('UC') && !/^[a-zA-Z0-9_-]{11}$/.test(cleanName)) {
         cleanName = `@${cleanName.replace(/^@+/, '')}`;
+      }
+
+      // --- NEW MULTI-STREAM AUTO-EXPANSION FOR @HANDLES ---
+      if (cleanName.startsWith('@')) {
+        try {
+          const res = await fetch(`/api/youtube/proxy?url=https://www.youtube.com/${cleanName}/streams`);
+          if (res.ok) {
+            const text = await res.text();
+            const ytInitialDataStr = text.match(/ytInitialData\s*=\s*({.*?});/);
+            if (ytInitialDataStr) {
+              const ytData = JSON.parse(ytInitialDataStr[1]);
+              const tabs = ytData.contents?.twoColumnBrowseResultsRenderer?.tabs || [];
+              const liveTab = tabs.find(t => t.tabRenderer?.title?.toLowerCase() === 'live');
+              if (liveTab) {
+                const items = liveTab.tabRenderer.content?.richGridRenderer?.contents || [];
+                const liveStreams = [];
+                for (const item of items) {
+                  const lockup = item.richItemRenderer?.content?.lockupViewModel;
+                  if (lockup) {
+                      let isLive = false;
+                      let targetId = null;
+                      const overlays = lockup.contentImage?.thumbnailViewModel?.overlays || [];
+                      for (const o of overlays) {
+                        const badges = o.thumbnailBottomOverlayViewModel?.badges || [];
+                        for (const b of badges) {
+                          const tvm = b.thumbnailBadgeViewModel;
+                          if (tvm?.badgeStyle === 'THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE' || tvm?.text === 'LIVE') {
+                            isLive = true;
+                            targetId = tvm.animationActivationTargetId;
+                          }
+                        }
+                      }
+                      if (isLive) {
+                        if (!targetId && lockup.contentId) targetId = lockup.contentId;
+                        if (!targetId && lockup.metadata?.lockupMetadataViewModel?.videoId) targetId = lockup.metadata.lockupMetadataViewModel.videoId;
+                        const title = lockup.metadata?.lockupMetadataViewModel?.title?.content || '';
+                        if (targetId && !liveStreams.some(s => s.vid === targetId)) {
+                          liveStreams.push({ vid: targetId, title });
+                        }
+                      }
+                  }
+                  const video = item.richItemRenderer?.content?.videoRenderer;
+                  if (video) {
+                    const isLive = video.thumbnailOverlays?.some(o => o.thumbnailOverlayTimeStatusRenderer?.style === 'LIVE');
+                    const title = video.title?.runs?.[0]?.text || '';
+                    if (isLive && video.videoId && !liveStreams.some(s => s.vid === video.videoId)) {
+                      liveStreams.push({ vid: video.videoId, title });
+                    }
+                  }
+                }
+                
+                if (liveStreams.length > 0) {
+                    const baseHandle = cleanName.replace(/^@+/, '');
+                    const channelsToCreate = [];
+
+                    const hasVerticalTitle = liveStreams.some(s => s.title.toLowerCase().includes('vertical') || s.title.toLowerCase().includes('shorts'));
+
+                    liveStreams.forEach((stream, idx) => {
+                      const isVertical = stream.title.toLowerCase().includes('vertical') || 
+                                         stream.title.toLowerCase().includes('shorts') || 
+                                         (liveStreams.length > 1 && !hasVerticalTitle && idx === 0);
+
+                      let displayName = baseHandle;
+                      if (liveStreams.length > 1) {
+                        displayName = isVertical 
+                          ? `${baseHandle} (Vertical)` 
+                          : `${baseHandle} (Horizontal)`;
+                      }
+
+                      if (isVertical) {
+                        setYoutubeShortsChannels(prev => {
+                          const next = new Set(prev);
+                          next.add(stream.vid);
+                          next.add(stream.vid.toLowerCase());
+                          try { localStorage.setItem('prochat_cached_youtube_shorts_channels', JSON.stringify(Array.from(next))); } catch (e) {}
+                          return next;
+                        });
+                      }
+
+                      setResolvedStreamerNames(prev => ({
+                        ...prev,
+                        [stream.vid.toLowerCase().trim()]: displayName
+                      }));
+
+                      channelsToCreate.push({
+                        name: stream.vid,
+                        displayName,
+                        channelHandle: cleanName,
+                        title: stream.title,
+                        isShorts: isVertical
+                      });
+                    });
+
+                    addChannel(platform, channelsToCreate);
+                    return;
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Failed to auto-expand multiple streams for handle:", err);
+        }
       }
     } else if (platform === 'kick') {
       if (input.includes('kick.com/')) {
@@ -3030,7 +3126,7 @@ export default function ChatDashboard({
                 {hasYoutubeChannel && (
                   <>
                     <div className="metric-pill-divider" />
-                    <div className="metric-pill-section" onClick={handleLikesClick} title="Total YouTube Likes">
+                    <div className="metric-pill-section" onClick={handleLikesClick}>
                       <ThumbsUp size={13} style={{ color: 'var(--text-muted)' }} />
                       {likesDisplayMode === 'individual' && (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
@@ -3057,7 +3153,7 @@ export default function ChatDashboard({
                       )}
                     </div>
                     <div className="metric-pill-divider" />
-                    <div className="metric-pill-section" onClick={handleSuperchatClick} title="Total Super Chat Amount">
+                    <div className="metric-pill-section" onClick={handleSuperchatClick}>
                       <Gift size={13} style={{ color: 'var(--text-muted)' }} />
                       {superchatDisplayMode === 'amount' && (
                         <span>{formatSuperchatAmount(liveSuperchatTotal)}</span>
@@ -3067,7 +3163,7 @@ export default function ChatDashboard({
                       )}
                     </div>
                     <div className="metric-pill-divider" />
-                    <div className="metric-pill-section" onClick={handleMembershipClick} title="Total YouTube Memberships">
+                    <div className="metric-pill-section" onClick={handleMembershipClick}>
                       <Crown size={13} style={{ color: 'var(--text-muted)' }} />
                       {membershipDisplayMode === 'count' && (
                         <span>{liveMembershipCount}</span>
@@ -3350,6 +3446,7 @@ export default function ChatDashboard({
                   <span className="sidebar-nav-label">Mentions</span>
                 </button>
               </TooltipTrigger>
+              <TooltipContent side="right">Mentions</TooltipContent>
             </Tooltip>
           </div>
 

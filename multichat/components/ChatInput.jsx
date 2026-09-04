@@ -368,8 +368,16 @@ export default function ChatInput({
                 More Actions
               </TooltipContent>
             </Tooltip>
-            {isActionsOpen && !isSending && (
-              <div className="bottom-actions-dropdown" style={{ bottom: '50px', right: '0' }}>
+              <AnimatePresence>
+                {isActionsOpen && !isSending && (
+                  <motion.div 
+                    className="bottom-actions-dropdown" 
+                    style={{ bottom: '50px', right: '0', transformOrigin: 'bottom right' }}
+                    initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                    transition={{ duration: 0.15, ease: 'easeOut' }}
+                  >
                 {activeChannels.some(ch => ch.platform === 'youtube') && (
                   <>
                     <button 
@@ -438,9 +446,10 @@ export default function ChatInput({
                   <Trash2 size={13} style={{ marginRight: '8px', opacity: 0.8 }} />
                   Clear Chat
                 </button>
-              </div>
+              </motion.div>
             )}
-          </div>
+          </AnimatePresence>
+        </div>
 
           <button 
             type="button" 

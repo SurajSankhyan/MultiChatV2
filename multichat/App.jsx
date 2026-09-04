@@ -772,35 +772,51 @@ export default function App({ logout }) {
   }, [page, settings.theme, settings.accentColor]);
 
   // Channels Operations
-  const addChannel = (platform, name) => {
-    const newChan = {
-      id: Date.now(),
-      platform,
-      name,
-      enabled: true
-    };
-    const nextList = [...activeChannels, newChan];
-    setActiveChannels(nextList);
-    localStorage.setItem('prochat_channels', JSON.stringify(nextList));
+  const addChannel = (platform, nameOrList, extra = {}) => {
+    setActiveChannels(prev => {
+      const items = Array.isArray(nameOrList) ? nameOrList : [{ name: nameOrList, ...extra }];
+      const nextList = [...prev];
+      let baseId = Date.now();
+      items.forEach((item, idx) => {
+        const itemObj = typeof item === 'string' ? { name: item } : item;
+        const cleanName = (itemObj.name || '').toLowerCase().trim();
+        if (!nextList.some(ch => ch.platform === platform && ch.name.toLowerCase().trim() === cleanName)) {
+          nextList.push({
+            id: baseId + idx,
+            platform,
+            name: itemObj.name,
+            displayName: itemObj.displayName || (itemObj.name.startsWith('@') ? itemObj.name.replace(/^@+/, '') : itemObj.name),
+            enabled: true,
+            ...itemObj
+          });
+        }
+      });
+      try { localStorage.setItem('prochat_channels', JSON.stringify(nextList)); } catch (e) {}
+      return nextList;
+    });
   };
 
   const removeChannel = (id) => {
-    const nextList = activeChannels.filter(ch => ch.id !== id);
-    setActiveChannels(nextList);
-    localStorage.setItem('prochat_channels', JSON.stringify(nextList));
+    setActiveChannels(prev => {
+      const nextList = prev.filter(ch => ch.id !== id);
+      try { localStorage.setItem('prochat_channels', JSON.stringify(nextList)); } catch (e) {}
+      return nextList;
+    });
   };
 
   const toggleChannel = (id) => {
-    const nextList = activeChannels.map(ch => 
-      ch.id === id ? { ...ch, enabled: !ch.enabled } : ch
-    );
-    setActiveChannels(nextList);
-    localStorage.setItem('prochat_channels', JSON.stringify(nextList));
+    setActiveChannels(prev => {
+      const nextList = prev.map(ch => 
+        ch.id === id ? { ...ch, enabled: !ch.enabled } : ch
+      );
+      try { localStorage.setItem('prochat_channels', JSON.stringify(nextList)); } catch (e) {}
+      return nextList;
+    });
   };
 
   const reorderChannels = (nextList) => {
     setActiveChannels(nextList);
-    localStorage.setItem('prochat_channels', JSON.stringify(nextList));
+    try { localStorage.setItem('prochat_channels', JSON.stringify(nextList)); } catch (e) {}
   };
 
   // Settings operations
