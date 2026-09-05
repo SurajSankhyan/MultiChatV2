@@ -1024,7 +1024,7 @@ const ChatMessageRow = React.memo(({
             ) : (
               <>
                 <span className="msg-separator-space"> </span>
-                <span className="msg-text">
+                <span className="msg-text" style={{ fontStyle: msg.eventDetails?.subType === 'gift_redemption' ? 'italic' : 'normal' }}>
                   {contentParts && contentParts.length > 0 ? (
                     contentParts.map((part, index) => {
                       if (!part) return null;
@@ -1877,7 +1877,7 @@ export default function ChatFeed({
         return '#5e84f1';
       }
       // Member / Subscriber → YouTube member green
-      if (msg.badges && (msg.badges.includes('subscriber') || msg.badges.includes('member'))) {
+      if (msg.eventDetails?.subType === 'gift_redemption' || (msg.badges && (msg.badges.includes('subscriber') || msg.badges.includes('member')))) {
         return '#2ba640';
       }
       // Regular YouTube chatter → off white (or random if enabled)

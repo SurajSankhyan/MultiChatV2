@@ -70,18 +70,33 @@ export async function POST(request: Request) {
       
       const actions = data.continuationContents?.liveChatContinuation?.actions;
       if (actions) {
-        data.continuationContents.liveChatContinuation.actions = actions.map((action: any) => {
-          if (action.addChatItemAction?.item) {
-            const itemKey = Object.keys(action.addChatItemAction.item)[0];
-            const item = action.addChatItemAction.item[itemKey];
-            if (item) {
-              delete item.contextMenuEndpoint;
-              delete item.contextMenuAccessibility;
-              delete item.trackingParams;
+        // Recursively strip unneeded YouTube telemetry, accessibility data, and extra thumbnails
+        const stripUnneededData = (obj: any) => {
+          if (Array.isArray(obj)) {
+            for (let i = 0; i < obj.length; i++) {
+              stripUnneededData(obj[i]);
+            }
+          } else if (obj !== null && typeof obj === 'object') {
+            delete obj.trackingParams;
+            delete obj.accessibility;
+            delete obj.accessibilityData;
+            delete obj.contextMenuEndpoint;
+            delete obj.contextMenuAccessibility;
+            
+            // Keep only the largest thumbnail (which the client uses) to save massive bandwidth
+            if (Array.isArray(obj.thumbnails) && obj.thumbnails.length > 1) {
+              obj.thumbnails = [obj.thumbnails[obj.thumbnails.length - 1]];
+            }
+            
+            for (const key in obj) {
+              if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                stripUnneededData(obj[key]);
+              }
             }
           }
-          return action;
-        });
+        };
+        
+        stripUnneededData(data.continuationContents.liveChatContinuation.actions);
       }
     }
     // ------------------------------------

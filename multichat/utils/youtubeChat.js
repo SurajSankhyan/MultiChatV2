@@ -1662,8 +1662,8 @@ export class YoutubeChatClient {
         };
       } else if (item.liveChatMembershipGiftRedeemedRenderer) {
         renderer = item.liveChatMembershipGiftRedeemedRenderer;
-        isSystemEvent = true;
-        eventType = 'subscription';
+        isSystemEvent = false;
+        eventType = 'text';
         
         let headerText = '';
         if (renderer.giftHeader && renderer.giftHeader.runs) {
@@ -1707,8 +1707,8 @@ export class YoutubeChatClient {
         };
       } else if (item.liveChatSponsorshipsGiftRedemptionAnnouncementRenderer) {
         renderer = item.liveChatSponsorshipsGiftRedemptionAnnouncementRenderer;
-        isSystemEvent = true;
-        eventType = 'subscription';
+        isSystemEvent = false;
+        eventType = 'text';
         
         let headerText = '';
         if (renderer.message?.runs) {
@@ -1854,7 +1854,7 @@ export class YoutubeChatClient {
       }
 
         // Check text for sent gifts (e.g. "@heliqx sent Star" or "sent Goat trophy")
-        if (!isGift && text) {
+        if (!isGift && text && eventType !== 'subscription') {
           const giftMatch = text.match(/sent\s+([A-Za-z0-9_.\s]+)/i);
           if (giftMatch) {
             const rawGiftName = giftMatch[1].replace(/[:*]/g, '').trim();
@@ -1882,8 +1882,9 @@ export class YoutubeChatClient {
         }
       }
 
-      const authorChannelId = renderer.authorExternalChannelId || null;
-      const rawHandle = renderer.authorName?.simpleText || 'anon';
+      const headerRenderer = renderer.header?.liveChatSponsorshipsHeaderRenderer;
+      const authorChannelId = renderer.authorExternalChannelId || headerRenderer?.authorExternalChannelId || null;
+      const rawHandle = renderer.authorName?.simpleText || headerRenderer?.authorName?.simpleText || 'anon';
       const username = rawHandle.toLowerCase().replace(/\s+/g, '');
 
       let displayName = rawHandle;
@@ -2027,7 +2028,7 @@ export class YoutubeChatClient {
 
       const color = this.getRandomColor(username);
       // Use highest-quality thumbnail (last in array is largest) upgraded to 1280px
-      const photoThumbnails = renderer.authorPhoto?.thumbnails;
+      const photoThumbnails = renderer.authorPhoto?.thumbnails || headerRenderer?.authorPhoto?.thumbnails;
       let avatar = photoThumbnails && photoThumbnails.length > 0 
         ? normalizeUrl(photoThumbnails[photoThumbnails.length - 1].url) 
         : null;
