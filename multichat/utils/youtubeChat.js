@@ -2099,19 +2099,53 @@ export class YoutubeChatClient {
         eventType,
         eventDetails,
         rawTimestamp: (() => {
-          if (renderer.timestampUsec) {
-            const usec = parseInt(renderer.timestampUsec, 10);
+          const timeStr = renderer.timestampUsec || 
+                          renderer.header?.liveChatSponsorshipsHeaderRenderer?.timestampUsec ||
+                          renderer.header?.liveChatSponsorshipsHeaderRenderer?.primaryText?.runs?.[0]?.timestampUsec ||
+                          renderer.headerSubtext?.runs?.[0]?.timestampUsec ||
+                          renderer.purchaseAmountText?.timestampUsec ||
+                          (action.liveChatTextMessageRenderer && action.liveChatTextMessageRenderer.timestampUsec);
+          if (timeStr) {
+            const usec = parseInt(timeStr, 10);
             if (!isNaN(usec) && usec > 0) return Math.floor(usec / 1000);
           }
+          
+          // If all else fails, use a recursive search to find any timestampUsec
+          try {
+            const str = JSON.stringify(renderer);
+            const match = str.match(/"timestampUsec":"(\d+)"/);
+            if (match && match[1]) {
+              const usec = parseInt(match[1], 10);
+              if (!isNaN(usec) && usec > 0) return Math.floor(usec / 1000);
+            }
+          } catch(e) {}
+          
           return Date.now();
         })(),
         timestamp: (() => {
-          if (renderer.timestampUsec) {
-            const usec = parseInt(renderer.timestampUsec, 10);
+          const timeStr = renderer.timestampUsec || 
+                          renderer.header?.liveChatSponsorshipsHeaderRenderer?.timestampUsec ||
+                          renderer.header?.liveChatSponsorshipsHeaderRenderer?.primaryText?.runs?.[0]?.timestampUsec ||
+                          renderer.headerSubtext?.runs?.[0]?.timestampUsec ||
+                          renderer.purchaseAmountText?.timestampUsec;
+          if (timeStr) {
+            const usec = parseInt(timeStr, 10);
             if (!isNaN(usec) && usec > 0) {
               return new Date(Math.floor(usec / 1000)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
             }
           }
+          
+          try {
+            const str = JSON.stringify(renderer);
+            const match = str.match(/"timestampUsec":"(\d+)"/);
+            if (match && match[1]) {
+              const usec = parseInt(match[1], 10);
+              if (!isNaN(usec) && usec > 0) {
+                 return new Date(Math.floor(usec / 1000)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+              }
+            }
+          } catch(e) {}
+          
           return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
         })(),
         youtubeChatMode: poll ? poll.chatMode : 'live'
