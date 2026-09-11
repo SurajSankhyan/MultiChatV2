@@ -1845,6 +1845,14 @@ export default function ChatFeed({
     }
     const cleanChannel = msg.channel?.toLowerCase().replace('@', '').trim();
     const cleanTab = activeTab.toLowerCase().replace('@', '').trim();
+    
+    // If the activeTab includes a platform prefix (e.g. youtube_akio or kick_akio)
+    if (cleanTab.includes('_') && !['all', 'events', 'mentions'].includes(cleanTab)) {
+      const msgPlatformPrefix = msg.platform ? msg.platform.toLowerCase() + '_' : '';
+      return `${msgPlatformPrefix}${cleanChannel}` === cleanTab;
+    }
+    
+    // Fallback for old tabs without platform prefix
     return cleanChannel === cleanTab;
   }), [visibleMessages, activeTab, settings.hideBotMessages, user, activeChannels]);
 

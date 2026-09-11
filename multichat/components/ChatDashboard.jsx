@@ -3063,8 +3063,10 @@ export default function ChatDashboard({
   const activeEnabledChannels = activeChannels.filter(ch => ch.enabled);
   const hasYoutubeChannel = activeEnabledChannels.some(ch => ch.platform === 'youtube');
   const selectedCh = activeChannels.find(ch => 
-    ch.name.toLowerCase() === activeTab || 
-    ch.name.toLowerCase().replace(/^@+/, '') === activeTab.toLowerCase().replace(/^@+/, '')
+    activeTab === `${ch.platform}_${ch.name.toLowerCase()}` ||
+    activeTab === `${ch.platform}_${ch.name.toLowerCase().replace(/^@+/, '')}` ||
+    activeTab === ch.name.toLowerCase() || 
+    activeTab === ch.name.toLowerCase().replace(/^@+/, '')
   );
   const channelUrl = selectedCh ? getChannelUrl(selectedCh) : null;
   const channelDisplayName = selectedCh 
@@ -3490,7 +3492,7 @@ export default function ChatDashboard({
                 {activeChannels.filter(ch => ch.enabled).map(ch => {
                   const cleanName = ch.name.toLowerCase().replace('@', '').trim();
                   const rawClean = ch.name.toLowerCase().replace(/^@+/, '').trim();
-                  const isActive = activeTab === ch.name.toLowerCase();
+                  const isActive = activeTab === `${ch.platform}_${ch.name.toLowerCase()}` || activeTab === ch.name.toLowerCase();
                   const isConnected = platformStatuses[`${ch.platform}_${cleanName}`] === 'connected' || 
                                       platformStatuses[`${ch.platform}_${rawClean}`] === 'connected' ||
                                       platformStatuses[`${ch.platform}_${ch.name}`] === 'connected' ||
@@ -3514,7 +3516,7 @@ export default function ChatDashboard({
                       <TooltipTrigger asChild>
                         <button 
                           className={`sidebar-nav-item channel-item ${isActive ? 'active' : ''} ${draggedIndex !== null && activeChannels[draggedIndex]?.id === ch.id ? 'dragging' : ''}`}
-                          onClick={() => setActiveTab(ch.name.toLowerCase())}
+                          onClick={() => setActiveTab(`${ch.platform}_${ch.name.toLowerCase()}`)}
                           draggable={true}
                           onDragStart={(e) => handleDragStart(e, ch.id)}
                           onDragOver={(e) => handleDragOver(e, ch.id)}
