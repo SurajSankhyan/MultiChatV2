@@ -146,6 +146,8 @@ export default function App({ logout }) {
 
       if (systemEvents.length > 0) {
         localStorage.setItem('prochat_cached_events', JSON.stringify(systemEvents));
+      } else {
+        localStorage.removeItem('prochat_cached_events');
       }
     } catch (e) {}
   }, [messages]);

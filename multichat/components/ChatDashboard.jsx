@@ -698,7 +698,17 @@ export default function ChatDashboard({
   };
 
   const handleClearChat = () => {
+    // Clear all messages (including system events) from state
     setMessages([]);
+    // Wipe both caches from localStorage so they don't come back on refresh
+    if (typeof window !== 'undefined') {
+      try { localStorage.removeItem('prochat_cached_chat_messages'); } catch (e) {}
+      try { localStorage.removeItem('prochat_cached_events'); } catch (e) {}
+      // Also record a new "cleared events at" timestamp to block any re-fetched historical events
+      const now = Date.now();
+      clearedEventsAtRef.current = now;
+      try { localStorage.setItem('multichat_cleared_events_at', now.toString()); } catch (e) {}
+    }
   };
 
   const handleClearEvents = () => {
@@ -3612,48 +3622,7 @@ export default function ChatDashboard({
               )}
             </div>
 
-            {activeTab === 'events' && (
-              <Tooltip delayDuration={150}>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    className="clear-events-btn"
-                    onClick={handleClearEvents}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '4px 10px',
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      color: '#f87171',
-                      backgroundColor: 'rgba(239, 68, 68, 0.08)',
-                      border: '1px solid rgba(239, 68, 68, 0.22)',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                      outline: 'none'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.18)';
-                      e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
-                      e.currentTarget.style.color = '#fca5a5';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.08)';
-                      e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.22)';
-                      e.currentTarget.style.color = '#f87171';
-                    }}
-                  >
-                    <Trash2 size={12} />
-                    <span>Clear Events</span>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="left">
-                  Clear all events feed history
-                </TooltipContent>
-              </Tooltip>
-            )}
+
           </div>
 
           {heldSuper && (
