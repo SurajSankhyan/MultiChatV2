@@ -2828,68 +2828,69 @@ export default function ChatDashboard({
   const liveChannels = useMemo(() => enabledChannels.filter(ch => isChannelLive(ch)), [enabledChannels, isChannelLive]);
   const hasAnyLive = liveChannels.length > 0;
 
-  const viewersByPlatform = {};
-  const uptimesByPlatform = {};
-  const likesByPlatform = {};
+  const { viewersByPlatform: activeViewersByPlatform, uptimesByPlatform, likesByPlatform: activeLikesByPlatform } = useMemo(() => {
+    const viewersByPlatform = {};
+    const uptimesByPlatform = {};
+    const likesByPlatform = {};
 
-  const targetChannelsForMetrics = hasAnyLive ? liveChannels : enabledChannels;
+    const targetChannelsForMetrics = hasAnyLive ? liveChannels : enabledChannels;
 
-  targetChannelsForMetrics.forEach(ch => {
-    const cleanName = ch.name.toLowerCase().replace(/^@+/, '').trim();
-    const rawClean = ch.name.toLowerCase().replace('@', '').trim();
-    const lowerName = ch.name.toLowerCase();
-    const status = platformStatuses[`${ch.platform}_${cleanName}`] || platformStatuses[`${ch.platform}_${rawClean}`] || platformStatuses[`${ch.platform}_${lowerName}`] || platformStatuses[ch.platform];
-    const isShorts = ch.platform === 'youtube' && (youtubeShortsChannels.has(cleanName) || youtubeShortsChannels.has(rawClean));
-    const displayPlatform = isShorts ? 'youtube_shorts' : ch.platform;
+    targetChannelsForMetrics.forEach(ch => {
+      const cleanName = ch.name.toLowerCase().replace(/^@+/, '').trim();
+      const rawClean = ch.name.toLowerCase().replace('@', '').trim();
+      const lowerName = ch.name.toLowerCase();
+      const status = platformStatuses[`${ch.platform}_${cleanName}`] || platformStatuses[`${ch.platform}_${rawClean}`] || platformStatuses[`${ch.platform}_${lowerName}`] || platformStatuses[ch.platform];
+      const isShorts = ch.platform === 'youtube' && (youtubeShortsChannels.has(cleanName) || youtubeShortsChannels.has(rawClean));
+      const displayPlatform = isShorts ? 'youtube_shorts' : ch.platform;
 
-    // 1. Calculate watchers count for this channel
-    const realCount = streamViewers[`${ch.platform}_${cleanName}`] ?? streamViewers[`${ch.platform}_${rawClean}`] ?? streamViewers[`${ch.platform}_@${cleanName}`] ?? streamViewers[`${ch.platform}_${ch.name}`] ?? streamViewers[`${ch.platform}_${lowerName}`] ?? 0;
-    const isChannelConnected = status === 'connected' || status === 'live' || realCount > 0;
-    
-    let count = isChannelConnected ? realCount : (realCount > 0 ? realCount : 0);
-    if (!viewersByPlatform[displayPlatform]) {
-      viewersByPlatform[displayPlatform] = 0;
-    }
-    viewersByPlatform[displayPlatform] += count;
-
-    // 2. Calculate likes count for this channel (YouTube only)
-    if (ch.platform === 'youtube') {
-      const realLikes = streamLikes[`${ch.platform}_${cleanName}`] ?? streamLikes[`${ch.platform}_${rawClean}`] ?? streamLikes[`${ch.platform}_@${cleanName}`] ?? streamLikes[`${ch.platform}_${ch.name}`] ?? streamLikes[`${ch.platform}_${lowerName}`] ?? 0;
-      let lCount = isChannelConnected ? realLikes : (realLikes > 0 ? realLikes : 0);
-      if (!likesByPlatform[displayPlatform]) {
-        likesByPlatform[displayPlatform] = 0;
+      // 1. Calculate watchers count for this channel
+      const realCount = streamViewers[`${ch.platform}_${cleanName}`] ?? streamViewers[`${ch.platform}_${rawClean}`] ?? streamViewers[`${ch.platform}_@${cleanName}`] ?? streamViewers[`${ch.platform}_${ch.name}`] ?? streamViewers[`${ch.platform}_${lowerName}`] ?? 0;
+      const isChannelConnected = status === 'connected' || status === 'live' || realCount > 0;
+      
+      let count = isChannelConnected ? realCount : (realCount > 0 ? realCount : 0);
+      if (!viewersByPlatform[displayPlatform]) {
+        viewersByPlatform[displayPlatform] = 0;
       }
-      likesByPlatform[displayPlatform] += lCount;
-    }
+      viewersByPlatform[displayPlatform] += count;
 
-    // 3. Calculate elapsed stream duration for this channel
-    const isStreamActive = ch.platform === 'youtube'
-      ? (status === 'connected' || realCount > 0)
-      : (status === 'connected' && (realCount > 0 || !!(streamStartTimes[`${ch.platform}_${cleanName}`] || streamStartTimes[`${ch.platform}_${rawClean}`])));
+      // 2. Calculate likes count for this channel (YouTube only)
+      if (ch.platform === 'youtube') {
+        const realLikes = streamLikes[`${ch.platform}_${cleanName}`] ?? streamLikes[`${ch.platform}_${rawClean}`] ?? streamLikes[`${ch.platform}_@${cleanName}`] ?? streamLikes[`${ch.platform}_${ch.name}`] ?? streamLikes[`${ch.platform}_${lowerName}`] ?? 0;
+        let lCount = isChannelConnected ? realLikes : (realLikes > 0 ? realLikes : 0);
+        if (!likesByPlatform[displayPlatform]) {
+          likesByPlatform[displayPlatform] = 0;
+        }
+        likesByPlatform[displayPlatform] += lCount;
+      }
 
-    if (isStreamActive) {
-      const startTimeVal = streamStartTimes[`${ch.platform}_${cleanName}`] || 
-                           streamStartTimes[`${ch.platform}_${rawClean}`] || 
-                           streamStartTimes[`${ch.platform}_@${cleanName}`] || 
-                           streamStartTimes[`${ch.platform}_@${rawClean}`] || 
-                           streamStartTimes[`${ch.platform}_${ch.name}`] || 
-                           streamStartTimes[`${ch.platform}_${lowerName}`];
-      if (startTimeVal) {
-        const startMs = parseStartTimeMs(startTimeVal);
-        if (startMs && !isNaN(startMs)) {
-          const elapsedSecs = Math.floor((Date.now() - startMs) / 1000);
-          const currentEarliest = uptimesByPlatform[displayPlatform];
-          const secs = elapsedSecs >= 0 ? elapsedSecs : 0;
-          if (currentEarliest === undefined || secs > currentEarliest) {
-            uptimesByPlatform[displayPlatform] = secs;
+      // 3. Calculate elapsed stream duration for this channel
+      const isStreamActive = ch.platform === 'youtube'
+        ? (status === 'connected' || realCount > 0)
+        : (status === 'connected' && (realCount > 0 || !!(streamStartTimes[`${ch.platform}_${cleanName}`] || streamStartTimes[`${ch.platform}_${rawClean}`])));
+
+      if (isStreamActive) {
+        const startTimeVal = streamStartTimes[`${ch.platform}_${cleanName}`] || 
+                             streamStartTimes[`${ch.platform}_${rawClean}`] || 
+                             streamStartTimes[`${ch.platform}_@${cleanName}`] || 
+                             streamStartTimes[`${ch.platform}_@${rawClean}`] || 
+                             streamStartTimes[`${ch.platform}_${ch.name}`] || 
+                             streamStartTimes[`${ch.platform}_${lowerName}`];
+        if (startTimeVal) {
+          const startMs = parseStartTimeMs(startTimeVal);
+          if (startMs && !isNaN(startMs)) {
+            const elapsedSecs = Math.floor((Date.now() - startMs) / 1000);
+            const currentEarliest = uptimesByPlatform[displayPlatform];
+            const secs = elapsedSecs >= 0 ? elapsedSecs : 0;
+            if (currentEarliest === undefined || secs > currentEarliest) {
+              uptimesByPlatform[displayPlatform] = secs;
+            }
           }
         }
       }
-    }
-  });
+    });
 
-  const activeViewersByPlatform = viewersByPlatform;
-  const activeLikesByPlatform = likesByPlatform;
+    return { viewersByPlatform, uptimesByPlatform, likesByPlatform };
+  }, [hasAnyLive, liveChannels, enabledChannels, platformStatuses, youtubeShortsChannels, streamViewers, streamLikes, streamStartTimes]);
 
   const handleWatchersClick = () => {
     setViewerDisplayMode(prev => {
@@ -3028,24 +3029,27 @@ export default function ChatDashboard({
     return `${currencySymbol}${formatted}`;
   };
 
+  const { totalConnectedViewers, displayViewerCount, totalConnectedLikes, displayLikesCount } = useMemo(() => {
+    const totalConnectedViewers = Object.entries(streamViewers)
+      .filter(([chName]) => activeChannels.some(ch => ch.enabled && (
+        ch.name.toLowerCase().replace(/^@+/, '').trim() === chName ||
+        ch.name.toLowerCase().replace('@', '').trim() === chName
+      )))
+      .reduce((sum, [, count]) => sum + (count || 0), 0);
 
-  const totalConnectedViewers = Object.entries(streamViewers)
-    .filter(([chName]) => activeChannels.some(ch => ch.enabled && (
-      ch.name.toLowerCase().replace(/^@+/, '').trim() === chName ||
-      ch.name.toLowerCase().replace('@', '').trim() === chName
-    )))
-    .reduce((sum, [, count]) => sum + (count || 0), 0);
+    const displayViewerCount = activeChannels.some(ch => ch.enabled) ? totalConnectedViewers : 0;
 
-  const displayViewerCount = activeChannels.some(ch => ch.enabled) ? totalConnectedViewers : 0;
+    const totalConnectedLikes = Object.entries(streamLikes)
+      .filter(([chName]) => activeChannels.some(ch => ch.enabled && ch.platform === 'youtube' && (
+        ch.name.toLowerCase().replace(/^@+/, '').trim() === chName ||
+        ch.name.toLowerCase().replace('@', '').trim() === chName
+      )))
+      .reduce((sum, [, count]) => sum + (count || 0), 0);
 
-  const totalConnectedLikes = Object.entries(streamLikes)
-    .filter(([chName]) => activeChannels.some(ch => ch.enabled && ch.platform === 'youtube' && (
-      ch.name.toLowerCase().replace(/^@+/, '').trim() === chName ||
-      ch.name.toLowerCase().replace('@', '').trim() === chName
-    )))
-    .reduce((sum, [, count]) => sum + (count || 0), 0);
+    const displayLikesCount = activeChannels.some(ch => ch.enabled && ch.platform === 'youtube') ? totalConnectedLikes : 0;
 
-  const displayLikesCount = activeChannels.some(ch => ch.enabled && ch.platform === 'youtube') ? totalConnectedLikes : 0;
+    return { totalConnectedViewers, displayViewerCount, totalConnectedLikes, displayLikesCount };
+  }, [streamViewers, streamLikes, activeChannels]);
 
   const formatLikesNumber = (num) => {
     if (!num || isNaN(num)) return '0';

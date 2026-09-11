@@ -132,24 +132,31 @@ export default function App({ logout }) {
     return [];
   });
 
+  const persistDebounceRef = React.useRef(null);
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    try {
-      const regularChats = messages.filter(m => !m.isSystemEvent).slice(-300);
-      const systemEvents = messages.filter(m => m.isSystemEvent).slice(-500);
+    // Debounce localStorage writes to at most once every 3 seconds.
+    // This prevents the full filter+serialize loop running every 100ms drip.
+    if (persistDebounceRef.current) clearTimeout(persistDebounceRef.current);
+    persistDebounceRef.current = setTimeout(() => {
+      try {
+        const regularChats = messages.filter(m => !m.isSystemEvent).slice(-300);
+        const systemEvents = messages.filter(m => m.isSystemEvent).slice(-500);
 
-      if (regularChats.length > 0) {
-        localStorage.setItem('prochat_cached_chat_messages', JSON.stringify(regularChats));
-      } else {
-        localStorage.removeItem('prochat_cached_chat_messages');
-      }
+        if (regularChats.length > 0) {
+          localStorage.setItem('prochat_cached_chat_messages', JSON.stringify(regularChats));
+        } else {
+          localStorage.removeItem('prochat_cached_chat_messages');
+        }
 
-      if (systemEvents.length > 0) {
-        localStorage.setItem('prochat_cached_events', JSON.stringify(systemEvents));
-      } else {
-        localStorage.removeItem('prochat_cached_events');
-      }
-    } catch (e) {}
+        if (systemEvents.length > 0) {
+          localStorage.setItem('prochat_cached_events', JSON.stringify(systemEvents));
+        } else {
+          localStorage.removeItem('prochat_cached_events');
+        }
+      } catch (e) {}
+    }, 3000);
+    return () => { if (persistDebounceRef.current) clearTimeout(persistDebounceRef.current); };
   }, [messages]);
 
   const setMessages = React.useCallback((update) => {
@@ -774,7 +781,7 @@ export default function App({ logout }) {
   }, [page, settings.theme, settings.accentColor]);
 
   // Channels Operations
-  const addChannel = (platform, nameOrList, extra = {}) => {
+  const addChannel = React.useCallback((platform, nameOrList, extra = {}) => {
     setActiveChannels(prev => {
       const items = Array.isArray(nameOrList) ? nameOrList : [{ name: nameOrList, ...extra }];
       const nextList = [...prev];
@@ -796,17 +803,17 @@ export default function App({ logout }) {
       try { localStorage.setItem('prochat_channels', JSON.stringify(nextList)); } catch (e) {}
       return nextList;
     });
-  };
+  }, []);
 
-  const removeChannel = (id) => {
+  const removeChannel = React.useCallback((id) => {
     setActiveChannels(prev => {
       const nextList = prev.filter(ch => ch.id !== id);
       try { localStorage.setItem('prochat_channels', JSON.stringify(nextList)); } catch (e) {}
       return nextList;
     });
-  };
+  }, []);
 
-  const toggleChannel = (id) => {
+  const toggleChannel = React.useCallback((id) => {
     setActiveChannels(prev => {
       const nextList = prev.map(ch => 
         ch.id === id ? { ...ch, enabled: !ch.enabled } : ch
@@ -814,19 +821,21 @@ export default function App({ logout }) {
       try { localStorage.setItem('prochat_channels', JSON.stringify(nextList)); } catch (e) {}
       return nextList;
     });
-  };
+  }, []);
 
-  const reorderChannels = (nextList) => {
+  const reorderChannels = React.useCallback((nextList) => {
     setActiveChannels(nextList);
     try { localStorage.setItem('prochat_channels', JSON.stringify(nextList)); } catch (e) {}
-  };
+  }, []);
 
   // Settings operations
-  const updateSettings = (newSettings) => {
-    const merged = { ...settings, ...newSettings };
-    setSettings(merged);
-    localStorage.setItem('prochat_settings', JSON.stringify(merged));
-  };
+  const updateSettings = React.useCallback((newSettings) => {
+    setSettings(prev => {
+      const merged = { ...prev, ...newSettings };
+      localStorage.setItem('prochat_settings', JSON.stringify(merged));
+      return merged;
+    });
+  }, []);
 
   // Render Page Route
   const renderPage = () => {
