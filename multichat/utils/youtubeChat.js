@@ -552,7 +552,7 @@ export class YoutubeChatClient {
 
     let isLive = false;
     let isShorts = false;
-    let viewers = 0;
+    let viewers = null;
     let likes = 0;
     let startTime = null;
     let isExact = false;
@@ -603,17 +603,23 @@ export class YoutubeChatClient {
     const origMatch = html.match(/"originalViewCount"\s*:\s*"([^"]+)"/);
     if (origMatch && origMatch[1]) {
       const val = parseInt(origMatch[1].replace(/[^0-9]/g, ''), 10);
-      if (!isNaN(val)) viewers = val;
+      if (!isNaN(val) && val > 0) viewers = val;
     } else {
       const shortIdx = html.indexOf('"shortViewCountText"');
       if (shortIdx !== -1) {
         const sub = html.substring(shortIdx, shortIdx + 300);
         const runTextMatch = sub.match(/"text"\s*:\s*"([^"]+)"/);
         if (runTextMatch && runTextMatch[1]) {
-          const text = runTextMatch[1].toLowerCase();
-          if (text.includes('k')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
-          else if (text.includes('m')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
-          else viewers = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
+          const text = runTextMatch[1].toLowerCase().trim();
+          // Only parse if text starts with a digit (prevents false matches on titles/non-numeric strings)
+          if (/^[0-9]/.test(text)) {
+            if (text.includes('k')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
+            else if (text.includes('m')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
+            else {
+              const parsed = parseInt(text.replace(/[^0-9]/g, ''), 10);
+              if (!isNaN(parsed) && parsed > 0) viewers = parsed;
+            }
+          }
         }
       }
     }
@@ -1278,8 +1284,8 @@ export class YoutubeChatClient {
                   if (meta.isExact) pollInstance.isExactStartTime = true;
                 }
               }
-              if (meta.viewers !== null && meta.viewers !== undefined) pollInstance.viewers = meta.viewers;
-              if (meta.likes !== null && meta.likes !== undefined) pollInstance.likes = meta.likes;
+              if (meta.viewers !== null && meta.viewers !== undefined && meta.viewers > 0) pollInstance.viewers = meta.viewers;
+              if (meta.likes !== null && meta.likes !== undefined && meta.likes > 0) pollInstance.likes = meta.likes;
               if (meta.isShorts) pollInstance.isShorts = true;
             }
             if (!pollInstance.startTimestamp || !pollInstance.isShorts) {
@@ -1591,9 +1597,13 @@ export class YoutubeChatClient {
 
         // Check if this is a renewal milestone (e.g. "Member for 5 months") or a new member
         const combinedHeader = `${headerText} ${subtextText}`.trim();
-        const monthMatch = combinedHeader.match(/Member for\s+([0-9]+\s*(?:months?|years?|days?|weeks?))/i) ||
-                           subtextText.match(/([0-9]+\s*(?:months?|years?|days?|weeks?))/i);
-        const isMilestone = !!monthMatch || /Member for/i.test(combinedHeader) || (!!renderer.message && !/Welcome to/i.test(combinedHeader));
+        const monthMatch = combinedHeader.match(/Member (?:for|since)\s+([0-9]+\s*(?:months?|years?|days?|weeks?))/i) ||
+                           subtextText.match(/([0-9]+\s*(?:months?|years?|days?|weeks?))/i) ||
+                           combinedHeader.match(/([0-9]+\s*(?:months?|years?|days?|weeks?))/i);
+        // Detect milestone: duration found, or "Member for/since" phrasing, or has a custom user message (only milestones have user messages),
+        // or subtext contains duration keywords (standalone "2 months" etc)
+        const hasDurationKeywords = /(?:months?|years?|weeks?)/i.test(subtextText) || /(?:months?|years?|weeks?)/i.test(headerText);
+        const isMilestone = !!monthMatch || /Member (?:for|since)/i.test(combinedHeader) || (!!renderer.message && !/Welcome to/i.test(combinedHeader)) || (hasDurationKeywords && !/Welcome|Joined|New/i.test(combinedHeader));
         const durationText = monthMatch ? monthMatch[1] : (subtextText || '');
 
         let userCustomMessage = '';
@@ -1607,7 +1617,7 @@ export class YoutubeChatClient {
           subType: isMilestone ? 'milestone' : 'new_member',
           months: monthMatch ? monthMatch[1] : null,
           tier: isMilestone ? (durationText ? `Member for ${durationText}` : (subtextText || 'Member')) : (subtextText || headerText || 'Member'),
-          milestoneText: isMilestone ? (combinedHeader.includes('Member for') ? combinedHeader : `Member for ${durationText}`) : null,
+          milestoneText: isMilestone ? (combinedHeader.includes('Member for') || combinedHeader.includes('Member since') ? combinedHeader : `Member for ${durationText}`) : null,
           hasUserMessage: !!userCustomMessage,
           userMessage: userCustomMessage,
           headerBg: this.convertYoutubeColor(renderer.headerBackgroundColor) || '#0f9d58',

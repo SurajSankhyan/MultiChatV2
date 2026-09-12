@@ -1581,7 +1581,7 @@ export default function ChatDashboard({
             }
           } catch (e) {}
         }
-        if (metadata && metadata.viewers !== undefined && metadata.viewers !== null) {
+        if (metadata && metadata.viewers !== undefined && metadata.viewers !== null && metadata.viewers > 0) {
           setStreamViewers(prev => {
             const next = { 
               ...prev, 
@@ -2314,6 +2314,32 @@ export default function ChatDashboard({
           return { ...prev, deletedMessageIds: next, deletedByMap: nextMap };
         });
       }
+
+      // Inject a visible system notification when a moderator action is detected
+      if (explicitDeletedBy && targetMsgs.length > 0) {
+        const targetUser = targetMsgs[0]?.displayName || targetMsgs[0]?.username || authorChannelId;
+        const cleanTarget = (targetUser || '').replace(/^@+/, '').trim();
+        const cleanMod = (explicitDeletedBy || '').replace(/^@+/, '').trim();
+        const channel = targetMsgs[0]?.channel || 'global';
+        const platform = targetMsgs[0]?.platform || 'youtube';
+
+        return [
+          ...prevMessages,
+          {
+            id: 'sys-mod-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
+            platform,
+            channel,
+            username: 'System',
+            displayName: 'System',
+            text: `@${cleanTarget} was timed out by @${cleanMod}.`,
+            isSystemEvent: true,
+            eventType: 'moderation',
+            rawTimestamp: Date.now(),
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+          }
+        ];
+      }
+
       return prevMessages;
     });
   };
