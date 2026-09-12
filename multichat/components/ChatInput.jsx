@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Sliders, MoreHorizontal, Trash2, MessageSquare, Globe, Lock } from 'lucide-react';
+import { Sliders, MoreHorizontal, Trash2, MessageSquare, Globe, Lock, Volume2 } from 'lucide-react';
 import PlatformLogo from './PlatformLogo';
 import { Tooltip, TooltipTrigger, TooltipContent } from './ui/interfaces-tooltip';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -71,6 +71,8 @@ export default function ChatInput({
   onChangeYoutubeChatMode,
   cleanUi = false,
   onChangeCleanUi,
+  enableTts = false,
+  onChangeTts,
   streamStartTimes = {}
 }) {
   const [text, setText] = useState('');
@@ -428,6 +430,22 @@ export default function ChatInput({
                   <MessageSquare size={13} style={{ marginRight: '8px', opacity: 0.9 }} />
                   <span>Clean UI (Minimal)</span>
                   <div className={`check ${cleanUi ? 'checked' : ''}`}>
+                    <svg width="18px" height="18px" viewBox="0 0 18 18">
+                      <path d="M1,9 L1,3.5 C1,2 2,1 3.5,1 L14.5,1 C16,1 17,2 17,3.5 L17,14.5 C17,16 16,17 14.5,17 L3.5,17 C2,17 1,16 1,14.5 L1,9 Z"></path>
+                      <polyline points="1 9 7 14 15 4"></polyline>
+                    </svg>
+                  </div>
+                </button>
+                <button 
+                  type="button"
+                  className={`bottom-actions-dropdown-item ${enableTts ? 'active-selection' : ''}`}
+                  onClick={() => {
+                    onChangeTts(!enableTts);
+                  }}
+                >
+                  <Volume2 size={13} style={{ marginRight: '8px', opacity: 0.9 }} />
+                  <span>TTS Auto-Read</span>
+                  <div className={`check ${enableTts ? 'checked' : ''}`}>
                     <svg width="18px" height="18px" viewBox="0 0 18 18">
                       <path d="M1,9 L1,3.5 C1,2 2,1 3.5,1 L14.5,1 C16,1 17,2 17,3.5 L17,14.5 C17,16 16,17 14.5,17 L3.5,17 C2,17 1,16 1,14.5 L1,9 Z"></path>
                       <polyline points="1 9 7 14 15 4"></polyline>

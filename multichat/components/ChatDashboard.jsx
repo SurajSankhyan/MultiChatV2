@@ -3696,6 +3696,8 @@ export default function ChatDashboard({
             setIsSidebarHidden={setIsSidebarHidden}
             cleanUi={settings.cleanUi || false}
             onChangeCleanUi={(clean) => updateSettings({ cleanUi: clean })}
+            enableTts={settings.enableTts || false}
+            onChangeTts={(val) => updateSettings({ enableTts: val })}
             streamStartTimes={streamStartTimes}
           />
         </section>
