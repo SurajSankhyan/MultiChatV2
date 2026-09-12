@@ -96,26 +96,7 @@ export async function fetchGameDetails(videoId, videoTitle, videoDesc = '') {
     });
     html = data;
   } catch (err) {
-    console.warn(`[GameScraper] Direct scrape failed for video ${videoId} (${err.message}). Trying Codetabs proxy...`);
-    try {
-      const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}`;
-      const { data } = await axios.get(proxyUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
-        },
-        timeout: 10000
-      });
-      html = data;
-    } catch (proxyErr) {
-      console.warn(`[GameScraper] Codetabs proxy fetch failed for video ${videoId} (${proxyErr.message}). Trying AllOrigins proxy...`);
-      try {
-        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}`;
-        const { data } = await axios.get(proxyUrl, { timeout: 12000 });
-        html = data;
-      } catch (aoErr) {
-        console.error(`[GameScraper] AllOrigins proxy fetch failed for video ${videoId}: ${aoErr.message}`);
-      }
-    }
+    console.warn(`[GameScraper] Direct scrape failed for video ${videoId} (${err.message}). Will rely on Streamsnip proxy for storyboard spec.`);
   }
 
   if (html) {

@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 
 import { getLiveVideo, getStreamDetails, getChannelDetails } from './youtube.js';
 import { secondsToHMS } from './utils.js';
@@ -124,6 +125,7 @@ app.use(
 );
 
 app.use(express.json());
+app.use(compression());
 
 /* ================== ROUTES ================== */
 app.get('/', (req, res) => {
@@ -381,10 +383,8 @@ app.get('/api/clip', async (req, res) => {
 
         // Schedule automatic background resolvers if storyboard_spec is still null
         if (!finalStoryboardSpec) {
-          console.log(`[Storyboard Scheduler] Scheduling background storyboard resolution for video ${videoId}...`);
-          setTimeout(() => resolveAndSaveStoryboard(videoId), 1 * 60 * 1000);  // 1 min
-          setTimeout(() => resolveAndSaveStoryboard(videoId), 3 * 60 * 1000);  // 3 mins
-          setTimeout(() => resolveAndSaveStoryboard(videoId), 5 * 60 * 1000);  // 5 mins
+          console.log(`[Storyboard Scheduler] Scheduling single background retry for video ${videoId} in 3 min...`);
+          setTimeout(() => resolveAndSaveStoryboard(videoId), 3 * 60 * 1000);
         }
 
         /* ---------- AUTO-CLEANUP OF OLD UNSTARRED CLIPS ---------- */
@@ -450,10 +450,8 @@ app.get('/api/clips', async (req, res) => {
       .order('created_at', { ascending: false });
 
     if (error) throw error;
+    res.set('Cache-Control', 'public, max-age=30');
     res.json(data);
-
-    // Trigger storyboard and game tag backfill in the background
-    backfillStoryboardSpecs();
   } catch (err) {
     console.error('❌ FETCH CLIPS ERROR:', err);
     res.status(500).json([]);
@@ -568,6 +566,7 @@ app.get('/api/creators/refresh-views', async (req, res) => {
       }
     }
 
+    res.set('Cache-Control', 'public, max-age=300');
     res.json({ success: true, updated: updatedCount, views: viewsMap, creators: creatorsMap });
   } catch (err) {
     console.error('❌ refresh-views error:', err.message);
@@ -668,6 +667,7 @@ app.get('/api/avatar-proxy', async (req, res) => {
     const response = await axios.get(url, { responseType: 'arraybuffer' });
     res.set('Access-Control-Allow-Origin', '*');
     res.set('Content-Type', response.headers['content-type'] || 'image/jpeg');
+    res.set('Cache-Control', 'public, max-age=86400, immutable');
     res.send(response.data);
   } catch (err) {
     console.error('❌ avatar-proxy error:', err.message);
@@ -908,7 +908,13 @@ async function backfillCustomHandles() {
 }
 
 /* 🔹 AUTOMATIC MIGRATION: BACKFILL STORYBOARD SPECS FOR LEGACY STREAMS */
+let _backfillRunning = false;
 async function backfillStoryboardSpecs() {
+  if (_backfillRunning) {
+    console.log('[Storyboard Backfill] Already running, skipping duplicate invocation.');
+    return;
+  }
+  _backfillRunning = true;
   try {
     // Only backfill streams created in the last 3 days to avoid spamming YouTube with unresolvable legacy/deleted/private streams
     const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
@@ -989,6 +995,8 @@ async function backfillStoryboardSpecs() {
     }
   } catch (err) {
     console.error('❌ storyboard backfill error:', err.message);
+  } finally {
+    _backfillRunning = false;
   }
 }
 
@@ -999,6 +1007,6 @@ app.listen(PORT, () => {
   backfillCustomHandles();
   backfillStoryboardSpecs();
   
-  // Periodically backfill storyboard specs for finished streams every 5 minutes
-  setInterval(backfillStoryboardSpecs, 5 * 60 * 1000);
+  // Periodically backfill storyboard specs for finished streams every 10 minutes
+  setInterval(backfillStoryboardSpecs, 10 * 60 * 1000);
 });
