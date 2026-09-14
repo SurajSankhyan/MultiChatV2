@@ -1235,9 +1235,14 @@ export class YoutubeChatClient {
       let consecutiveErrors = 0;
       let isPollActive = false;
 
-      const scheduleNextPoll = (delay = 3000) => {
+      const scheduleNextPoll = (defaultDelay = 3000) => {
         if (!this.activePolls.has(pollKey)) return;
         if (pollInstance.timeoutId) clearTimeout(pollInstance.timeoutId);
+        
+        // Dynamically throttle polling to reduce HTTP requests to proxy
+        // Enforce a strict minimum of 6 seconds (6000ms) unless the initial immediate poll (0ms)
+        const delay = defaultDelay === 0 ? 0 : Math.max(pollInstance.timeoutMs || 3000, 6000);
+
         pollInstance.timeoutId = setTimeout(async () => {
           if (!this.activePolls.has(pollKey) || isPollActive) return;
           isPollActive = true;
@@ -1251,7 +1256,8 @@ export class YoutubeChatClient {
             isPollActive = false;
           }
           if (!this.activePolls.has(pollKey)) return;
-          scheduleNextPoll(3000);
+          
+          scheduleNextPoll(3000); // The next iteration will pick up the updated pollInstance.timeoutMs and apply the minimum
         }, delay);
       };
 
@@ -1397,6 +1403,9 @@ export class YoutubeChatClient {
           }
           nextToken = contData.timedContinuationData?.continuation ||
                       contData.invalidationContinuationData?.continuation;
+          if (contData.timedContinuationData?.timeoutMs) {
+            poll.timeoutMs = parseInt(contData.timedContinuationData.timeoutMs, 10);
+          }
         }
 
         // Parse active Super Chat ticker items to record stream top donors
