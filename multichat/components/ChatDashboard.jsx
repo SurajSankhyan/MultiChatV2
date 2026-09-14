@@ -1360,7 +1360,7 @@ export default function ChatDashboard({
           toAdd.push(item);
         }
         if (toAdd.length === 0) return prev;
-        return [...prev, ...toAdd].slice(-1000);
+        return [...prev, ...toAdd];
       });
 
       // Process notifications / sounds / TTS for the batch
@@ -2041,7 +2041,7 @@ export default function ChatDashboard({
           rawTimestamp: Date.now(),
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
         };
-        setMessages(prev => [...prev, streamerMsg].slice(-1000));
+        setMessages(prev => [...prev, streamerMsg].slice(-300));
       }
 
       // Direct YouTube Live Chat API & Extension DOM Posting

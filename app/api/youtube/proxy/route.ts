@@ -16,17 +16,8 @@ const corsHeaders = {
   'Cache-Control': 'no-store, max-age=0'
 };
 
-const cookieCache = new Map<string, { cookie: string | undefined, expires: number }>();
 
 async function fetchUserCookieFromDB(channel: string | null): Promise<string | undefined> {
-  const cacheKey = channel ? channel.toLowerCase() : 'global_fallback';
-  const now = Date.now();
-  const cached = cookieCache.get(cacheKey);
-  
-  if (cached && cached.expires > now) {
-    return cached.cookie;
-  }
-
   let userCookie = undefined;
   try {
     const { data: rows } = await asSupabase
@@ -56,12 +47,7 @@ async function fetchUserCookieFromDB(channel: string | null): Promise<string | u
   } catch (e: any) {
     console.warn('[Proxy API] Failed to fetch cookie from DB:', e.message);
   }
-  
-  const finalCookie = userCookie || process.env.YOUTUBE_COOKIE;
-  // Cache for 2 minutes to eliminate aggressive DB queries
-  cookieCache.set(cacheKey, { cookie: finalCookie, expires: now + 120000 });
-  
-  return finalCookie;
+  return userCookie || process.env.YOUTUBE_COOKIE;
 }
 
 function extractChannelFromUrl(url: string): string | null {
