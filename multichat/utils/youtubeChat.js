@@ -145,7 +145,7 @@ export class YoutubeChatClient {
   }
 
   // Fetch structured player metadata directly via Innertube Player API
-  async fetchPlayerMetadata(videoId, apiKey = '') {
+  async fetchPlayerMetadata(videoId, apiKey = '', preventHtmlFallback = false) {
     if (!videoId) return null;
 
     const payload = {
@@ -276,8 +276,6 @@ export class YoutubeChatClient {
       }
     } catch (e) {}
 
-    
-
     // 3. Try query proxy (/api/youtube/proxy)
     try {
       const controller = new AbortController();
@@ -297,6 +295,8 @@ export class YoutubeChatClient {
         if (parsed) return parsed;
       }
     } catch (e) {}
+
+    if (preventHtmlFallback) return null;
 
     // 4. Fallback: fetch watch page HTML directly via HTML scraper (which contains itemprop="startDate" and startTimestamp)
     try {
@@ -1235,14 +1235,9 @@ export class YoutubeChatClient {
       let consecutiveErrors = 0;
       let isPollActive = false;
 
-      const scheduleNextPoll = (defaultDelay = 3000) => {
+      const scheduleNextPoll = (delay = 3000) => {
         if (!this.activePolls.has(pollKey)) return;
         if (pollInstance.timeoutId) clearTimeout(pollInstance.timeoutId);
-        
-        // Dynamically throttle polling to reduce HTTP requests to proxy
-        // Enforce a strict minimum of 6 seconds (6000ms) unless the initial immediate poll (0ms)
-        const delay = defaultDelay === 0 ? 0 : Math.max(pollInstance.timeoutMs || 3000, 6000);
-
         pollInstance.timeoutId = setTimeout(async () => {
           if (!this.activePolls.has(pollKey) || isPollActive) return;
           isPollActive = true;
@@ -1256,8 +1251,7 @@ export class YoutubeChatClient {
             isPollActive = false;
           }
           if (!this.activePolls.has(pollKey)) return;
-          
-          scheduleNextPoll(3000); // The next iteration will pick up the updated pollInstance.timeoutMs and apply the minimum
+          scheduleNextPoll(3000);
         }, delay);
       };
 
@@ -1269,53 +1263,64 @@ export class YoutubeChatClient {
       // Periodic viewer and like count update for YouTube
       pollInstance.viewerIntervalId = setInterval(async () => {
         try {
-          const liveUrl = this.getLiveUrl(trimmedName);
-          const html = await this.fetchWithProxyFallback(liveUrl);
-          if (html) {
-            const currentVideoId = this.extractLiveVideoId(html);
-            if (!currentVideoId) {
-              console.log(`YouTube client: channel ${pollKey} went offline during 15s poll.`);
-              this.onStatus(pollKey, 'offline', { startTime: null, viewers: 0, likes: 0, displayName: pollInstance.displayName });
-              this.leave(trimmedName);
-              this.setupOfflinePoll(trimmedName, pollInstance.chatMode);
-              return;
-            }
-
-            const meta = this.parseMetadataFromHtml(html);
-            if (meta) {
-              if (meta.startTime) {
-                // Never overwrite an already established timer with a rough estimate
-                if (!pollInstance.startTimestamp || (meta.isExact && !pollInstance.isExactStartTime)) {
-                  pollInstance.startTimestamp = meta.startTime;
-                  if (meta.isExact) pollInstance.isExactStartTime = true;
-                }
+          if (pollInstance.videoId) {
+            // OPTIMIZED PATH: If we already have the videoId, DO NOT fetch the full HTML page.
+            // Just hit the lightweight InnerTube JSON API.
+            const pMeta = await this.fetchPlayerMetadata(pollInstance.videoId, pollInstance.apiKey, true);
+            if (pMeta) {
+              if (pMeta.startTime && !pollInstance.startTimestamp) {
+                pollInstance.startTimestamp = pMeta.startTime;
+                pollInstance.isExactStartTime = !!pMeta.isExact;
               }
-              if (meta.viewers !== null && meta.viewers !== undefined && meta.viewers > 0) pollInstance.viewers = meta.viewers;
-              if (meta.likes !== null && meta.likes !== undefined && meta.likes > 0) pollInstance.likes = meta.likes;
-              if (meta.isShorts) pollInstance.isShorts = true;
-            }
-            if (!pollInstance.startTimestamp || !pollInstance.isShorts) {
-              try {
-                const pMeta = await this.fetchPlayerMetadata(pollInstance.videoId, pollInstance.apiKey);
-                if (pMeta) {
-                  if (pMeta.startTime && !pollInstance.startTimestamp) {
-                    pollInstance.startTimestamp = pMeta.startTime;
-                    pollInstance.isExactStartTime = !!pMeta.isExact;
-                  }
-                  if (pMeta.isShorts) pollInstance.isShorts = true;
-                  if (pMeta.viewers && pollInstance.viewers === null) pollInstance.viewers = pMeta.viewers;
-                }
-              } catch (e) {}
-            }
+              if (pMeta.isShorts) pollInstance.isShorts = true;
+              if (pMeta.viewers !== null && pMeta.viewers !== undefined && pMeta.viewers > 0) pollInstance.viewers = pMeta.viewers;
+              if (pMeta.likes !== null && pMeta.likes !== undefined && pMeta.likes > 0) pollInstance.likes = pMeta.likes;
 
-            this.onStatus(pollKey, 'connected', { 
-              startTime: pollInstance.startTimestamp,
-              isExact: pollInstance.isExactStartTime,
-              viewers: pollInstance.viewers,
-              likes: pollInstance.likes,
-              isShorts: pollInstance.isShorts,
-              displayName: pollInstance.displayName || pollInstance.trimmedName.replace('@', '')
-            });
+              this.onStatus(pollKey, 'connected', { 
+                startTime: pollInstance.startTimestamp,
+                isExact: pollInstance.isExactStartTime,
+                viewers: pollInstance.viewers,
+                likes: pollInstance.likes,
+                isShorts: pollInstance.isShorts,
+                displayName: pollInstance.displayName || pollInstance.trimmedName.replace('@', '')
+              });
+            }
+          } else {
+            // UNOPTIMIZED PATH: Only happens if videoId is missing (very rare here)
+            const liveUrl = this.getLiveUrl(trimmedName);
+            const html = await this.fetchWithProxyFallback(liveUrl);
+            if (html) {
+              const currentVideoId = this.extractLiveVideoId(html);
+              if (!currentVideoId) {
+                console.log(`YouTube client: channel ${pollKey} went offline during 30s poll.`);
+                this.onStatus(pollKey, 'offline', { startTime: null, viewers: 0, likes: 0, displayName: pollInstance.displayName });
+                this.leave(trimmedName);
+                this.setupOfflinePoll(trimmedName, pollInstance.chatMode);
+                return;
+              }
+
+              const meta = this.parseMetadataFromHtml(html);
+              if (meta) {
+                if (meta.startTime) {
+                  if (!pollInstance.startTimestamp || (meta.isExact && !pollInstance.isExactStartTime)) {
+                    pollInstance.startTimestamp = meta.startTime;
+                    if (meta.isExact) pollInstance.isExactStartTime = true;
+                  }
+                }
+                if (meta.viewers !== null && meta.viewers !== undefined && meta.viewers > 0) pollInstance.viewers = meta.viewers;
+                if (meta.likes !== null && meta.likes !== undefined && meta.likes > 0) pollInstance.likes = meta.likes;
+                if (meta.isShorts) pollInstance.isShorts = true;
+              }
+
+              this.onStatus(pollKey, 'connected', { 
+                startTime: pollInstance.startTimestamp,
+                isExact: pollInstance.isExactStartTime,
+                viewers: pollInstance.viewers,
+                likes: pollInstance.likes,
+                isShorts: pollInstance.isShorts,
+                displayName: pollInstance.displayName || pollInstance.trimmedName.replace('@', '')
+              });
+            }
           }
         } catch (e) {}
       }, 30000);
@@ -1403,9 +1408,6 @@ export class YoutubeChatClient {
           }
           nextToken = contData.timedContinuationData?.continuation ||
                       contData.invalidationContinuationData?.continuation;
-          if (contData.timedContinuationData?.timeoutMs) {
-            poll.timeoutMs = parseInt(contData.timedContinuationData.timeoutMs, 10);
-          }
         }
 
         // Parse active Super Chat ticker items to record stream top donors
