@@ -2316,10 +2316,10 @@ export default function ChatDashboard({
       }
 
       // Inject a visible system notification when a moderator action is detected
-      if (explicitDeletedBy && targetMsgs.length > 0) {
+      if (targetMsgs.length > 0) {
         const targetUser = targetMsgs[0]?.displayName || targetMsgs[0]?.username || authorChannelId;
         const cleanTarget = (targetUser || '').replace(/^@+/, '').trim();
-        const cleanMod = (explicitDeletedBy || '').replace(/^@+/, '').trim();
+        const cleanMod = explicitDeletedBy ? (explicitDeletedBy.replace(/^@+/, '').trim()) : null;
         const channel = targetMsgs[0]?.channel || 'global';
         const platform = targetMsgs[0]?.platform || 'youtube';
 
@@ -2331,7 +2331,7 @@ export default function ChatDashboard({
             channel,
             username: 'System',
             displayName: 'System',
-            text: `@${cleanTarget} was timed out by @${cleanMod}.`,
+            text: cleanMod ? `@${cleanTarget} was timed out by @${cleanMod}.` : `@${cleanTarget} was timed out.`,
             isSystemEvent: true,
             eventType: 'moderation',
             rawTimestamp: Date.now(),

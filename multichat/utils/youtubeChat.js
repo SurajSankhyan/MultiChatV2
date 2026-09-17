@@ -208,10 +208,12 @@ export class YoutubeChatClient {
           }
         }
       }
-      const viewers = parseInt(json.videoDetails?.viewCount, 10) || 0;
-      const likes = parseInt(json.videoDetails?.likeCount, 10) || 0;
+      // The /player API returns total lifetime views in viewCount, not concurrent live viewers.
+      // Return null so we don't overwrite the correct live viewer count with a massive total view count.
+      const viewers = null; 
+      const likes = null;
       return {
-        isLive: !!json.videoDetails?.isLive || !!json.videoDetails?.isLiveContent || liveDetails?.isLiveNow !== false,
+        isLive: !!json.videoDetails?.isLive || !!json.videoDetails?.isLiveContent || (liveDetails ? liveDetails.isLiveNow !== false : false),
         startTime,
         isExact,
         viewers,
@@ -1268,6 +1270,15 @@ export class YoutubeChatClient {
             // Just hit the lightweight InnerTube JSON API.
             const pMeta = await this.fetchPlayerMetadata(pollInstance.videoId, pollInstance.apiKey, true);
             if (pMeta) {
+              // Check if stream went offline
+              if (pMeta.isLive === false) {
+                console.log(`YouTube client: channel ${pollKey} went offline (detected via InnerTube API).`);
+                this.onStatus(pollKey, 'offline', { startTime: null, viewers: 0, likes: 0, displayName: pollInstance.displayName });
+                this.leave(trimmedName);
+                this.setupOfflinePoll(trimmedName, pollInstance.chatMode);
+                return;
+              }
+
               if (pMeta.startTime && !pollInstance.startTimestamp) {
                 pollInstance.startTimestamp = pMeta.startTime;
                 pollInstance.isExactStartTime = !!pMeta.isExact;
@@ -1480,8 +1491,10 @@ export class YoutubeChatClient {
             const authorRemoveDeleted = action.removeChatItemsByAuthorAction;
 
             let deletedBy = null;
-            if (markDeleted && markDeleted.deletedStateMessageSnippet) {
-              const snippet = markDeleted.deletedStateMessageSnippet;
+            const snippet = (markDeleted && markDeleted.deletedStateMessageSnippet) || 
+                            (authorMarkDeleted && authorMarkDeleted.deletedStateMessageSnippet);
+            
+            if (snippet) {
               if (Array.isArray(snippet.runs)) {
                 for (const r of snippet.runs) {
                   if (r && r.text) {
@@ -1494,11 +1507,11 @@ export class YoutubeChatClient {
                 }
                 if (!deletedBy) {
                   const combined = snippet.runs.map(r => r.text || '').join('');
-                  const m = combined.match(/deleted by\s+@?([^\s.]+)/i);
+                  const m = combined.match(/(?:deleted|timed out|hidden) by\s+@?([^\s.]+)/i);
                   if (m && m[1]) deletedBy = m[1].replace(/^@+/, '').trim();
                 }
               } else if (typeof snippet.simpleText === 'string') {
-                const m = snippet.simpleText.match(/deleted by\s+@?([^\s.]+)/i);
+                const m = snippet.simpleText.match(/(?:deleted|timed out|hidden) by\s+@?([^\s.]+)/i);
                 if (m && m[1]) deletedBy = m[1].replace(/^@+/, '').trim();
               }
             }
@@ -1816,13 +1829,7 @@ export class YoutubeChatClient {
       // Check for Gift / Jewels item and images strictly on real gift events
       let isGift = false;
       let giftDetails = null;
-      const isExplicitGift = eventType === 'gift' || 
-                             !!item.liveChatJewelsGiftRenderer || 
-                             !!item.liveChatPaidGiftRenderer || 
-                             !!item.liveChatGiftPurchaseRenderer ||
-                             !!renderer.gift || 
-                             !!renderer.jewels || 
-                             !!renderer.jewelsAmount;
+      const isExplicitGift = eventType === 'gift';
 
       if (isExplicitGift) {
         isGift = true;
@@ -1875,21 +1882,24 @@ export class YoutubeChatClient {
       }
 
         // Check text for sent gifts (e.g. "@heliqx sent Star" or "sent Goat trophy")
+        // ONLY triggers if the extracted gift name matches a KNOWN gift in YOUTUBE_GIFT_JEWELS_MAP
         if (!isGift && text && eventType !== 'subscription') {
           const giftMatch = text.match(/sent\s+([A-Za-z0-9_.\s]+)/i);
           if (giftMatch) {
             const rawGiftName = giftMatch[1].replace(/[:*]/g, '').trim();
             const cleanKey = rawGiftName.toLowerCase().replace(/\.+$/, '').trim();
-            isGift = true;
-            isSystemEvent = true;
-            eventType = 'gift';
-            const jewels = String(YOUTUBE_GIFT_JEWELS_MAP[cleanKey] || YOUTUBE_GIFT_JEWELS_MAP[rawGiftName.toLowerCase()] || 50);
-            const emotePart = parts.find(p => p.type === 'emote');
-            giftDetails = {
-              name: rawGiftName,
-              jewels: jewels,
-              imageUrl: emotePart?.url || null
-            };
+            const knownJewels = YOUTUBE_GIFT_JEWELS_MAP[cleanKey] || YOUTUBE_GIFT_JEWELS_MAP[rawGiftName.toLowerCase()];
+            if (knownJewels) {
+              isGift = true;
+              isSystemEvent = true;
+              eventType = 'gift';
+              const emotePart = parts.find(p => p.type === 'emote');
+              giftDetails = {
+                name: rawGiftName,
+                jewels: String(knownJewels),
+                imageUrl: emotePart?.url || null
+              };
+            }
           }
         }
 
