@@ -238,6 +238,13 @@ const ChatMessageRow = React.memo(({
   const avatarUrl = resolveMessageAvatar(msg, user);
   const contentParts = resolveContentParts(msg);
 
+  const effectiveModActor = (() => {
+    if (modActor && String(modActor).trim()) {
+      return String(modActor).replace(/^@+/, '').replace(/\.$/, '').trim();
+    }
+    return null;
+  })();
+
   let element = null;
 
   if (msg.isSystemEvent) {
@@ -700,7 +707,36 @@ const ChatMessageRow = React.memo(({
           </div>
         </div>
       );
-    } else if (msg.eventType === 'system' || msg.username === 'system' || msg.displayName === 'SYSTEM') {
+    } else if (msg.eventType === 'moderation' || (typeof msg.text === 'string' && (msg.text.includes('timed out') || msg.text.includes('was hidden by')))) {
+      element = (
+        <div 
+          key={msg.id} 
+          className="moderation-timeout-notice-row"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '3px 0 3px 10px',
+            margin: '3px 0',
+            borderLeft: '2px solid rgba(255, 255, 255, 0.4)',
+            fontSize: '12.5px',
+            fontStyle: 'italic',
+            color: '#a1a1aa',
+            lineHeight: 1.4,
+            background: 'transparent',
+            boxShadow: 'none',
+            borderRadius: 0
+          }}
+        >
+          {settings.showIcons && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', opacity: 0.6, fontStyle: 'normal' }}>
+              <PlatformLogo platform={msg.platform} isShorts={msg.isShorts} size={12} />
+            </span>
+          )}
+          <span>{msg.text}</span>
+        </div>
+      );
+    } else if (msg.eventType === 'system' || String(msg.username).toLowerCase() === 'system' || String(msg.displayName).toLowerCase() === 'system') {
       element = (
         <div 
           key={msg.id} 
@@ -777,12 +813,19 @@ const ChatMessageRow = React.memo(({
       );
     }
   } else {
-    const rowClass = `chat-message-row${settings.alternatingBackgrounds ? (isEven ? ' row-even' : ' row-odd') : ''} ${msg.repliedTo ? 'has-reply-thread' : ''} ${isHighlighted ? 'active-highlight-card' : ''}`;
+    const isDeletedNotice = isHiddenOrDeleted && !isRevealed;
+    const rowClass = `chat-message-row${settings.alternatingBackgrounds ? (isEven ? ' row-even' : ' row-odd') : ''} ${msg.repliedTo ? 'has-reply-thread' : ''} ${isHighlighted ? 'active-highlight-card' : ''} ${isDeletedNotice ? 'is-deleted-row' : ''}`;
 
     element = (
       <div 
         key={msg.id} 
         className={rowClass}
+        style={{
+          ...(isDeletedNotice ? {
+            borderLeft: '2px solid rgba(255, 255, 255, 0.4)',
+            paddingLeft: '8px'
+          } : {})
+        }}
         onClick={(e) => {
           if (heldSuper && onHighlightMessage) {
             e.stopPropagation();
@@ -1001,20 +1044,21 @@ const ChatMessageRow = React.memo(({
                   </span>
                 </>
               ) : (
-                <span className="msg-deleted-text-container" style={{ marginLeft: '6px', fontSize: '13px', color: '#a1a1aa' }}>
-                  <span>{modActor ? `Message deleted by @${modActor.replace(/^@+/, '')}. ` : 'Message deleted. '}</span>
+                <span className="msg-deleted-text-container" style={{ marginLeft: '6px', fontSize: '13px', color: '#a1a1aa', fontStyle: 'italic' }}>
+                  <span>{effectiveModActor ? `Message deleted by @${String(effectiveModActor).replace(/^@+/, '').replace(/\.$/, '').trim()}. ` : 'Message deleted. '}</span>
                   <button 
                     type="button" 
                     onClick={(e) => { e.stopPropagation(); toggleRevealDeleted(msg.id); }}
                     style={{ 
                       background: 'none', 
                       border: 'none', 
-                      color: '#3b82f6', 
+                      color: '#93c5fd', 
                       textDecoration: 'underline', 
                       cursor: 'pointer', 
                       fontSize: '12px',
                       padding: 0,
-                      fontWeight: 600
+                      fontWeight: 500,
+                      fontStyle: 'italic'
                     }}
                   >
                     View deleted message
@@ -2672,15 +2716,13 @@ export default function ChatFeed({
 
               const checkTimedOut = (key) => {
                 if (!key || !moderation?.timedOutUsers) return false;
-                if (moderation.timedOutUsers instanceof Map) {
-                  const exp = moderation.timedOutUsers.get(key);
-                  return !!exp && exp > Date.now();
-                }
-                if (typeof moderation.timedOutUsers === 'object') {
-                  const exp = moderation.timedOutUsers[key];
-                  return !!exp && exp > Date.now();
-                }
-                return false;
+                const exp = (moderation.timedOutUsers instanceof Map)
+                  ? moderation.timedOutUsers.get(key)
+                  : (typeof moderation.timedOutUsers === 'object' ? moderation.timedOutUsers[key] : null);
+                if (!exp) return false;
+                if (Date.now() >= exp) return false;
+                const msgTime = msg.rawTimestamp ? Number(msg.rawTimestamp) : Date.now();
+                return exp > msgTime;
               };
 
               const isUserTimedOut = checkTimedOut(cleanMsgUser) || checkTimedOut(cleanMsgDisplay) || checkTimedOut(msgChanId);
@@ -2692,7 +2734,25 @@ export default function ChatFeed({
               ));
 
               const isHiddenOrDeleted = isDeleted || isUserTimedOut || isUserBanned;
-              const modActor = msg.deletedBy || (moderation?.deletedByMap ? (moderation.deletedByMap instanceof Map ? moderation.deletedByMap.get(msg.id) : moderation.deletedByMap[msg.id]) : null);
+
+              let modActor = msg.deletedBy || 
+                (moderation?.deletedByMap ? (moderation.deletedByMap instanceof Map ? moderation.deletedByMap.get(msg.id) : moderation.deletedByMap[msg.id]) : null) ||
+                (isUserTimedOut && moderation?.timeoutActorMap ? (moderation.timeoutActorMap instanceof Map ? (moderation.timeoutActorMap.get(cleanMsgUser) || moderation.timeoutActorMap.get(cleanMsgDisplay) || moderation.timeoutActorMap.get(msgChanId)) : moderation.timeoutActorMap[cleanMsgUser]) : null);
+
+              if (!modActor && isHiddenOrDeleted) {
+                const modEvent = tabFilteredMessages.find(m => 
+                  m.isSystemEvent && 
+                  m.eventType === 'moderation' && 
+                  m.eventDetails?.targetUser && 
+                  (
+                    m.eventDetails.targetUser.toLowerCase() === cleanMsgUser ||
+                    m.eventDetails.targetUser.toLowerCase() === cleanMsgDisplay
+                  )
+                );
+                if (modEvent?.eventDetails?.modUser) {
+                  modActor = modEvent.eventDetails.modUser;
+                }
+              }
               const isRevealed = revealedDeletedIds.has(msg.id);
               const showSeparator = firstNewMessageId && String(msg.id) === String(firstNewMessageId);
               const isEven = msg._isEven !== undefined 
@@ -2968,9 +3028,11 @@ export default function ChatFeed({
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
             {[
+              { label: '10 seconds', value: 10 },
               { label: '60 seconds', value: 60 },
               { label: '5 minutes', value: 300 },
               { label: '10 minutes', value: 600 },
+              { label: '30 minutes', value: 1800 },
               { label: '24 hours', value: 86400 }
             ].map(opt => (
               <label 

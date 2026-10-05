@@ -62,57 +62,31 @@ async function scrapeYouTubeChannel(input: string) {
 }
 
 async function fetchYouTubeChannel(providerToken: string, userEmail?: string, fullName?: string, userMetadata?: any) {
-  // 1. Primary: Fetch via Google OAuth providerToken (mine=true)
-  if (providerToken) {
+  // 1. Primary: Fetch via InnerTube channel resolution if username/handle or providerToken available
+  if (userMetadata?.preferred_username || userMetadata?.custom_url) {
     try {
-      console.log('[YouTube Fetch] Fetching YouTube channel via Google OAuth token (mine=true)...');
-      const res = await fetch('https://www.googleapis.com/youtube/v3/channels?mine=true&part=snippet,statistics', {
-        headers: {
-          Authorization: `Bearer ${providerToken}`,
-          Accept: 'application/json'
-        }
+      const handle = (userMetadata.preferred_username || userMetadata.custom_url).replace(/^@+/, '');
+      const { Innertube, UniversalCache } = await import('youtubei.js');
+      const yt = await Innertube.create({
+        cache: new UniversalCache(false),
+        generate_session_locally: true
       });
-      
-      const resText = await res.text();
-      if (res.ok) {
-        const data = JSON.parse(resText);
-        const item = data.items?.[0];
-        if (item) {
-          console.log(`[YouTube Fetch] SUCCESS: Found Channel ${item.snippet?.title} (ID: ${item.id})`);
+      const res = await yt.resolveURL(`https://www.youtube.com/@${handle}`).catch(() => null);
+      if (res?.payload?.browseId) {
+        const ch = await yt.getChannel(res.payload.browseId).catch(() => null);
+        if (ch) {
           return {
-            channelId: item.id,
-            channelName: item.snippet?.title || '',
-            customHandle: item.snippet?.customUrl || '',
-            avatarUrl: item.snippet?.thumbnails?.high?.url || item.snippet?.thumbnails?.default?.url || '',
-            views: parseInt(item.statistics?.viewCount || '0', 10),
-            subscribers: parseInt(item.statistics?.subscriberCount || '0', 10)
-          };
-        }
-      }
-
-      // 1b. Fallback via managedByMe=true
-      const resManaged = await fetch('https://www.googleapis.com/youtube/v3/channels?managedByMe=true&part=snippet,statistics', {
-        headers: {
-          Authorization: `Bearer ${providerToken}`,
-          Accept: 'application/json'
-        }
-      });
-      if (resManaged.ok) {
-        const dataManaged = await resManaged.json();
-        const itemManaged = dataManaged.items?.[0];
-        if (itemManaged) {
-          return {
-            channelId: itemManaged.id,
-            channelName: itemManaged.snippet?.title || '',
-            customHandle: itemManaged.snippet?.customUrl || '',
-            avatarUrl: itemManaged.snippet?.thumbnails?.high?.url || itemManaged.snippet?.thumbnails?.default?.url || '',
-            views: parseInt(itemManaged.statistics?.viewCount || '0', 10),
-            subscribers: parseInt(itemManaged.statistics?.subscriberCount || '0', 10)
+            channelId: res.payload.browseId,
+            channelName: ch.metadata?.title || handle,
+            customHandle: ch.metadata?.vanity_channel_url?.replace(/^https?:\/\/(www\.)?youtube\.com\//, '') || `@${handle}`,
+            avatarUrl: ch.metadata?.avatar?.[0]?.url || '',
+            views: 0,
+            subscribers: 0
           };
         }
       }
     } catch (err: any) {
-      console.error('[YouTube Fetch] Provider token fetch error:', err.message);
+      console.warn('[YouTube Fetch] InnerTube handle resolution notice:', err.message);
     }
   }
 

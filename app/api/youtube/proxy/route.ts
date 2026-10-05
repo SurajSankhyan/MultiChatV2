@@ -2,10 +2,10 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 import { NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { asSupabase } from '@/lib/supabase';
 import { decryptCookie } from '@/lib/cryptoCookie';
 import { formatInnertubeCookie } from '@/lib/innertubeSession';
-
 
 const DEFAULT_INNERTUBE_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
 
@@ -15,6 +15,15 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
   'Cache-Control': 'no-store, max-age=0'
 };
+
+function generateSapisidHash(cookie: string): string | null {
+  const match = cookie.match(/SAPISID=([^;\s]+)/) || cookie.match(/__Secure-3PAPISID=([^;\s]+)/);
+  if (!match || !match[1]) return null;
+  const sapisid = match[1];
+  const ts = Math.floor(Date.now() / 1000);
+  const sha1 = crypto.createHash('sha1').update(`${ts} ${sapisid} https://www.youtube.com`).digest('hex');
+  return `SAPISIDHASH ${ts}_${sha1}`;
+}
 
 
 async function fetchUserCookieFromDB(channel: string | null): Promise<string | undefined> {
@@ -85,8 +94,13 @@ export async function GET(request: Request) {
   headers.set('Referer', isMobile ? 'https://m.youtube.com/' : 'https://www.youtube.com/');
   const channel = extractChannelFromUrl(targetUrl);
   const dbCookie = await fetchUserCookieFromDB(channel);
-  if (dbCookie) headers.set('Cookie', dbCookie);
-  else headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
+  if (dbCookie) {
+    headers.set('Cookie', dbCookie);
+    const auth = generateSapisidHash(dbCookie);
+    if (auth) headers.set('Authorization', auth);
+  } else {
+    headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
+  }
 
   try {
     const res = await fetch(targetUrl, { headers, cache: 'no-store' });
@@ -128,8 +142,13 @@ export async function POST(request: Request) {
   headers.set('Sec-Fetch-Site', 'same-origin');
   const channel = extractChannelFromUrl(targetUrl);
   const dbCookie = await fetchUserCookieFromDB(channel);
-  if (dbCookie) headers.set('Cookie', dbCookie);
-  else headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
+  if (dbCookie) {
+    headers.set('Cookie', dbCookie);
+    const auth = generateSapisidHash(dbCookie);
+    if (auth) headers.set('Authorization', auth);
+  } else {
+    headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
+  }
 
   try {
     const incomingBody = await request.json().catch(() => ({}));
@@ -166,7 +185,6 @@ export async function POST(request: Request) {
             const item = action.addChatItemAction.item[itemKey];
             if (item) {
               // Delete heavy accessibility and tracking nodes that the frontend parser ignores
-              delete item.contextMenuEndpoint;
               delete item.contextMenuAccessibility;
               delete item.trackingParams;
             }

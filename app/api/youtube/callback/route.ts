@@ -79,51 +79,49 @@ export async function GET(request: Request) {
       console.warn('[OAuth Callback] UserInfo fetch warning:', e.message);
     }
 
-    // 2. Fetch channel metadata directly from YouTube Data API
+    // 2. Fetch channel metadata 100% via InnerTube
     try {
-      const chanRes = await fetch('https://www.googleapis.com/youtube/v3/channels?mine=true&part=snippet', {
-        headers: { Authorization: `Bearer ${access_token}` }
+      const { Innertube, UniversalCache } = await import('youtubei.js');
+      const yt = await Innertube.create({
+        cache: new UniversalCache(false),
+        generate_session_locally: true
       });
-      if (chanRes.ok) {
-        const chanData = await chanRes.json();
-        if (chanData.items && chanData.items.length > 0) {
-          const snippet = chanData.items[0].snippet;
-          channelId = chanData.items[0].id || '';
-          channelName = snippet.title || '';
-          channelHandle = snippet.customUrl || '';
-          if (snippet.thumbnails?.high?.url) avatarUrl = snippet.thumbnails.high.url;
-          console.log('[OAuth Callback] YouTube Channel metadata:', { channelId, channelName, channelHandle });
+      if (refresh_token) {
+        await yt.session.oauth.init({
+          access_token,
+          refresh_token,
+          scope: 'https://www.googleapis.com/auth/youtube',
+          token_type: 'Bearer',
+          expiry_date: new Date(Date.now() + (expires_in || 3600) * 1000).toISOString()
+        });
+        const accountInfo: any = await yt.account.getInfo().catch(() => null);
+        if (accountInfo?.contents?.contents?.[0]) {
+          const item = accountInfo.contents.contents[0];
+          if (!channelName) channelName = item.account_name?.text || '';
+          if (!channelHandle) channelHandle = item.channel_handle?.text || '';
+          if (!userEmail && item.account_byline?.text?.includes('@')) userEmail = item.account_byline.text;
+          if (!avatarUrl) avatarUrl = item.account_photo?.[0]?.url || '';
+          channelId = item.endpoint?.payload?.browseId || '';
         }
       }
+      if (channelHandle && !channelId) {
+        const cleanHandle = channelHandle.startsWith('@') ? channelHandle : `@${channelHandle}`;
+        const res = await yt.resolveURL(`https://www.youtube.com/${cleanHandle}`).catch(() => null);
+        if (res?.payload?.browseId) {
+          channelId = res.payload.browseId;
+        }
+      }
+      if (channelId && (!channelName || !avatarUrl)) {
+        const ch = await yt.getChannel(channelId).catch(() => null);
+        if (ch) {
+          if (!channelName) channelName = ch.metadata?.title || '';
+          if (!channelHandle) channelHandle = ch.metadata?.vanity_channel_url?.replace(/^https?:\/\/(www\.)?youtube\.com\//, '') || '';
+          if (!avatarUrl && ch.metadata?.avatar?.[0]?.url) avatarUrl = ch.metadata.avatar[0].url;
+        }
+      }
+      console.log('[OAuth Callback] InnerTube Channel metadata:', { channelId, channelName, channelHandle });
     } catch (e: any) {
-      console.warn('[OAuth Callback] YouTube Channels API fetch warning:', e.message);
-    }
-
-    // Fallback to InnerTube account inspection if needed
-    if (!channelHandle || !userEmail) {
-      try {
-        const { Innertube } = await import('youtubei.js');
-        const yt = await Innertube.create();
-        if (refresh_token) {
-          await yt.session.oauth.init({
-            access_token,
-            refresh_token,
-            scope: 'https://www.googleapis.com/auth/youtube',
-            token_type: 'Bearer',
-            expiry_date: new Date(Date.now() + (expires_in || 3600) * 1000).toISOString()
-          });
-          const accountInfo: any = await yt.account.getInfo().catch(() => null);
-          if (accountInfo?.contents?.contents?.[0]) {
-            const item = accountInfo.contents.contents[0];
-            if (!channelName) channelName = item.account_name?.text || '';
-            if (!channelHandle) channelHandle = item.channel_handle?.text || '';
-            if (!userEmail && item.account_byline?.text?.includes('@')) userEmail = item.account_byline.text;
-            if (!avatarUrl) avatarUrl = item.account_photo?.[0]?.url || '';
-          }
-        }
-      } catch (e: any) {
-        console.warn('[OAuth Callback] InnerTube account inspection warning:', e.message);
-      }
+      console.warn('[OAuth Callback] InnerTube channel resolution warning:', e.message);
     }
 
     // Clear old cached instances so fresh OAuth session is loaded

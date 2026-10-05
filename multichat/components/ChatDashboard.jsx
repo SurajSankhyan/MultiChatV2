@@ -956,14 +956,16 @@ export default function ChatDashboard({
         bannedUsers: bannedSet,
         timedOutUsers: timedOutMap,
         deletedMessageIds: deletedSet,
-        deletedByMap
+        deletedByMap,
+        timeoutActorMap: new Map()
       };
     } catch (e) {
       return {
         bannedUsers: new Set(),
         timedOutUsers: new Map(),
         deletedMessageIds: new Set(),
-        deletedByMap: new Map()
+        deletedByMap: new Map(),
+        timeoutActorMap: new Map()
       };
     }
   });
@@ -1452,9 +1454,17 @@ export default function ChatDashboard({
           if (!ch.enabled) return false;
           if (ch.platform !== msg.platform) return false;
           const cleanChan = (ch.name || '').toLowerCase().replace(/^@+/, '').trim();
+          const cleanId = (ch.id || '').toLowerCase().trim();
+          const cleanDisplay = (ch.displayName || '').toLowerCase().replace(/^@+/, '').trim();
           const msgChan = (msg.channel || '').toLowerCase().replace(/^@+/, '').trim();
+          const msgAuthorChan = (msg.channelId || msg.authorChannelId || '').toLowerCase().trim();
           if (!msgChan) return true;
-          return cleanChan === msgChan || cleanChan.includes(msgChan) || msgChan.includes(cleanChan);
+          return cleanChan === msgChan || 
+                 cleanId === msgChan || 
+                 cleanDisplay === msgChan ||
+                 cleanChan.includes(msgChan) || 
+                 msgChan.includes(cleanChan) ||
+                 (cleanId && cleanId === msgAuthorChan);
         });
         if (!isChannelActive) {
           return; // Ignore messages from disconnected/removed channels
@@ -1483,6 +1493,26 @@ export default function ChatDashboard({
           }));
           return;
         }
+      }
+
+      // If a regular chat message arrives from YouTube, clear any expired or completed timeout for this user
+      if (msg && !msg.isSystemEvent && msg.platform === 'youtube') {
+        const u = (msg.username || '').replace(/^@+/, '').trim().toLowerCase();
+        const d = (msg.displayName || '').replace(/^@+/, '').trim().toLowerCase();
+        const c = (msg.channelId || msg.authorChannelId || '').trim().toLowerCase();
+        setModeration(prev => {
+          if (!prev?.timedOutUsers) return prev;
+          const timedMap = prev.timedOutUsers;
+          const exp = (timedMap instanceof Map) ? (timedMap.get(u) || timedMap.get(d) || timedMap.get(c)) : timedMap[u];
+          if (exp && Date.now() >= (exp - 1000)) {
+            const nextTimed = new Map(timedMap);
+            nextTimed.delete(u);
+            nextTimed.delete(d);
+            nextTimed.delete(c);
+            return { ...prev, timedOutUsers: nextTimed };
+          }
+          return prev;
+        });
       }
 
       messageBuffer.push(msg);
@@ -1705,12 +1735,8 @@ export default function ChatDashboard({
           return msg;
         }));
       },
-      (msgId, authorChannelId, deletedBy) => {
-        if (msgId) {
-          handleDeleteMessage(msgId, deletedBy);
-        } else if (authorChannelId) {
-          handleDeleteUserMessages(authorChannelId, deletedBy);
-        }
+      (msgId, authorChannelId, deletedBy, channelName, rawSnippetText) => {
+        handleRemoteMessageDeleted(msgId, authorChannelId, deletedBy, channelName, rawSnippetText);
       }
     );
 
@@ -2044,14 +2070,9 @@ export default function ChatDashboard({
         setMessages(prev => [...prev, streamerMsg].slice(-300));
       }
 
-      // Direct YouTube Live Chat API & Extension DOM Posting
+      // Direct YouTube Live Chat API Posting
       if (target.platform === 'youtube') {
         const liveChatId = resolveLiveChatId(target);
-
-        // 1. Post via Chrome Extension DOM Dispatch if extension is active in browser
-        if (typeof window !== 'undefined') {
-          window.postMessage({ type: 'STREAMCLIPS_SEND_YOUTUBE_CHAT', message: text }, '*');
-        }
 
         try {
           console.log('[MultiChat] Posting YouTube chat message with auto-detected live broadcast...');
@@ -2211,13 +2232,39 @@ export default function ChatDashboard({
   };
 
   const getModeratorHandle = (msgObj) => {
-    const verifiedCh = activeChannels.find(ch => ch.enabled && ch.verified && ch.platform === msgObj?.platform);
-    if (verifiedCh) {
-      return (verifiedCh.displayName || verifiedCh.name || '').replace(/^@+/, '');
+    // 1. Check user custom handle (e.g., @duplicatebunnysank9)
+    const custom = user?.custom_handle || user?.ytCustomHandle || user?.user_metadata?.custom_handle;
+    if (custom && custom !== '@user' && !custom.toLowerCase().includes('404')) {
+      return custom.replace(/^@+/, '').trim();
     }
-    const custom = user?.custom_handle || user?.ytCustomHandle || user?.channel_name || user?.ytChannelName || user?.username || user?.user_metadata?.custom_handle || user?.user_metadata?.full_name;
-    if (custom && custom !== 'Streamer' && !custom.toLowerCase().includes('404')) {
-      return custom.replace(/^@+/, '');
+
+    // 2. Check verified channel's @username / handle
+    const verifiedCh = activeChannels.find(ch => ch.enabled && ch.verified && ch.platform === (msgObj?.platform || 'youtube'));
+    if (verifiedCh) {
+      const handle = (verifiedCh.name && verifiedCh.name.startsWith('@') ? verifiedCh.name : null) || verifiedCh.customHandle || (verifiedCh.displayName && verifiedCh.displayName.startsWith('@') ? verifiedCh.displayName : null) || verifiedCh.name;
+      if (handle && !handle.toLowerCase().includes('404')) {
+        return handle.replace(/^@+/, '').trim();
+      }
+    }
+
+    // 3. Any active channel's @username / handle
+    const anyCh = activeChannels.find(ch => ch.enabled && ch.platform === (msgObj?.platform || 'youtube'));
+    if (anyCh) {
+      const handle = (anyCh.name && anyCh.name.startsWith('@') ? anyCh.name : null) || anyCh.customHandle || anyCh.name;
+      if (handle && !handle.toLowerCase().includes('404')) {
+        return handle.replace(/^@+/, '').trim();
+      }
+    }
+
+    // 4. Message stream channel (the channel owner's handle/name)
+    if (msgObj?.channel && !msgObj.channel.toLowerCase().includes('global')) {
+      return msgObj.channel.replace(/^@+/, '').trim();
+    }
+
+    // 5. Fallback to username
+    const username = user?.username || user?.user_metadata?.full_name;
+    if (username && username !== 'Streamer' && !username.toLowerCase().includes('404')) {
+      return username.replace(/^@+/, '').trim();
     }
     return '';
   };
@@ -2233,23 +2280,66 @@ export default function ChatDashboard({
   };
 
   // Moderation Handlers
+  // Handle remote deletion events received from YouTube live chat stream
+  const handleRemoteMessageDeleted = (msgId, authorChannelId, explicitDeletedBy = null, channelName = null, rawSnippetText = null) => {
+    if (msgId) {
+      setModeration(prev => {
+        const next = new Set(prev.deletedMessageIds);
+        next.add(msgId);
+        const nextMap = new Map(prev.deletedByMap || []);
+
+        let actor = explicitDeletedBy ? explicitDeletedBy.replace(/^@+/, '').replace(/\.$/, '').trim() : null;
+        if (!actor && rawSnippetText) {
+          const dm = String(rawSnippetText).match(/(?:message\s+deleted|messages\s+deleted|deleted|hidden)\s+by\s+@?([^\s.\[\r\n]+)/i);
+          if (dm) actor = dm[1].replace(/^@+/, '').replace(/\.$/, '').trim();
+        }
+        if (!actor && prev.timeoutActorMap) {
+          const targetMsg = messages.find(m => String(m.id) === String(msgId));
+          if (targetMsg) {
+            const u = (targetMsg.username || '').replace(/^@+/, '').trim().toLowerCase();
+            const d = (targetMsg.displayName || '').replace(/^@+/, '').trim().toLowerCase();
+            const c = (targetMsg.channelId || targetMsg.authorChannelId || '').trim().toLowerCase();
+            actor = prev.timeoutActorMap.get(u) || prev.timeoutActorMap.get(d) || prev.timeoutActorMap.get(c);
+          }
+        }
+        if (!actor) {
+          const modMsg = [...messages].reverse().find(m => 
+            m.platform === 'youtube' && 
+            (
+              (m.badges && (
+                m.badges.includes('moderator') || 
+                m.badges.includes('mod') || 
+                m.badges.some(b => String(b?.icon || b).toLowerCase().includes('mod'))
+              )) ||
+              m.isModerator || m.authorIsModerator ||
+              m.eventDetails?.modUser
+            )
+          );
+          if (modMsg) {
+            actor = modMsg.eventDetails?.modUser || (modMsg.username || modMsg.displayName || '').replace(/^@+/, '').trim();
+          }
+        }
+        if (!actor && user?.custom_handle) {
+          actor = user.custom_handle.replace(/^@+/, '').trim();
+        }
+        if (actor) {
+          nextMap.set(msgId, actor);
+        }
+        return { ...prev, deletedMessageIds: next, deletedByMap: nextMap };
+      });
+    } else if (authorChannelId) {
+      handleDeleteUserMessages(authorChannelId, explicitDeletedBy, channelName, rawSnippetText);
+    }
+  };
+
   const handleDeleteMessage = async (msgOrId, explicitDeletedBy = null) => {
     const msgId = typeof msgOrId === 'object' ? msgOrId.id : msgOrId;
     const msgObj = typeof msgOrId === 'object' 
       ? msgOrId 
       : messages.find(m => String(m.id) === String(msgId));
-    
-    // Check if the channel is connected with the current account
-    const isChannelConnected = activeChannels.some(ch => 
-      ch.platform === msgObj?.platform && 
-      ch.verified && 
-      ch.enabled &&
-      (ch.name?.toLowerCase().replace(/^@+/, '') === (msgObj?.channel || '').toLowerCase().replace(/^@+/, '') ||
-       ch.id === msgObj?.channelId)
-    );
 
     let modActor = explicitDeletedBy || (typeof msgOrId === 'object' && msgOrId?.deletedBy ? msgOrId.deletedBy : null);
-    if (!modActor && isChannelConnected) {
+    if (!modActor) {
       const handle = getModeratorHandle(msgObj);
       if (handle) modActor = handle;
     }
@@ -2259,16 +2349,17 @@ export default function ChatDashboard({
       next.add(msgId);
       const nextMap = new Map(prev.deletedByMap || []);
       if (modActor) {
-        nextMap.set(msgId, modActor);
+        nextMap.set(msgId, modActor.replace(/^@+/, '').trim());
       }
       return { ...prev, deletedMessageIds: next, deletedByMap: nextMap };
     });
 
     const platform = msgObj?.platform || 'youtube';
+    const liveChatId = resolveLiveChatId(msgObj);
+    const targetChannelId = resolveTargetChannelId(msgObj) || msgObj?.username || msgObj?.displayName || '';
+    const activeVideoId = settings?.youtubeVideoId || (liveChatId && /^[a-zA-Z0-9_-]{11}$/.test(liveChatId.trim()) ? liveChatId.trim() : (msgObj?.videoId || ''));
+
     if (platform === 'youtube' && user) {
-      const liveChatId = resolveLiveChatId(msgObj);
-      const targetChannelId = resolveTargetChannelId(msgObj) || msgObj?.username || msgObj?.displayName || '';
-      const activeVideoId = settings?.youtubeVideoId || (liveChatId && /^[a-zA-Z0-9_-]{11}$/.test(liveChatId.trim()) ? liveChatId.trim() : (msgObj?.videoId || ''));
       console.log('[MultiChat] Executing YouTube API delete message:', msgId, 'videoId:', activeVideoId);
       try {
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/youtube/chat`, {
@@ -2292,16 +2383,121 @@ export default function ChatDashboard({
         });
         const data = await res.json();
         console.log('[MultiChat] YouTube API delete result:', data);
+
+        if (!res.ok || !data.success || data.error) {
+          const failReason = data.error || 'YouTube rejected message deletion';
+          const isAuthErr = res.status === 401 || data.isAuthExpired || failReason.toLowerCase().includes('expired') || failReason.toLowerCase().includes('signed in');
+          setMessages(prev => [
+            ...prev,
+            {
+              id: 'sys-del-err-' + Date.now(),
+              platform: msgObj?.platform || 'youtube',
+              channel: msgObj?.channel || 'global',
+              username: 'System',
+              displayName: 'System',
+              text: isAuthErr
+                ? '⚠️ YouTube Session Expired: Please re-link your channel in Settings or Connect YouTube to refresh your moderation credentials.'
+                : `⚠️ YouTube rejected message deletion: ${failReason}`,
+              isSystemEvent: true,
+              eventType: 'error',
+              rawTimestamp: Date.now(),
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+            }
+          ]);
+        }
       } catch (err) {
         console.warn('[MultiChat] YouTube API delete error:', err);
       }
     }
   };
 
-  const handleDeleteUserMessages = (authorChannelId, explicitDeletedBy = null) => {
+  const handleDeleteUserMessages = (authorChannelId, explicitDeletedBy = null, channelName = null, rawSnippetText = null) => {
+    const cleanAuthorParam = String(authorChannelId || '').replace(/^@+/, '').trim().toLowerCase();
+    const durationMatch = rawSnippetText ? String(rawSnippetText).match(/for\s+([0-9]+\s+[a-zA-Z]+)/i) : null;
+    let durationStr = durationMatch ? durationMatch[1] : '';
+
     setMessages(prevMessages => {
-      const targetMsgs = prevMessages.filter(msg => msg.platform === 'youtube' && msg.channelId === authorChannelId);
+      const targetMsgs = prevMessages.filter(msg => {
+        if (msg.platform !== 'youtube') return false;
+        const cId = String(msg.channelId || msg.authorChannelId || msg.authorExternalChannelId || '').trim().toLowerCase();
+        const uName = String(msg.username || '').replace(/^@+/, '').trim().toLowerCase();
+        const dName = String(msg.displayName || '').replace(/^@+/, '').trim().toLowerCase();
+        return (cId && cId === cleanAuthorParam) || (uName && uName === cleanAuthorParam) || (dName && dName === cleanAuthorParam);
+      });
       const targetIds = targetMsgs.map(msg => msg.id);
+
+      // Prefer handle without spaces for target user to match YouTube @handle format
+      const rawTargetHandle = targetMsgs[0]?.username || targetMsgs[0]?.displayName || authorChannelId || '';
+      const targetUser = rawTargetHandle.replace(/^@+/, '').trim();
+
+      let actor = explicitDeletedBy ? explicitDeletedBy.replace(/^@+/, '').replace(/\.$/, '').trim() : null;
+
+      // Extract moderator from rawSnippetText if present
+      if (!actor && rawSnippetText) {
+        const tm = String(rawSnippetText).match(/was timed out by\s+@?([^\s.]+)/i) || 
+                   String(rawSnippetText).match(/(?:message\s+deleted|messages\s+deleted|deleted|hidden)\s+by\s+@?([^\s.\[\r\n]+)/i);
+        if (tm) actor = tm[1].replace(/^@+/, '').replace(/\.$/, '').trim();
+      }
+
+      // Check timeoutActorMap in moderation state
+      if (!actor && moderation?.timeoutActorMap) {
+        const map = moderation.timeoutActorMap;
+        actor = (map instanceof Map ? (map.get(cleanAuthorParam) || map.get(targetUser.toLowerCase())) : map[cleanAuthorParam] || map[targetUser.toLowerCase()]);
+      }
+
+      // Check for active moderator in previous chat messages
+      if (!actor) {
+        const modMsg = [...prevMessages].reverse().find(m => 
+          m.platform === 'youtube' && 
+          (
+            (m.badges && (
+              m.badges.includes('moderator') || 
+              m.badges.includes('mod') || 
+              m.badges.some(b => String(b?.icon || b).toLowerCase().includes('mod'))
+            )) ||
+            m.isModerator || m.authorIsModerator ||
+            m.eventDetails?.modUser
+          ) &&
+          m.username?.toLowerCase() !== targetUser.toLowerCase() &&
+          m.displayName?.toLowerCase() !== targetUser.toLowerCase() &&
+          (m.channelId || m.authorChannelId) !== cleanAuthorParam
+        );
+        if (modMsg) {
+          actor = modMsg.eventDetails?.modUser || (modMsg.username || modMsg.displayName || '').replace(/^@+/, '').trim();
+        }
+      }
+
+      // Check active channels for configured moderator/owner
+      if (!actor) {
+        const modCh = activeChannels.find(ch => ch.enabled && (ch.role === 'moderator' || ch.isModerator));
+        if (modCh?.name) actor = modCh.name.replace(/^@+/, '').trim();
+      }
+
+      // Fallback to channel/user handle
+      if (!actor && user?.custom_handle) {
+        actor = user.custom_handle.replace(/^@+/, '').trim();
+      }
+      if (!actor && channelName && !channelName.toLowerCase().includes('global')) {
+        actor = channelName.replace(/^@+/, '').trim();
+      }
+
+      // Default duration to 10 seconds if not specified (standard YouTube timeout)
+      if (!durationStr) {
+        durationStr = '10 seconds';
+      }
+
+      // Compute exact duration in milliseconds
+      let durationMs = 10000; // default 10 seconds
+      const dm = String(durationStr).match(/([0-9]+)\s*([a-zA-Z]+)/i);
+      if (dm) {
+        const num = parseInt(dm[1], 10);
+        const unit = dm[2].toLowerCase();
+        if (unit.startsWith('s')) durationMs = num * 1000;
+        else if (unit.startsWith('m')) durationMs = num * 60 * 1000;
+        else if (unit.startsWith('h')) durationMs = num * 3600 * 1000;
+        else if (unit.startsWith('d')) durationMs = num * 86400 * 1000;
+      }
+      const expiryTime = Date.now() + durationMs;
 
       if (targetIds.length > 0) {
         setModeration(prev => {
@@ -2309,20 +2505,51 @@ export default function ChatDashboard({
           const nextMap = new Map(prev.deletedByMap || []);
           targetIds.forEach(id => {
             next.add(id);
-            if (explicitDeletedBy) nextMap.set(id, explicitDeletedBy);
+            if (actor) {
+              nextMap.set(id, actor);
+            }
           });
-          return { ...prev, deletedMessageIds: next, deletedByMap: nextMap };
+          const nextTimed = new Map(prev.timedOutUsers || []);
+          nextTimed.set(cleanAuthorParam, expiryTime);
+          if (targetMsgs[0]?.username) nextTimed.set(targetMsgs[0].username.replace(/^@+/, '').trim().toLowerCase(), expiryTime);
+          if (targetMsgs[0]?.displayName) nextTimed.set(targetMsgs[0].displayName.replace(/^@+/, '').trim().toLowerCase(), expiryTime);
+          if (targetUser) nextTimed.set(targetUser.toLowerCase(), expiryTime);
+
+          const nextTimeoutActors = new Map(prev.timeoutActorMap || []);
+          if (actor) {
+            nextTimeoutActors.set(cleanAuthorParam, actor);
+            nextTimeoutActors.set(targetUser.toLowerCase(), actor);
+            if (targetMsgs[0]?.username) nextTimeoutActors.set(targetMsgs[0].username.replace(/^@+/, '').trim().toLowerCase(), actor);
+            if (targetMsgs[0]?.displayName) nextTimeoutActors.set(targetMsgs[0].displayName.replace(/^@+/, '').trim().toLowerCase(), actor);
+          }
+
+          return { 
+            ...prev, 
+            deletedMessageIds: next, 
+            deletedByMap: nextMap, 
+            timedOutUsers: nextTimed,
+            timeoutActorMap: nextTimeoutActors
+          };
         });
       }
 
-      // Inject a visible system notification when a moderator action is detected
-      if (targetMsgs.length > 0) {
-        const targetUser = targetMsgs[0]?.displayName || targetMsgs[0]?.username || authorChannelId;
-        const cleanTarget = (targetUser || '').replace(/^@+/, '').trim();
-        const cleanMod = explicitDeletedBy ? (explicitDeletedBy.replace(/^@+/, '').trim()) : null;
-        const channel = targetMsgs[0]?.channel || 'global';
-        const platform = targetMsgs[0]?.platform || 'youtube';
+      // Inject a visible system notification when a timeout / mod action is detected
+      const cleanMod = actor;
+      const channel = targetMsgs[0]?.channel || (channelName ? channelName.toLowerCase() : 'global');
+      const platform = 'youtube';
 
+      const timeoutText = cleanMod 
+        ? `@${targetUser} was timed out by @${cleanMod} for ${durationStr}.`
+        : `@${targetUser} was timed out for ${durationStr}.`;
+
+      const alreadyExists = prevMessages.some(m => 
+        m.isSystemEvent && 
+        m.eventType === 'moderation' && 
+        m.text === timeoutText && 
+        (Date.now() - (m.rawTimestamp || 0)) < 15000
+      );
+
+      if (!alreadyExists && targetUser) {
         return [
           ...prevMessages,
           {
@@ -2331,9 +2558,15 @@ export default function ChatDashboard({
             channel,
             username: 'System',
             displayName: 'System',
-            text: cleanMod ? `@${cleanTarget} was timed out by @${cleanMod}.` : `@${cleanTarget} was timed out.`,
+            text: timeoutText,
             isSystemEvent: true,
             eventType: 'moderation',
+            eventDetails: {
+              targetUser,
+              modUser: cleanMod,
+              duration: durationStr,
+              action: 'timeout'
+            },
             rawTimestamp: Date.now(),
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
           }
@@ -2378,7 +2611,34 @@ export default function ChatDashboard({
         if (name) nextTimedOut.set(name, expiryTime);
       });
 
-      return { ...prev, timedOutUsers: nextTimedOut };
+      const nextDeletedIds = new Set(prev.deletedMessageIds);
+      const nextDeletedByMap = new Map(prev.deletedByMap || []);
+      if (modHandle) {
+        messages.forEach(m => {
+          const u = (m.username || '').replace(/^@+/, '').trim().toLowerCase();
+          const d = (m.displayName || '').replace(/^@+/, '').trim().toLowerCase();
+          const c = m.channelId || m.authorChannelId;
+          if (targetUsernames.has(u) || targetUsernames.has(d) || (c && targetUsernames.has(c))) {
+            nextDeletedIds.add(m.id);
+            nextDeletedByMap.set(m.id, modHandle.replace(/^@+/, '').trim());
+          }
+        });
+      }
+
+      const nextTimeoutActors = new Map(prev.timeoutActorMap || []);
+      if (modHandle) {
+        targetUsernames.forEach(name => {
+          if (name) nextTimeoutActors.set(name, modHandle.replace(/^@+/, '').trim());
+        });
+      }
+
+      return { 
+        ...prev, 
+        timedOutUsers: nextTimedOut, 
+        deletedMessageIds: nextDeletedIds, 
+        deletedByMap: nextDeletedByMap,
+        timeoutActorMap: nextTimeoutActors
+      };
     });
     setSelectedChatter(null);
 
@@ -2425,6 +2685,34 @@ export default function ChatDashboard({
       });
       const data = await res.json();
       console.log('[MultiChat] YouTube API timeout result:', data);
+
+      if (!res.ok || !data.success || data.error || (data.note && data.note.includes('dashboard'))) {
+        const failReason = data.error || data.note || 'YouTube rejected timeout';
+        const isAuthErr = res.status === 401 || data.isAuthExpired || failReason.toLowerCase().includes('expired') || failReason.toLowerCase().includes('signed in');
+        console.warn('[MultiChat] YouTube timeout was rejected by YouTube API:', failReason);
+        setModeration(prev => {
+          const rolledBack = new Map(prev.timedOutUsers || []);
+          targetUsernames.forEach(name => { if (name) rolledBack.delete(name); });
+          return { ...prev, timedOutUsers: rolledBack };
+        });
+        setMessages(prev => [
+          ...prev,
+          {
+            id: 'sys-timeout-err-' + Date.now(),
+            platform: msgObj?.platform || 'youtube',
+            channel: msgObj?.channel || 'global',
+            username: 'System',
+            displayName: 'System',
+            text: isAuthErr
+              ? '⚠️ YouTube Session Expired: Please re-link your channel in Settings or Connect YouTube to refresh your moderation credentials.'
+              : `⚠️ YouTube rejected timeout for @${cleanUser}: ${failReason}`,
+            isSystemEvent: true,
+            eventType: 'moderation',
+            rawTimestamp: Date.now(),
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+          }
+        ]);
+      }
     } catch (err) {
       console.warn('[MultiChat] YouTube API timeout error:', err);
     }
@@ -2460,7 +2748,21 @@ export default function ChatDashboard({
         if (name) nextBanned.add(name);
       });
 
-      return { ...prev, bannedUsers: nextBanned };
+      const nextDeletedIds = new Set(prev.deletedMessageIds);
+      const nextDeletedByMap = new Map(prev.deletedByMap || []);
+      if (modHandle) {
+        messages.forEach(m => {
+          const u = (m.username || '').replace(/^@+/, '').trim().toLowerCase();
+          const d = (m.displayName || '').replace(/^@+/, '').trim().toLowerCase();
+          const c = m.channelId || m.authorChannelId;
+          if (targetUsernames.has(u) || targetUsernames.has(d) || (c && targetUsernames.has(c))) {
+            nextDeletedIds.add(m.id);
+            nextDeletedByMap.set(m.id, modHandle.replace(/^@+/, '').trim());
+          }
+        });
+      }
+
+      return { ...prev, bannedUsers: nextBanned, deletedMessageIds: nextDeletedIds, deletedByMap: nextDeletedByMap };
     });
     setSelectedChatter(null);
 
@@ -2506,6 +2808,34 @@ export default function ChatDashboard({
       });
       const data = await res.json();
       console.log('[MultiChat] YouTube API ban result:', data);
+
+      if (!res.ok || !data.success || data.error) {
+        const failReason = data.error || 'YouTube rejected ban/hide';
+        const isAuthErr = res.status === 401 || data.isAuthExpired || failReason.toLowerCase().includes('expired') || failReason.toLowerCase().includes('signed in');
+        console.warn('[MultiChat] YouTube ban was rejected by YouTube API:', failReason);
+        setModeration(prev => {
+          const rolledBack = new Set(prev.bannedUsers || []);
+          targetUsernames.forEach(name => { if (name) rolledBack.delete(name); });
+          return { ...prev, bannedUsers: rolledBack };
+        });
+        setMessages(prev => [
+          ...prev,
+          {
+            id: 'sys-ban-err-' + Date.now(),
+            platform: msgObj?.platform || 'youtube',
+            channel: msgObj?.channel || 'global',
+            username: 'System',
+            displayName: 'System',
+            text: isAuthErr
+              ? '⚠️ YouTube Session Expired: Please re-link your channel in Settings or Connect YouTube to refresh your moderation credentials.'
+              : `⚠️ YouTube rejected hide/ban for @${cleanUser}: ${failReason}`,
+            isSystemEvent: true,
+            eventType: 'moderation',
+            rawTimestamp: Date.now(),
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+          }
+        ]);
+      }
     } catch (err) {
       console.warn('[MultiChat] YouTube API ban error:', err);
     }
@@ -2653,7 +2983,7 @@ export default function ChatDashboard({
       const data = await res.json();
       console.log('[MultiChat] YouTube API toggle moderator result:', data);
 
-      if (res.ok && data.success !== false && !data.error) {
+      if (res.ok && data.success && !data.error && !data.note?.includes('locally')) {
         setMessages(prev => prev.map(m => {
           const mUser = (m.displayName || m.username || m.author || '').replace(/^@+/, '').trim();
           if (mUser.toLowerCase() === cleanUser.toLowerCase() || (targetChannelId && m.channelId === targetChannelId)) {
@@ -2680,6 +3010,8 @@ export default function ChatDashboard({
           }
         ]);
       } else {
+        const failReason = data.error || data.warning || 'Failed to update moderator status on YouTube.';
+        const isAuthErr = res.status === 401 || data.isAuthExpired || failReason.toLowerCase().includes('expired') || failReason.toLowerCase().includes('signed in');
         setMessages(prev => [
           ...prev,
           {
@@ -2688,7 +3020,9 @@ export default function ChatDashboard({
             channel: msg.channel || 'global',
             username: 'System',
             displayName: 'System',
-            text: `⚠️ YouTube API Moderator Notice for @${cleanUser}: ${data.error || data.warning || 'Failed to update moderator status on YouTube.'}`,
+            text: isAuthErr
+              ? '⚠️ YouTube Session Expired: Please re-link your channel in Settings or Connect YouTube to refresh your moderation credentials.'
+              : `⚠️ YouTube API Moderator Notice for @${cleanUser}: ${failReason}`,
             isSystemEvent: true,
             eventType: 'error',
             rawTimestamp: Date.now(),

@@ -4,35 +4,6 @@ export const revalidate = 0;
 import { NextResponse } from 'next/server';
 import { hwSupabase, asSupabase } from '@/lib/supabase';
 
-async function getFreshGoogleAccessToken(refreshToken: string): Promise<string | null> {
-  if (!refreshToken || refreshToken.trim().startsWith('{')) return null;
-  try {
-    const clientId = process.env.GOOGLE_CLIENT_ID || process.env.YOUTUBE_CLIENT_ID || process.env.NEXT_PUBLIC_YOUTUBE_CLIENT_ID || '';
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET || process.env.YOUTUBE_CLIENT_SECRET || '';
-
-    const params = new URLSearchParams();
-    if (clientId) params.append('client_id', clientId);
-    if (clientSecret) params.append('client_secret', clientSecret);
-    params.append('refresh_token', refreshToken);
-    params.append('grant_type', 'refresh_token');
-
-    const res = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString()
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      return data.access_token || null;
-    } else {
-      console.warn('[YouTube API Route] OAuth token refresh response error status:', res.status, await res.text());
-    }
-  } catch (e) {
-    console.warn('[YouTube API Route] Failed refreshing Google access token:', e);
-  }
-  return null;
-}
 
 export async function POST(request: Request) {
   try {
@@ -170,15 +141,6 @@ export async function POST(request: Request) {
       }
     }
 
-    let activeAccessToken = accountData.access_token || '';
-
-    if (!activeAccessToken && accountData.refresh_token) {
-      const refreshed = await getFreshGoogleAccessToken(accountData.refresh_token);
-      if (refreshed) {
-        activeAccessToken = refreshed;
-      }
-    }
-
     // Direct InnerTube Engine Dispatch (100% Pure InnerTube Engine)
     try {
       const urlObj = new URL(request.url);
@@ -193,7 +155,6 @@ export async function POST(request: Request) {
           channelId: accountData.channel_id,
           userId: accountData.user_id || userId,
           userEmail: userEmail,
-          accessToken: activeAccessToken,
           refreshToken: accountData.refresh_token,
           liveChatId,
           message,

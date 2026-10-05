@@ -70,46 +70,7 @@ const resolveChannelId = async (channelIdOrHandle: string): Promise<string | nul
   return null;
 };
 
-const REAL_TIMEOUT_BASE_TOKENS: Record<number, string> = {
-  10: 'Q2lrcUp3b1lWVU51ZW5SNWJFRnJibTFoZHpGTE5IZEtRVGh0TjNKUkVndFFXVU5YWjJoUFFuQmlXVEljQ2haWmFIaFBXbTlEY0dSa1ExTm1VbFZFTkVSVmNXSm5FZ0lJQ2xBQldBRndCQSUzRCUzRA==',
-  60: 'Q2lrcUp3b1lWVU51ZW5SNWJFRnJibTFoZHpGTE5IZEtRVGh0TjNKUkVndFFXVU5YWjJoUFFuQmlXVEljQ2haWmFIaFBXbTlEY0dSa1ExTm1VbFZFTkVSVmNXSm5FZ0lJUEZBQldBRndCQSUzRCUzRA==',
-  300: 'Q2lrcUp3b1lWVU51ZW5SNWJFRnJibTFoZHpGTE5IZEtRVGh0TjNKUkVndFFXVU5YWjJoUFFuQmlXVElkQ2haWmFIaFBXbTlEY0dSa1ExTm1VbFZFTkVSVmNXSm5FZ01JckFKUUFWZ0JjQVElM0Q=',
-  600: 'Q2lrcUp3b1lWVU51ZW5SNWJFRnJibTFoZHpGTE5IZEtRVGh0TjNKUkVndFFXVU5YWjJoUFFuQmlXVElkQ2haWmFIaFBXbTlEY0dSa1ExTm1VbFZFTkVSVmNXSm5FZ01JMkFSUUFWZ0JjQVElM0Q=',
-  1800: 'Q2lrcUp3b1lWVU51ZW5SNWJFRnJibTFoZHpGTE5IZEtRVGh0TjNKUkVndFFXVU5YWjJoUFFuQmlXVElkQ2haWmFIaFBXbTlEY0dSa1ExTm1VbFZFTkVSVmNXSm5FZ01JaUE1UUFWZ0JjQVElM0Q=',
-  86400: 'Q2lrcUp3b1lWVU51ZW5SNWJFRnJibTFoZHpGTE5IZEtRVGh0TjNKUkVndFFXVU5YWjJoUFFuQmlXVEllQ2haWmFIaFBXbTlEY0dSa1ExTm1VbFZFTkVSVmNXSm5FZ1FJZ0tNRlVBRllBWEFF'
-};
 
-const buildTargetTimeoutToken = (targetChannelId: string, durationSeconds: number = 300): string => {
-  try {
-    let closest = 300;
-    if (durationSeconds <= 10) closest = 10;
-    else if (durationSeconds <= 60) closest = 60;
-    else if (durationSeconds <= 300) closest = 300;
-    else if (durationSeconds <= 600) closest = 600;
-    else if (durationSeconds <= 1800) closest = 1800;
-    else closest = 86400;
-
-    const baseRaw = REAL_TIMEOUT_BASE_TOKENS[closest] || REAL_TIMEOUT_BASE_TOKENS[300];
-    const unescapedOuter = decodeURIComponent(baseRaw);
-    const l1 = Buffer.from(unescapedOuter, 'base64').toString('utf8');
-    const unescapedL1 = decodeURIComponent(l1);
-    const l2 = Buffer.from(unescapedL1, 'base64');
-
-    const cleanTarget = targetChannelId.replace(/^UC/, '').replace(/^@+/, '').trim();
-    const targetBuf = Buffer.from(cleanTarget, 'utf8');
-
-    const sub2 = Buffer.concat([ Buffer.from([0x0a, targetBuf.length]), targetBuf ]);
-    const oldSub2Str = l2.subarray(45, 69).toString('latin1');
-    const newSub2Str = sub2.toString('latin1');
-    const patchedL2Str = l2.toString('latin1').replace(oldSub2Str, newSub2Str);
-
-    const patchedL1B64 = Buffer.from(patchedL2Str, 'latin1').toString('base64');
-    const urlEncodedL1 = encodeURIComponent(patchedL1B64);
-    return Buffer.from(urlEncodedL1, 'utf8').toString('base64');
-  } catch (e) {
-    return REAL_TIMEOUT_BASE_TOKENS[300];
-  }
-};
 
 const fetchActiveLiveVideoWithInnerTube = async (ytInstance: any, channelIdOrHandle: string): Promise<string | null> => {
   if (!channelIdOrHandle) return null;
@@ -243,19 +204,55 @@ export async function POST(request: Request) {
     }
 
     if (!yt) {
-      return NextResponse.json({
-        success: false,
-        engine: 'innertube_youtubei_js',
-        error: 'YouTube InnerTube Session Expired (401 Unauthorized). Please refresh your YouTube Cookie with the extension.'
-      }, { status: 401 });
+      if (action === 'live_info' || action === 'get_live_info' || action === 'get_channel' || action === 'channel_info') {
+        const { Innertube, UniversalCache } = await import('youtubei.js');
+        yt = await Innertube.create({
+          cache: new UniversalCache(false),
+          generate_session_locally: true
+        });
+      }
     }
 
     if (!yt) {
       return NextResponse.json({
         success: false,
         engine: 'innertube_youtubei_js',
-        error: 'YouTube InnerTube Session Expired (401 Unauthorized). Please refresh your YouTube Cookie with the extension.'
+        error: 'YouTube Session Unauthenticated (401 Unauthorized). Please reconnect your YouTube account in Settings.'
       }, { status: 401 });
+    }
+
+    /* ================= GET CHANNEL INFO ================= */
+    if (action === 'get_channel' || action === 'channel_info') {
+      const target = body.handleOrId || body.channelId || body.handle || channelId;
+      if (!target) {
+        return NextResponse.json({ success: false, error: 'handleOrId or channelId required' }, { status: 400 });
+      }
+      try {
+        let browseId = target;
+        if (target.startsWith('@') || !target.startsWith('UC')) {
+          const cleanHandle = target.startsWith('@') ? target : `@${target}`;
+          const res = await yt.resolveURL(`https://www.youtube.com/${cleanHandle}`).catch(() => null);
+          if (res?.payload?.browseId) {
+            browseId = res.payload.browseId;
+          }
+        }
+        const ch = await yt.getChannel(browseId).catch(() => null);
+        if (ch) {
+          return NextResponse.json({
+            success: true,
+            engine: 'innertube_youtubei_js',
+            channelId: browseId,
+            channelName: ch.metadata?.title || target,
+            customHandle: ch.metadata?.vanity_channel_url?.replace(/^https?:\/\/(www\.)?youtube\.com\//, '') || target,
+            avatarUrl: ch.metadata?.avatar?.[0]?.url || '',
+            views: 0,
+            subscribers: 0
+          });
+        }
+        return NextResponse.json({ success: false, error: 'Channel not found' }, { status: 404 });
+      } catch (err: any) {
+        return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+      }
     }
 
     /* ================= 2.5 LIVE INFO ================= */
@@ -481,7 +478,7 @@ export async function POST(request: Request) {
           if (err.message?.includes('not available') || err.message?.includes('offline') || err.message?.includes('disabled')) {
             errorMsg = 'YouTube Stream is Offline or Live Chat is not enabled. Please make sure your YouTube broadcast is currently LIVE on YouTube with live chat enabled.';
           } else if (err.message?.includes('401') || err.message?.includes('UNAUTHENTICATED')) {
-            errorMsg = 'YouTube InnerTube Session Expired (401 Unauthorized). Please refresh your YouTube Cookie with the extension.';
+            errorMsg = 'YouTube Session Unauthenticated (401 Unauthorized). Please reconnect your YouTube account in Settings.';
           } else if (err.message?.includes('400') || err.message?.includes('invalid')) {
             errorMsg = 'YouTube Stream is Offline or Live Chat is not enabled. Please make sure your YouTube broadcast is currently LIVE on YouTube with live chat enabled.';
           }
@@ -504,40 +501,43 @@ export async function POST(request: Request) {
     if (action === 'delete') {
       const targetParams = body.params || body.deleteParams;
       const menuParams = body.menuParams;
+      const messageId = body.messageId;
 
       try {
         let delRes: any = null;
+
+        // 1. Direct live_chat/moderate if targetParams provided
         if (targetParams && typeof targetParams === 'string' && targetParams.length > 20 && !targetParams.startsWith('UC')) {
           console.log(`[InnerTube Route] Executing live_chat/moderate with targetParams...`);
           delRes = await yt.actions.execute('live_chat/moderate', { params: targetParams });
         } else if (menuParams && typeof menuParams === 'string' && menuParams.length > 20) {
-          console.log(`[InnerTube Route] Resolving context menu via YT.LiveChat getItemMenu...`);
-          const { YT } = await import('youtubei.js' as any).catch(() => import('file:///d:/Youtube/testing/NEW/New%20MultiChat%20Website/node_modules/youtubei.js/dist/src/platform/node.js' as any));
-          const liveChat = new YT.LiveChat({
-            basic_info: { id: '-2_nfh1sw-I', channel_id: cookieRow?.channel_id || 'UCnztylAknmaw1K4wJA8m7rQ' },
-            actions: yt.actions
-          });
+          console.log(`[InnerTube Route] Resolving context menu for delete via menuParams...`);
+          try {
+            const menuRes = await yt.actions.execute('live_chat/get_item_context_menu', { params: menuParams });
+            if (menuRes?.data?.responseContext?.mainAppWebResponseContext?.loggedOut || menuRes?.responseContext?.mainAppWebResponseContext?.loggedOut) {
+              return NextResponse.json({
+                success: false,
+                engine: 'innertube_youtubei_js',
+                error: 'Your YouTube creator session has expired. Please re-link your channel in Settings or Connect YouTube to refresh your moderation credentials.',
+                isAuthExpired: true
+              }, { status: 401 });
+            }
+            let delEndpointParams = findParamsInContextMenu(menuRes, 'delete');
+            if (delEndpointParams) {
+              console.log('[InnerTube Route] Executing live_chat/moderate with resolved delete params...');
+              delRes = await yt.actions.execute('live_chat/moderate', { params: delEndpointParams });
+            }
+          } catch (e: any) {
+            console.warn('[InnerTube Route] Menu resolution for delete error:', e.message);
+          }
+        }
 
-          const mockItem = {
-            hasKey: (key: string) => key === 'menu_endpoint',
-            key: (key: string) => ({
-              isInstanceof: () => true,
-              instanceof: () => ({
-                call: async (actions: any, options: any) => {
-                  return await actions.execute('live_chat/get_item_context_menu', {
-                    params: menuParams,
-                    ...options
-                  });
-                }
-              })
-            })
-          };
-
-          const itemMenu = await liveChat.getItemMenu(mockItem);
-          delRes = await itemMenu.selectItem('DELETE');
-          console.log('[InnerTube Route] Successfully executed itemMenu.selectItem("DELETE")!');
-        } else {
-          return NextResponse.json({ error: 'Valid moderation token or context menu token required for YouTube live message deletion.' }, { status: 400 });
+        if (!delRes) {
+          return NextResponse.json({
+            success: false,
+            engine: 'innertube_youtubei_js',
+            error: 'Could not resolve valid delete token from YouTube. Please ensure you are logged into YouTube or use YouTube Studio.'
+          }, { status: 400 });
         }
 
         return NextResponse.json({
@@ -548,11 +548,13 @@ export async function POST(request: Request) {
         });
       } catch (err: any) {
         console.error('[youtubei.js delete error]:', err.message);
+        const isAuthErr = err.message?.includes('signed in') || err.message?.includes('401') || err.message?.includes('unauthorized');
         return NextResponse.json({
           success: false,
           engine: 'innertube_youtubei_js',
-          error: err.message
-        }, { status: 400 });
+          error: isAuthErr ? 'Your YouTube creator session has expired. Please re-link your channel in Settings or Connect YouTube to refresh your moderation credentials.' : err.message,
+          isAuthExpired: isAuthErr
+        }, { status: isAuthErr ? 401 : 400 });
       }
     }
 
@@ -696,26 +698,51 @@ function safeStringify(obj: any): string {
   }
 }
 
-const buildModToken = (targetChannelId: string, modType: number = 1): string => {
+function buildManageUserToken(broadcasterChannelId: string, videoId: string, targetChannelId: string, modType: number = 1): string {
   try {
-    const addModBase = 'Q2lrcUp3b1lWVU51ZW5SNWJFRnJibTFoZHpGTE5IZEtRVGh0TjNKUkVndFFXVU5YWjJoUFFuQmlXUklhQ2haQmRYUklWbDl3VkhsUVYxQmtjbGxOVDNGWVZHcEJFQUVnQVElM0QlM0Q=';
-    const unescapedOuter = decodeURIComponent(addModBase);
-    const l1 = Buffer.from(unescapedOuter, 'base64').toString('utf8');
-    const unescapedL1 = decodeURIComponent(l1);
-    const l2 = Buffer.from(unescapedL1, 'base64');
-    const cleanTarget = targetChannelId.replace(/^UC/, '').replace(/^@+/, '').trim();
+    const cleanBroadcaster = (broadcasterChannelId || '').trim();
+    const cleanVideoId = (videoId || '').trim();
+    const cleanTarget = (targetChannelId || '').replace(/^UC/, '').replace(/^@+/, '').trim();
+
+    // Tag 1.5: Broadcaster Channel ID and Video ID
+    const bChanBuf = Buffer.from(cleanBroadcaster, 'utf8');
+    const vidBuf = Buffer.from(cleanVideoId, 'utf8');
+    const tag1_5 = Buffer.concat([
+      Buffer.from([0x0a, bChanBuf.length]), bChanBuf,
+      Buffer.from([0x12, vidBuf.length]), vidBuf
+    ]);
+
+    // Tag 1 (wrapper around Tag 1.5)
+    const tag1 = Buffer.concat([
+      Buffer.from([0x2a, tag1_5.length]), tag1_5
+    ]);
+    const tag1Wrapper = Buffer.concat([
+      Buffer.from([0x0a, tag1.length]), tag1
+    ]);
+
+    // Tag 2: Target Channel ID without 'UC' and modType (1 = Add Moderator, 2 = Remove Moderator)
     const targetBuf = Buffer.from(cleanTarget, 'utf8');
-    targetBuf.copy(l2, 47);
-    l2[l2.length - 1] = modType; // 1 = Standard Moderator, 2 = Remove Moderator
-    const patchedL1B64 = l2.toString('base64');
-    const urlEncodedL1 = encodeURIComponent(patchedL1B64);
+    const tag2 = Buffer.concat([
+      Buffer.from([0x0a, targetBuf.length]), targetBuf,
+      Buffer.from([0x10, modType])
+    ]);
+    const tag2Wrapper = Buffer.concat([
+      Buffer.from([0x12, tag2.length]), tag2
+    ]);
+
+    // Tag 4: fixed constant 1
+    const tag4 = Buffer.from([0x20, 0x01]);
+
+    const innerBuf = Buffer.concat([tag1Wrapper, tag2Wrapper, tag4]);
+    const l1B64 = innerBuf.toString('base64');
+    const urlEncodedL1 = encodeURIComponent(l1B64);
     return Buffer.from(urlEncodedL1, 'utf8').toString('base64');
   } catch (e) {
     return 'Q2lrcUp3b1lWVU51ZW5SNWJFRnJibTFoZHpGTE5IZEtRVGh0TjNKUkVndFFXVU5YWjJoUFFuQmlXUklhQ2haQmRYUklWbDl3VkhsUVYxQmtjbGxOVDNGWVZHcEJFQUVnQVElM0QlM0Q=';
   }
-};
+}
 
-function findParamsInContextMenu(obj: any, targetType: 'timeout' | 'ban' | 'add_moderator' | 'remove_moderator'): string | null {
+function findParamsInContextMenu(obj: any, targetType: 'delete' | 'timeout' | 'ban' | 'add_moderator' | 'remove_moderator'): string | null {
   if (!obj || typeof obj !== 'object') return null;
 
   try {
@@ -724,11 +751,15 @@ function findParamsInContextMenu(obj: any, targetType: 'timeout' | 'ban' | 'add_
 
     if (params && typeof params === 'string' && params.length > 15) {
       const nodeStr = safeStringify(obj);
+      const isDelete = nodeStr.includes('delete') || nodeStr.includes('remove') || nodeStr.includes('trash');
       const isTimeout = nodeStr.includes('hourglass') || nodeStr.includes('timeout') || nodeStr.includes('time out') || nodeStr.includes('time_out') || nodeStr.includes('pause') || nodeStr.includes('timer');
       const isBan = nodeStr.includes('remove_circle') || nodeStr.includes('hide') || nodeStr.includes('ban') || nodeStr.includes('block');
       const isAddMod = nodeStr.includes('add as moderator') || nodeStr.includes('standard moderator') || nodeStr.includes('add_moderator');
       const isRemoveMod = nodeStr.includes('remove as moderator') || nodeStr.includes('remove_moderator');
 
+      if (targetType === 'delete' && isDelete && !isBan && !isRemoveMod) {
+        return params;
+      }
       if (targetType === 'timeout' && isTimeout) {
         return params;
       }
@@ -765,43 +796,78 @@ function findParamsInContextMenu(obj: any, targetType: 'timeout' | 'ban' | 'add_
     if (action === 'timeout') {
       const targetUser = body.targetChannelId || body.username || body.displayName;
       const reqDuration = Number(body.durationSeconds) || 300;
+      let targetParams = body.params || body.timeoutParams;
+      let menuParams = body.menuParams;
 
       try {
         let timeoutRes: any = null;
 
-        if (targetUser) {
-          console.log(`[InnerTube Route] Executing custom duration (${reqDuration}s) timeout token for targetUser: ${targetUser}...`);
+        // 2. Direct live_chat/moderate if targetParams provided
+        if (targetParams && typeof targetParams === 'string' && targetParams.length > 15 && !targetParams.startsWith('UC')) {
+          console.log(`[InnerTube Route] Executing live_chat/moderate for timeout with direct targetParams...`);
           try {
-            const synthToken = buildTargetTimeoutToken(targetUser, reqDuration);
-            timeoutRes = await yt.actions.execute('live_chat/moderate', { params: synthToken });
-          } catch (synthErr: any) {
-            console.warn('[InnerTube Route] Custom duration timeout token notice:', synthErr.message);
+            timeoutRes = await yt.actions.execute('live_chat/moderate', { params: targetParams });
+          } catch (e: any) {
+            console.warn('[InnerTube Route] Direct moderate call notice:', e.message);
+          }
+        }
+
+        // 3. Resolve context menu via menuParams
+        if (!timeoutRes && menuParams && typeof menuParams === 'string' && menuParams.length > 15) {
+          console.log(`[InnerTube Route] Resolving context menu for timeout via menuParams...`);
+          try {
+            const menuRes = await yt.actions.execute('live_chat/get_item_context_menu', { params: menuParams });
+            if (menuRes?.data?.responseContext?.mainAppWebResponseContext?.loggedOut || menuRes?.responseContext?.mainAppWebResponseContext?.loggedOut) {
+              return NextResponse.json({
+                success: false,
+                engine: 'innertube_youtubei_js',
+                error: 'Your YouTube creator session has expired. Please re-link your channel in Settings or Connect YouTube to refresh your moderation credentials.',
+                isAuthExpired: true
+              }, { status: 401 });
+            }
+            let timeoutEndpointParams = findParamsInContextMenu(menuRes, 'timeout');
+            if (timeoutEndpointParams) {
+              timeoutRes = await yt.actions.execute('live_chat/moderate', { params: timeoutEndpointParams });
+            }
+          } catch (e: any) {
+            console.warn('[InnerTube Route] Menu resolution notice:', e.message);
+          }
+        }
+
+        // 4. Resolve via active live chat stream
+        if (!timeoutRes && targetUser) {
+          console.log(`[InnerTube Route] Resolving moderation context params for timeout target: ${targetUser}...`);
+          const resolved = await resolveUserModerationParams(
+            yt,
+            body.videoId || body.video_id || body.liveChatId || channelId || cookieRow?.channel_id || '',
+            targetUser,
+            'timeout'
+          );
+          if (resolved?.timeoutParams) {
+            timeoutRes = await yt.actions.execute('live_chat/moderate', { params: resolved.timeoutParams });
+          } else if (resolved?.menuParams) {
+            const menuRes = await yt.actions.execute('live_chat/get_item_context_menu', { params: resolved.menuParams });
+            if (menuRes?.data?.responseContext?.mainAppWebResponseContext?.loggedOut || menuRes?.responseContext?.mainAppWebResponseContext?.loggedOut) {
+              return NextResponse.json({
+                success: false,
+                engine: 'innertube_youtubei_js',
+                error: 'Your YouTube creator session has expired. Please re-link your channel in Settings or Connect YouTube to refresh your moderation credentials.',
+                isAuthExpired: true
+              }, { status: 401 });
+            }
+            let tParams = findParamsInContextMenu(menuRes, 'timeout');
+            if (tParams) {
+              timeoutRes = await yt.actions.execute('live_chat/moderate', { params: tParams });
+            }
           }
         }
 
         if (!timeoutRes) {
-          let targetParams = body.params || body.timeoutParams;
-          let menuParams = body.menuParams;
-
-          if (targetParams && typeof targetParams === 'string' && targetParams.length > 15 && !targetParams.startsWith('UC')) {
-            console.log(`[InnerTube Route] Fallback: Executing live_chat/moderate for timeout with direct targetParams...`);
-            try {
-              timeoutRes = await yt.actions.execute('live_chat/moderate', { params: targetParams });
-            } catch (e: any) {
-              console.warn('[InnerTube Route] Direct moderate call notice:', e.message);
-            }
-          } else if (menuParams && typeof menuParams === 'string' && menuParams.length > 15) {
-            console.log(`[InnerTube Route] Fallback: Resolving context menu for timeout via menuParams...`);
-            try {
-              const menuRes = await yt.actions.execute('live_chat/get_item_context_menu', { params: menuParams });
-              let timeoutEndpointParams = findParamsInContextMenu(menuRes, 'timeout');
-              if (timeoutEndpointParams) {
-                timeoutRes = await yt.actions.execute('live_chat/moderate', { params: timeoutEndpointParams });
-              }
-            } catch (e: any) {
-              console.warn('[InnerTube Route] Menu resolution notice:', e.message);
-            }
-          }
+          return NextResponse.json({
+            success: false,
+            engine: 'innertube_youtubei_js',
+            error: 'Could not apply timeout on YouTube live chat. Please ensure the target user sent a message in this stream or use YouTube Studio.'
+          }, { status: 400 });
         }
 
         return NextResponse.json({
@@ -809,17 +875,18 @@ function findParamsInContextMenu(obj: any, targetType: 'timeout' | 'ban' | 'add_
           engine: 'innertube_youtubei_js',
           action: 'timeout',
           durationSeconds: reqDuration,
-          data: timeoutRes || { status: 'OK', note: `User timeout for ${reqDuration}s applied` }
+          data: timeoutRes
         });
       } catch (err: any) {
         console.error('[youtubei.js timeout error]:', err.message);
+        const isAuthErr = err.message?.includes('signed in') || err.message?.includes('401') || err.message?.includes('unauthorized');
         return NextResponse.json({
-          success: true,
+          success: false,
           engine: 'innertube_youtubei_js',
           action: 'timeout',
-          note: 'Timeout registered on dashboard',
-          error: err.message
-        });
+          error: isAuthErr ? 'Your YouTube creator session has expired. Please re-link your channel in Settings or Connect YouTube to refresh your moderation credentials.' : err.message,
+          isAuthExpired: isAuthErr
+        }, { status: isAuthErr ? 401 : 400 });
       }
     }
 
@@ -831,13 +898,19 @@ function findParamsInContextMenu(obj: any, targetType: 'timeout' | 'ban' | 'add_
 
       try {
         let banRes: any = null;
+
         if (targetParams && typeof targetParams === 'string' && targetParams.length > 20 && !targetParams.startsWith('UC')) {
           console.log(`[InnerTube Route] Executing live_chat/moderate for ban with targetParams...`);
           banRes = await yt.actions.execute('live_chat/moderate', { params: targetParams });
         } else {
           if ((!menuParams || menuParams.length <= 20) && targetUser) {
             console.log(`[InnerTube Route] Resolving moderation context params for target user: ${targetUser}`);
-            const resolved = await resolveUserModerationParams(yt, body.videoId || body.video_id || body.liveChatId || channelId || 'UCweXHVY_5-0QRbzxdnootEA', targetUser, 'ban');
+            const resolved = await resolveUserModerationParams(
+              yt,
+              body.videoId || body.video_id || body.liveChatId || channelId || cookieRow?.channel_id || '',
+              targetUser,
+              'ban'
+            );
             if (resolved) {
               if (resolved.banParams) targetParams = resolved.banParams;
               if (resolved.menuParams) menuParams = resolved.menuParams;
@@ -850,6 +923,14 @@ function findParamsInContextMenu(obj: any, targetType: 'timeout' | 'ban' | 'add_
           } else if (menuParams && typeof menuParams === 'string' && menuParams.length > 20) {
             console.log(`[InnerTube Route] Resolving context menu for ban via menuParams...`);
             const menuRes = await yt.actions.execute('live_chat/get_item_context_menu', { params: menuParams });
+            if (menuRes?.data?.responseContext?.mainAppWebResponseContext?.loggedOut || menuRes?.responseContext?.mainAppWebResponseContext?.loggedOut) {
+              return NextResponse.json({
+                success: false,
+                engine: 'innertube_youtubei_js',
+                error: 'Your YouTube creator session has expired. Please re-link your channel in Settings or Connect YouTube to refresh your moderation credentials.',
+                isAuthExpired: true
+              }, { status: 401 });
+            }
             
             let banEndpointParams = findParamsInContextMenu(menuRes, 'ban');
             if (!banEndpointParams && menuRes) {
@@ -884,11 +965,13 @@ function findParamsInContextMenu(obj: any, targetType: 'timeout' | 'ban' | 'add_
         });
       } catch (err: any) {
         console.error('[youtubei.js ban error]:', err.message);
+        const isAuthErr = err.message?.includes('signed in') || err.message?.includes('401') || err.message?.includes('unauthorized');
         return NextResponse.json({
           success: false,
           engine: 'innertube_youtubei_js',
-          error: err.message
-        }, { status: 400 });
+          error: isAuthErr ? 'Your YouTube creator session has expired. Please re-link your channel in Settings or Connect YouTube to refresh your moderation credentials.' : err.message,
+          isAuthExpired: isAuthErr
+        }, { status: isAuthErr ? 401 : 400 });
       }
     }
 
@@ -916,76 +999,83 @@ function findParamsInContextMenu(obj: any, targetType: 'timeout' | 'ban' | 'add_
         if (resolved) targetChannelId = resolved;
       }
 
+      const broadcasterId = channelId || cookieRow?.channel_id || '';
+      let activeVideoId = body.videoId || body.video_id || body.liveChatId || '';
+      if (!activeVideoId || activeVideoId.startsWith('UC') || activeVideoId.startsWith('@')) {
+        activeVideoId = (await fetchActiveLiveVideoWithInnerTube(yt, broadcasterId)) ||
+                        (await fetchActiveLiveVideoId(broadcasterId)) || '';
+      }
+
       try {
         let addModRes: any = null;
 
-        if (body.accessToken && targetChannelId && targetChannelId.startsWith('UC')) {
-          let activeLiveChatId = body.liveChatId || body.videoId || body.video_id;
-          if (!activeLiveChatId || !activeLiveChatId.startsWith('C')) {
-            const freshId = await fetchActiveLiveVideoId(channelId || 'UCweXHVY_5-0QRbzxdnootEA');
-            if (freshId) activeLiveChatId = freshId;
-          }
-
-          if (activeLiveChatId) {
-            console.log(`[InnerTube Route] Attempting YouTube Data API v3 add_moderator for targetChannelId: ${targetChannelId}...`);
-            const v3Res = await fetch(`https://www.googleapis.com/youtube/v3/liveChat/moderators?part=snippet`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${body.accessToken}`,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                snippet: {
-                  liveChatId: activeLiveChatId,
-                  moderatorDetails: {
-                    channelId: targetChannelId
-                  }
-                }
-              })
-            });
-            if (v3Res.ok) {
-              addModRes = await v3Res.json();
-              console.log('[InnerTube Route] Successfully added moderator via YouTube Data API v3!');
-            }
+        // 1. Direct execution with synthesized protobuf token
+        if (broadcasterId && activeVideoId && targetChannelId) {
+          try {
+            const synthToken = buildManageUserToken(broadcasterId, activeVideoId, targetChannelId, 1);
+            console.log('[InnerTube Route] Executing live_chat/manage_user with synthesized token...');
+            addModRes = await yt.actions.execute('live_chat/manage_user', { params: synthToken });
+          } catch (e: any) {
+            console.warn('[InnerTube Route] Direct synthesized manage_user notice:', e.message);
           }
         }
 
+        // 2. Fallback: Context menu resolution
         if (!addModRes && rawTargetChannelId) {
           console.log(`[InnerTube Route] Resolving InnerTube context menu for add_moderator target: ${rawTargetChannelId}...`);
-          const resolved = await resolveUserModerationParams(yt, body.videoId || body.video_id || channelId || 'UCweXHVY_5-0QRbzxdnootEA', rawTargetChannelId, 'add_moderator');
-          let modParams = resolved?.menuParams || body.params;
+          let modParams = body.params || body.menuParams;
+          if (!modParams) {
+            const resolved = await resolveUserModerationParams(
+              yt,
+              activeVideoId || broadcasterId,
+              rawTargetChannelId,
+              'add_moderator'
+            );
+            modParams = resolved?.menuParams;
+          }
 
           if (modParams) {
             const menuRes = await yt.actions.execute('live_chat/get_item_context_menu', { params: modParams });
+            if (menuRes?.data?.responseContext?.mainAppWebResponseContext?.loggedOut || menuRes?.responseContext?.mainAppWebResponseContext?.loggedOut) {
+              return NextResponse.json({
+                success: false,
+                engine: 'innertube_youtubei_js',
+                error: 'Your YouTube creator session has expired. Please re-link your channel in Settings or Connect YouTube to refresh your moderation credentials.',
+                isAuthExpired: true
+              }, { status: 401 });
+            }
             let addModEndpointParams = findParamsInContextMenu(menuRes, 'add_moderator');
             if (addModEndpointParams) {
               console.log('[InnerTube Route] Successfully resolved addModEndpointParams from context menu!');
               addModRes = await yt.actions.execute('live_chat/manage_user', { params: addModEndpointParams });
             }
           }
+        }
 
-          if (!addModRes && targetChannelId) {
-            console.log(`[InnerTube Route] Executing fallback synthetic add_moderator token for: ${targetChannelId}...`);
-            const synthToken = buildModToken(targetChannelId, 1);
-            addModRes = await yt.actions.execute('live_chat/manage_user', { params: synthToken }).catch((e: any) => ({ status: 'OK', note: e.message }));
-          }
+        if (!addModRes) {
+          return NextResponse.json({
+            success: false,
+            engine: 'innertube_youtubei_js',
+            error: 'Could not grant moderator status on YouTube. Please ensure you are logged in as the channel owner or use YouTube Studio.'
+          }, { status: 400 });
         }
 
         return NextResponse.json({
           success: true,
           engine: 'innertube_youtubei_js',
           action: 'add_moderator',
-          data: addModRes || { status: 'OK', note: 'User granted moderator status' }
+          data: addModRes
         });
       } catch (err: any) {
         console.error('[InnerTube Route] add_moderator notice:', err.message);
+        const isAuthErr = err.message?.includes('signed in') || err.message?.includes('401') || err.message?.includes('unauthorized');
         return NextResponse.json({
-          success: true,
+          success: false,
           engine: 'innertube_youtubei_js',
           action: 'add_moderator',
-          note: 'Moderator status granted locally',
-          warning: err.message
-        });
+          error: isAuthErr ? 'Your YouTube creator session has expired. Please re-link your channel in Settings or Connect YouTube to refresh your moderation credentials.' : err.message,
+          isAuthExpired: isAuthErr
+        }, { status: isAuthErr ? 401 : 400 });
       }
     }
 
@@ -999,50 +1089,52 @@ function findParamsInContextMenu(obj: any, targetType: 'timeout' | 'ban' | 'add_
         if (resolved) targetChannelId = resolved;
       }
 
+      const broadcasterId = channelId || cookieRow?.channel_id || '';
+      let activeVideoId = body.videoId || body.video_id || body.liveChatId || '';
+      if (!activeVideoId || activeVideoId.startsWith('UC') || activeVideoId.startsWith('@')) {
+        activeVideoId = (await fetchActiveLiveVideoWithInnerTube(yt, broadcasterId)) ||
+                        (await fetchActiveLiveVideoId(broadcasterId)) || '';
+      }
+
       try {
         let removeModRes: any = null;
 
-        if (body.accessToken) {
-          let activeLiveChatId = body.liveChatId || body.videoId || body.video_id;
-          if (activeLiveChatId) {
-            console.log(`[InnerTube Route] Querying liveChat/moderators list for liveChatId: ${activeLiveChatId}...`);
-            const listRes = await fetch(`https://www.googleapis.com/youtube/v3/liveChat/moderators?liveChatId=${activeLiveChatId}&part=id,snippet`, {
-              headers: { 'Authorization': `Bearer ${body.accessToken}` }
-            });
-            if (listRes.ok) {
-              const listData = await listRes.json();
-              const cleanHandleLower = (rawTargetChannelId || '').toLowerCase().replace(/^@+/, '').trim();
-              const found = listData.items?.find((item: any) => {
-                const details = item.snippet?.moderatorDetails || {};
-                const chanId = (details.channelId || '').toLowerCase();
-                const cUrl = (details.channelUrl || '').toLowerCase();
-                const dName = (details.displayName || '').toLowerCase();
-                return (
-                  (targetChannelId && chanId === targetChannelId.toLowerCase()) ||
-                  (cleanHandleLower && (cUrl.includes(cleanHandleLower) || dName === cleanHandleLower))
-                );
-              });
-              if (found && found.id) {
-                console.log(`[InnerTube Route] Removing moderator via YouTube Data API v3 ID: ${found.id}...`);
-                const delRes = await fetch(`https://www.googleapis.com/youtube/v3/liveChat/moderators?id=${encodeURIComponent(found.id)}`, {
-                  method: 'DELETE',
-                  headers: { 'Authorization': `Bearer ${body.accessToken}` }
-                });
-                if (delRes.ok) {
-                  removeModRes = { status: 200, message: 'Moderator removed via Data API' };
-                }
-              }
-            }
+        // 1. Direct execution with synthesized protobuf token
+        if (broadcasterId && activeVideoId && targetChannelId) {
+          try {
+            const synthToken = buildManageUserToken(broadcasterId, activeVideoId, targetChannelId, 2);
+            console.log('[InnerTube Route] Executing live_chat/manage_user with synthesized remove mod token...');
+            removeModRes = await yt.actions.execute('live_chat/manage_user', { params: synthToken })
+              .catch(() => yt.actions.execute('live_chat/moderate', { params: synthToken }));
+          } catch (e: any) {
+            console.warn('[InnerTube Route] Direct synthesized remove manage_user notice:', e.message);
           }
         }
 
+        // 2. Fallback: Context menu resolution
         if (!removeModRes && rawTargetChannelId) {
           console.log(`[InnerTube Route] Resolving InnerTube context menu for remove_moderator target: ${rawTargetChannelId}...`);
-          const resolved = await resolveUserModerationParams(yt, body.videoId || body.video_id || channelId || 'UCweXHVY_5-0QRbzxdnootEA', rawTargetChannelId, 'remove_moderator');
-          let modParams = resolved?.menuParams || body.params;
+          let modParams = body.params || body.menuParams;
+          if (!modParams) {
+            const resolved = await resolveUserModerationParams(
+              yt,
+              activeVideoId || broadcasterId,
+              rawTargetChannelId,
+              'remove_moderator'
+            );
+            modParams = resolved?.menuParams;
+          }
 
           if (modParams) {
             const menuRes = await yt.actions.execute('live_chat/get_item_context_menu', { params: modParams });
+            if (menuRes?.data?.responseContext?.mainAppWebResponseContext?.loggedOut || menuRes?.responseContext?.mainAppWebResponseContext?.loggedOut) {
+              return NextResponse.json({
+                success: false,
+                engine: 'innertube_youtubei_js',
+                error: 'Your YouTube creator session has expired. Please re-link your channel in Settings or Connect YouTube to refresh your moderation credentials.',
+                isAuthExpired: true
+              }, { status: 401 });
+            }
             let removeModEndpointParams = findParamsInContextMenu(menuRes, 'remove_moderator');
             if (removeModEndpointParams) {
               console.log('[InnerTube Route] Successfully resolved removeModEndpointParams from context menu!');
@@ -1050,29 +1142,32 @@ function findParamsInContextMenu(obj: any, targetType: 'timeout' | 'ban' | 'add_
                 .catch(() => yt.actions.execute('live_chat/manage_user', { params: removeModEndpointParams }));
             }
           }
+        }
 
-          if (!removeModRes && targetChannelId) {
-            console.log(`[InnerTube Route] Executing fallback synthetic remove_moderator token for: ${targetChannelId}...`);
-            const synthToken = buildModToken(targetChannelId, 2);
-            removeModRes = await yt.actions.execute('live_chat/manage_user', { params: synthToken }).catch((e: any) => ({ status: 'OK', note: e.message }));
-          }
+        if (!removeModRes) {
+          return NextResponse.json({
+            success: false,
+            engine: 'innertube_youtubei_js',
+            error: 'Could not remove moderator on YouTube. Please ensure you are logged in as the channel owner or use YouTube Studio.'
+          }, { status: 400 });
         }
 
         return NextResponse.json({
           success: true,
           engine: 'innertube_youtubei_js',
           action: 'remove_moderator',
-          data: removeModRes || { status: 'OK', note: 'Moderator status revoked' }
+          data: removeModRes
         });
       } catch (err: any) {
         console.error('[InnerTube Route] remove_moderator notice:', err.message);
+        const isAuthErr = err.message?.includes('signed in') || err.message?.includes('401') || err.message?.includes('unauthorized');
         return NextResponse.json({
-          success: true,
+          success: false,
           engine: 'innertube_youtubei_js',
           action: 'remove_moderator',
-          note: 'Moderator status revoked locally',
-          warning: err.message
-        });
+          error: isAuthErr ? 'Your YouTube creator session has expired. Please re-link your channel in Settings or Connect YouTube to refresh your moderation credentials.' : err.message,
+          isAuthExpired: isAuthErr
+        }, { status: isAuthErr ? 401 : 400 });
       }
     }
 

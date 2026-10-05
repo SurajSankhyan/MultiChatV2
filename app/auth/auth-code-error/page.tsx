@@ -5,54 +5,35 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/utils/supabase/client';
 
 async function fetchYouTubeChannelClient(providerToken: string, userEmail?: string, fullName?: string) {
-  if (providerToken) {
+  const emailHandle = userEmail ? userEmail.split('@')[0] : '';
+  const nameHandle = fullName ? fullName.replace(/\s+/g, '').toLowerCase() : '';
+  const candidates = Array.from(new Set([emailHandle, nameHandle])).filter(Boolean);
+
+  for (const candidate of candidates) {
     try {
-      console.log('[YouTube Fetch Client] Attempting to fetch YouTube channel via OAuth token (mine=true)...');
-      const res = await fetch('https://www.googleapis.com/youtube/v3/channels?mine=true&part=snippet,statistics', {
-        headers: {
-          Authorization: `Bearer ${providerToken}`,
-          Accept: 'application/json'
-        }
+      const res = await fetch('/api/youtube/innertube', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'get_channel',
+          handleOrId: candidate
+        })
       });
       if (res.ok) {
         const data = await res.json();
-        const item = data.items?.[0];
-        if (item) {
-          console.log(`[YouTube Fetch Client] SUCCESS: Found Channel ${item.snippet?.title} (ID: ${item.id})`);
+        if (data.success && data.channelId) {
           return {
-            channelId: item.id,
-            channelName: item.snippet?.title || '',
-            customHandle: item.snippet?.customUrl || '',
-            avatarUrl: item.snippet?.thumbnails?.high?.url || item.snippet?.thumbnails?.default?.url || '',
-            views: parseInt(item.statistics?.viewCount || '0', 10),
-            subscribers: parseInt(item.statistics?.subscriberCount || '0', 10)
-          };
-        }
-      }
-
-      // Fallback managedByMe=true
-      const resManaged = await fetch('https://www.googleapis.com/youtube/v3/channels?managedByMe=true&part=snippet,statistics', {
-        headers: {
-          Authorization: `Bearer ${providerToken}`,
-          Accept: 'application/json'
-        }
-      });
-      if (resManaged.ok) {
-        const dataManaged = await resManaged.json();
-        const itemManaged = dataManaged.items?.[0];
-        if (itemManaged) {
-          return {
-            channelId: itemManaged.id,
-            channelName: itemManaged.snippet?.title || '',
-            customHandle: itemManaged.snippet?.customUrl || '',
-            avatarUrl: itemManaged.snippet?.thumbnails?.high?.url || itemManaged.snippet?.thumbnails?.default?.url || '',
-            views: parseInt(itemManaged.statistics?.viewCount || '0', 10),
-            subscribers: parseInt(itemManaged.statistics?.subscriberCount || '0', 10)
+            channelId: data.channelId,
+            channelName: data.channelName,
+            customHandle: data.customHandle,
+            avatarUrl: data.avatarUrl,
+            views: 0,
+            subscribers: 0
           };
         }
       }
     } catch (err: any) {
-      console.error('[YouTube Fetch Client] Error:', err.message);
+      console.warn('[YouTube Fetch Client] InnerTube lookup notice:', err.message);
     }
   }
   return null;

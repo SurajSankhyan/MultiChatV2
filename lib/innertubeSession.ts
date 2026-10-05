@@ -29,24 +29,40 @@ export function formatInnertubeCookie(rawCookie?: string): string | undefined {
   }
 
   // Strictly keep essential authentication cookies for youtubei.js
-  const essentialKeys = [
+  const priorityKeys = [
     'SAPISID',
     '__Secure-3PAPISID',
+    '__Secure-1PAPISID',
     'SID',
     'HSID',
     'SSID',
     'LOGIN_INFO',
     'APISID',
-    'PREF'
+    'PREF',
+    '__Secure-1PSID',
+    '__Secure-3PSID',
+    '__Secure-1PSIDTS',
+    '__Secure-3PSIDTS',
+    'SIDCC',
+    '__Secure-1PSIDCC',
+    '__Secure-3PSIDCC',
+    'DELEGATED_SESSION_ID'
   ];
-  if (cookieMap.has('DELEGATED_SESSION_ID')) {
-    essentialKeys.push('DELEGATED_SESSION_ID');
-  }
+
+  const added = new Set<string>();
   const cleanPairs: string[] = [];
 
-  for (const key of essentialKeys) {
+  for (const key of priorityKeys) {
     if (cookieMap.has(key)) {
       cleanPairs.push(`${key}=${cookieMap.get(key)}`);
+      added.add(key);
+    }
+  }
+
+  // Preserve any other remaining cookies that may be part of session state
+  for (const [key, val] of cookieMap.entries()) {
+    if (!added.has(key) && val) {
+      cleanPairs.push(`${key}=${val}`);
     }
   }
 
