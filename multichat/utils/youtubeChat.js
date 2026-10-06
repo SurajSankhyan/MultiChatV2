@@ -1626,16 +1626,26 @@ export class YoutubeChatClient {
             }
 
             if (rawSnippetText) {
-              const tm = rawSnippetText.match(/(?:^|\s)@?([^\s]+(?:\s+[^\s]+)*?)\s+was timed out by\s+@?([^\s.]+)(?:\s+for\s+([0-9]+\s+[a-zA-Z]+))?/i);
+              // Case A: @user was put on timeout / timed out for <duration> by @mod
+              let tm = rawSnippetText.match(/(?:^|\s)@?([^\s]+(?:\s+[^\s]+)*?)\s+was\s+(?:put\s+on\s+timeout|timed\s+out)\s+for\s+([0-9]+\s+[a-zA-Z]+)\s+by\s+@?([^\s.]+)/i);
               if (tm) {
                 timeoutTarget = tm[1].replace(/^@+/, '').trim();
-                timeoutMod = tm[2].replace(/^@+/, '').trim();
-                timeoutDuration = tm[3] || '';
+                timeoutDuration = tm[2].trim();
+                timeoutMod = tm[3].replace(/^@+/, '').replace(/\.$/, '').trim();
                 deletedBy = timeoutMod;
               } else {
-                const dm = rawSnippetText.match(/(?:message\s+deleted|messages\s+deleted|deleted|hidden)\s+by\s+@?([^\s.\[\r\n]+)/i);
-                if (dm) {
-                  deletedBy = dm[1].replace(/^@+/, '').replace(/\.$/, '').trim();
+                // Case B: @user was timed out / put on timeout by @mod (optionally: for <duration>)
+                tm = rawSnippetText.match(/(?:^|\s)@?([^\s]+(?:\s+[^\s]+)*?)\s+was\s+(?:put\s+on\s+timeout|timed\s+out)\s+by\s+@?([^\s.]+)(?:\s+for\s+([0-9]+\s+[a-zA-Z]+))?/i);
+                if (tm) {
+                  timeoutTarget = tm[1].replace(/^@+/, '').trim();
+                  timeoutMod = tm[2].replace(/^@+/, '').replace(/\.$/, '').trim();
+                  timeoutDuration = tm[3] ? tm[3].trim() : '';
+                  deletedBy = timeoutMod;
+                } else {
+                  const dm = rawSnippetText.match(/(?:message\s+deleted|messages\s+deleted|deleted|hidden)\s+by\s+@?([^\s.\[\r\n]+)/i);
+                  if (dm) {
+                    deletedBy = dm[1].replace(/^@+/, '').replace(/\.$/, '').trim();
+                  }
                 }
               }
             }
@@ -1665,7 +1675,7 @@ export class YoutubeChatClient {
                 rawTimestamp: Date.now(),
                 timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
               };
-              this.onMessage(channelName, sysMsg);
+              this.onMessage(sysMsg);
             }
 
             if (targetId) {
@@ -1924,7 +1934,8 @@ export class YoutubeChatClient {
         } else if (renderer.message?.simpleText) {
           engText = renderer.message.simpleText;
         }
-        if (engText.toLowerCase().includes('was timed out by') || engText.toLowerCase().includes('was hidden by')) {
+        const engLower = engText.toLowerCase();
+        if (engLower.includes('timed out') || engLower.includes('put on timeout') || engLower.includes('hidden by') || engLower.includes('hidden on this channel')) {
           isSystemEvent = true;
           eventType = 'moderation';
         } else {
@@ -2072,14 +2083,25 @@ export class YoutubeChatClient {
       }
 
       if (isSystemEvent && eventType === 'moderation') {
-        const tm = text.match(/(?:^|\s)@?([^\s]+(?:\s+[^\s]+)*?)\s+was timed out by\s+@?([^\s.]+)(?:\s+for\s+([0-9]+\s+[a-zA-Z]+))?/i);
+        let tm = text.match(/(?:^|\s)@?([^\s]+(?:\s+[^\s]+)*?)\s+was\s+(?:put\s+on\s+timeout|timed\s+out)\s+for\s+([0-9]+\s+[a-zA-Z]+)\s+by\s+@?([^\s.]+)/i);
         if (tm) {
           const targetUser = tm[1].replace(/^@+/, '').trim();
-          const modUser = tm[2].replace(/^@+/, '').trim();
-          const duration = tm[3] || '';
+          const duration = tm[2].trim();
+          const modUser = tm[3].replace(/^@+/, '').replace(/\.$/, '').trim();
           eventDetails = { targetUser, modUser, duration, action: 'timeout' };
           if (this.onMessageDeleted) {
             this.onMessageDeleted(null, targetUser, modUser, channelName, text);
+          }
+        } else {
+          tm = text.match(/(?:^|\s)@?([^\s]+(?:\s+[^\s]+)*?)\s+was\s+(?:put\s+on\s+timeout|timed\s+out)\s+by\s+@?([^\s.]+)(?:\s+for\s+([0-9]+\s+[a-zA-Z]+))?/i);
+          if (tm) {
+            const targetUser = tm[1].replace(/^@+/, '').trim();
+            const modUser = tm[2].replace(/^@+/, '').replace(/\.$/, '').trim();
+            const duration = tm[3] ? tm[3].trim() : '';
+            eventDetails = { targetUser, modUser, duration, action: 'timeout' };
+            if (this.onMessageDeleted) {
+              this.onMessageDeleted(null, targetUser, modUser, channelName, text);
+            }
           }
         }
       }

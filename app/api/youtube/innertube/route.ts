@@ -742,6 +742,148 @@ function buildManageUserToken(broadcasterChannelId: string, videoId: string, tar
   }
 }
 
+function encodeVarint(val: number): Buffer {
+  const bytes: number[] = [];
+  while (val > 127) {
+    bytes.push((val & 127) | 128);
+    val >>>= 7;
+  }
+  bytes.push(val & 127);
+  return Buffer.from(bytes);
+}
+
+function adjustTimeoutDuration(rawToken: string, newDurationSeconds: number): string {
+  try {
+    let buf = Buffer.from(rawToken, 'base64');
+    const str = buf.toString('utf8');
+    if (str.startsWith('Q2') || str.includes('%')) {
+      buf = Buffer.from(decodeURIComponent(str), 'base64');
+    }
+
+    let pos = 0;
+    const partsBeforeField6: Buffer[] = [];
+    const partsAfterField6: Buffer[] = [];
+    let field6Data: Buffer | null = null;
+    let found6 = false;
+
+    while (pos < buf.length) {
+      const startPos = pos;
+      const key = buf[pos++];
+      const wireType = key & 7;
+      const fieldNum = key >> 3;
+
+      if (fieldNum === 6 && wireType === 2) {
+        let len = 0;
+        let shift = 0;
+        let b: number;
+        do {
+          b = buf[pos++];
+          len |= (b & 0x7f) << shift;
+          shift += 7;
+        } while (b & 0x80);
+        field6Data = buf.subarray(pos, pos + len);
+        pos += len;
+        found6 = true;
+        continue;
+      }
+
+      if (wireType === 0) {
+        while (buf[pos++] & 0x80) {}
+      } else if (wireType === 2) {
+        let len = 0;
+        let shift = 0;
+        let b: number;
+        do {
+          b = buf[pos++];
+          len |= (b & 0x7f) << shift;
+          shift += 7;
+        } while (b & 0x80);
+        pos += len;
+      } else {
+        break;
+      }
+
+      if (!found6) partsBeforeField6.push(buf.subarray(startPos, pos));
+      else partsAfterField6.push(buf.subarray(startPos, pos));
+    }
+
+    if (!field6Data) return rawToken;
+
+    let f6Pos = 0;
+    let targetChanTag: Buffer | null = null;
+    while (f6Pos < field6Data.length) {
+      const key = field6Data[f6Pos++];
+      const wireType = key & 7;
+      const fieldNum = key >> 3;
+      if (fieldNum === 1 && wireType === 2) {
+        const len = field6Data[f6Pos++];
+        targetChanTag = field6Data.subarray(f6Pos - 2, f6Pos + len);
+        f6Pos += len;
+      } else if (fieldNum === 2 && wireType === 2) {
+        const len = field6Data[f6Pos++];
+        f6Pos += len;
+      } else if (wireType === 0) {
+        while (field6Data[f6Pos++] & 0x80) {}
+      }
+    }
+
+    if (!targetChanTag) return rawToken;
+
+    const durVarint = encodeVarint(newDurationSeconds);
+    const tag2Sub = Buffer.concat([Buffer.from([0x08]), durVarint]);
+    const tag2Wrapper = Buffer.concat([Buffer.from([0x12, tag2Sub.length]), tag2Sub]);
+
+    const newField6Body = Buffer.concat([targetChanTag, tag2Wrapper]);
+    const newField6Header = Buffer.from([0x32, newField6Body.length]);
+    const newField6 = Buffer.concat([newField6Header, newField6Body]);
+
+    const newBuf = Buffer.concat([
+      Buffer.concat(partsBeforeField6),
+      newField6,
+      Buffer.concat(partsAfterField6)
+    ]);
+
+    const l1B64 = newBuf.toString('base64');
+    return Buffer.from(encodeURIComponent(l1B64), 'utf8').toString('base64');
+  } catch (err) {
+    return rawToken;
+  }
+}
+
+function findTimeoutOptionInContextMenu(obj: any, durationSec: number): string | null {
+  if (!obj || typeof obj !== 'object') return null;
+
+  if (obj.optionSelectableItemRenderer) {
+    const item = obj.optionSelectableItemRenderer;
+    const text = (item.text?.simpleText || item.text?.runs?.[0]?.text || '').toLowerCase().trim();
+    const params = item.submitEndpoint?.moderateLiveChatEndpoint?.params;
+
+    let matches = false;
+    if (durationSec === 10 && (text.includes('10 sec') || text.includes('10s'))) matches = true;
+    else if ((durationSec === 60 || durationSec === 1) && (text.includes('1 min') || text.includes('60 sec') || text.includes('1m'))) matches = true;
+    else if ((durationSec === 300 || durationSec === 5) && (text.includes('5 min') || text.includes('300 sec') || text.includes('5m'))) matches = true;
+    else if ((durationSec === 600 || durationSec === 10) && (text.includes('10 min') || text.includes('600 sec') || text.includes('10m'))) matches = true;
+    else if ((durationSec === 1800 || durationSec === 30) && (text.includes('30 min') || text.includes('1800 sec') || text.includes('30m'))) matches = true;
+    else if ((durationSec === 86400 || durationSec === 24) && (text.includes('24 hour') || text.includes('24h') || text.includes('1 day'))) matches = true;
+
+    if (matches && params) return params;
+  }
+
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      const res = findTimeoutOptionInContextMenu(item, durationSec);
+      if (res) return res;
+    }
+  } else {
+    for (const key of Object.keys(obj)) {
+      if (key === 'responseContext' || key === 'trackingParams' || key === 'session') continue;
+      const res = findTimeoutOptionInContextMenu(obj[key], durationSec);
+      if (res) return res;
+    }
+  }
+  return null;
+}
+
 function findParamsInContextMenu(obj: any, targetType: 'delete' | 'timeout' | 'ban' | 'add_moderator' | 'remove_moderator'): string | null {
   if (!obj || typeof obj !== 'object') return null;
 
@@ -802,19 +944,9 @@ function findParamsInContextMenu(obj: any, targetType: 'delete' | 'timeout' | 'b
       try {
         let timeoutRes: any = null;
 
-        // 2. Direct live_chat/moderate if targetParams provided
-        if (targetParams && typeof targetParams === 'string' && targetParams.length > 15 && !targetParams.startsWith('UC')) {
-          console.log(`[InnerTube Route] Executing live_chat/moderate for timeout with direct targetParams...`);
-          try {
-            timeoutRes = await yt.actions.execute('live_chat/moderate', { params: targetParams });
-          } catch (e: any) {
-            console.warn('[InnerTube Route] Direct moderate call notice:', e.message);
-          }
-        }
-
-        // 3. Resolve context menu via menuParams
-        if (!timeoutRes && menuParams && typeof menuParams === 'string' && menuParams.length > 15) {
-          console.log(`[InnerTube Route] Resolving context menu for timeout via menuParams...`);
+        // 1. First priority: Resolve via menuParams to obtain YouTube's official duration option
+        if (menuParams && typeof menuParams === 'string' && menuParams.length > 15) {
+          console.log(`[InnerTube Route] Resolving context menu for timeout (${reqDuration}s) via menuParams...`);
           try {
             const menuRes = await yt.actions.execute('live_chat/get_item_context_menu', { params: menuParams });
             if (menuRes?.data?.responseContext?.mainAppWebResponseContext?.loggedOut || menuRes?.responseContext?.mainAppWebResponseContext?.loggedOut) {
@@ -825,16 +957,34 @@ function findParamsInContextMenu(obj: any, targetType: 'delete' | 'timeout' | 'b
                 isAuthExpired: true
               }, { status: 401 });
             }
-            let timeoutEndpointParams = findParamsInContextMenu(menuRes, 'timeout');
-            if (timeoutEndpointParams) {
-              timeoutRes = await yt.actions.execute('live_chat/moderate', { params: timeoutEndpointParams });
+            let exactOptionParams = findTimeoutOptionInContextMenu(menuRes, reqDuration);
+            if (!exactOptionParams) {
+              const fallbackParams = findParamsInContextMenu(menuRes, 'timeout');
+              if (fallbackParams) {
+                exactOptionParams = adjustTimeoutDuration(fallbackParams, reqDuration);
+              }
+            }
+            if (exactOptionParams) {
+              console.log(`[InnerTube Route] Executing live_chat/moderate with matched/adjusted context menu params (${reqDuration}s)...`);
+              timeoutRes = await yt.actions.execute('live_chat/moderate', { params: exactOptionParams });
             }
           } catch (e: any) {
             console.warn('[InnerTube Route] Menu resolution notice:', e.message);
           }
         }
 
-        // 4. Resolve via active live chat stream
+        // 2. Second priority: Direct live_chat/moderate with duration-adjusted targetParams
+        if (!timeoutRes && targetParams && typeof targetParams === 'string' && targetParams.length > 15 && !targetParams.startsWith('UC')) {
+          const adjustedParams = adjustTimeoutDuration(targetParams, reqDuration);
+          console.log(`[InnerTube Route] Executing live_chat/moderate for timeout with adjusted targetParams (${reqDuration}s)...`);
+          try {
+            timeoutRes = await yt.actions.execute('live_chat/moderate', { params: adjustedParams });
+          } catch (e: any) {
+            console.warn('[InnerTube Route] Direct moderate call notice:', e.message);
+          }
+        }
+
+        // 3. Third priority: Resolve via active live chat stream
         if (!timeoutRes && targetUser) {
           console.log(`[InnerTube Route] Resolving moderation context params for timeout target: ${targetUser}...`);
           const resolved = await resolveUserModerationParams(
@@ -843,9 +993,7 @@ function findParamsInContextMenu(obj: any, targetType: 'delete' | 'timeout' | 'b
             targetUser,
             'timeout'
           );
-          if (resolved?.timeoutParams) {
-            timeoutRes = await yt.actions.execute('live_chat/moderate', { params: resolved.timeoutParams });
-          } else if (resolved?.menuParams) {
+          if (resolved?.menuParams) {
             const menuRes = await yt.actions.execute('live_chat/get_item_context_menu', { params: resolved.menuParams });
             if (menuRes?.data?.responseContext?.mainAppWebResponseContext?.loggedOut || menuRes?.responseContext?.mainAppWebResponseContext?.loggedOut) {
               return NextResponse.json({
@@ -855,10 +1003,13 @@ function findParamsInContextMenu(obj: any, targetType: 'delete' | 'timeout' | 'b
                 isAuthExpired: true
               }, { status: 401 });
             }
-            let tParams = findParamsInContextMenu(menuRes, 'timeout');
+            let tParams = findTimeoutOptionInContextMenu(menuRes, reqDuration) || (findParamsInContextMenu(menuRes, 'timeout') ? adjustTimeoutDuration(findParamsInContextMenu(menuRes, 'timeout')!, reqDuration) : null);
             if (tParams) {
               timeoutRes = await yt.actions.execute('live_chat/moderate', { params: tParams });
             }
+          } else if (resolved?.timeoutParams) {
+            const adjustedParams = adjustTimeoutDuration(resolved.timeoutParams, reqDuration);
+            timeoutRes = await yt.actions.execute('live_chat/moderate', { params: adjustedParams });
           }
         }
 

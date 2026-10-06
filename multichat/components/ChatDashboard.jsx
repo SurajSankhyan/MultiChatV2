@@ -1441,8 +1441,9 @@ export default function ChatDashboard({
     };
 
     // Callback for incoming messages — never drops messages & deduplicates optimistic/sent messages
-    const handleNewMessage = (msg) => {
-      if (!msg) return;
+    const handleNewMessage = (msgOrChannel, maybeMsg) => {
+      const msg = (typeof msgOrChannel === 'string' && maybeMsg && typeof maybeMsg === 'object') ? maybeMsg : msgOrChannel;
+      if (!msg || typeof msg !== 'object') return;
       
       if (msg.isSystemEvent && msg.rawTimestamp && msg.rawTimestamp <= clearedEventsAtRef.current) {
         return;
@@ -1492,6 +1493,39 @@ export default function ChatDashboard({
             return m;
           }));
           return;
+        }
+      }
+
+      // Deduplicate incoming system moderation events (prevent double timeout/mod messages)
+      if (msg && msg.isSystemEvent && msg.eventType === 'moderation') {
+        const target = (msg.eventDetails?.targetUser || '').replace(/^@+/, '').trim().toLowerCase();
+        const existingModIdx = (messagesRef.current || []).findIndex(m =>
+          m.isSystemEvent &&
+          m.eventType === 'moderation' &&
+          (m.rawTimestamp || 0) >= Date.now() - 15000 &&
+          (
+            (target && (m.eventDetails?.targetUser || '').replace(/^@+/, '').trim().toLowerCase() === target) ||
+            (target && m.text && m.text.toLowerCase().includes(`@${target}`)) ||
+            (m.text && msg.text && m.text.trim().toLowerCase() === msg.text.trim().toLowerCase())
+          )
+        );
+        if (existingModIdx !== -1) {
+          // If the incoming message has richer information (like true modUser or duration), update the existing event in-place
+          if (msg.eventDetails?.modUser || msg.eventDetails?.duration) {
+            setMessages(prev => prev.map((m, idx) => {
+              if (idx === existingModIdx) {
+                return {
+                  ...m,
+                  ...msg,
+                  id: m.id, // preserve key
+                  text: msg.text || m.text,
+                  eventDetails: { ...(m.eventDetails || {}), ...(msg.eventDetails || {}) }
+                };
+              }
+              return m;
+            }));
+          }
+          return; // Ignore duplicate system event
         }
       }
 
@@ -2290,38 +2324,68 @@ export default function ChatDashboard({
 
         let actor = explicitDeletedBy ? explicitDeletedBy.replace(/^@+/, '').replace(/\.$/, '').trim() : null;
         if (!actor && rawSnippetText) {
-          const dm = String(rawSnippetText).match(/(?:message\s+deleted|messages\s+deleted|deleted|hidden)\s+by\s+@?([^\s.\[\r\n]+)/i);
-          if (dm) actor = dm[1].replace(/^@+/, '').replace(/\.$/, '').trim();
+          const tm = String(rawSnippetText).match(/(?:put\s+on\s+timeout|timed\s+out)(?:\s+for\s+[0-9]+\s+[a-zA-Z]+)?\s+by\s+@?([^\s.]+)/i) || 
+                     String(rawSnippetText).match(/(?:put\s+on\s+timeout|timed\s+out)\s+by\s+@?([^\s.]+)/i) ||
+                     String(rawSnippetText).match(/(?:message\s+deleted|messages\s+deleted|deleted|hidden)\s+by\s+@?([^\s.\[\r\n]+)/i);
+          if (tm) actor = tm[1].replace(/^@+/, '').replace(/\.$/, '').trim();
         }
-        if (!actor && prev.timeoutActorMap) {
-          const targetMsg = messages.find(m => String(m.id) === String(msgId));
-          if (targetMsg) {
-            const u = (targetMsg.username || '').replace(/^@+/, '').trim().toLowerCase();
-            const d = (targetMsg.displayName || '').replace(/^@+/, '').trim().toLowerCase();
-            const c = (targetMsg.channelId || targetMsg.authorChannelId || '').trim().toLowerCase();
+
+        const targetMsg = messages.find(m => String(m.id) === String(msgId));
+        if (targetMsg) {
+          const u = (targetMsg.username || '').replace(/^@+/, '').trim().toLowerCase();
+          const d = (targetMsg.displayName || '').replace(/^@+/, '').trim().toLowerCase();
+          const c = (targetMsg.channelId || targetMsg.authorChannelId || targetMsg.authorExternalChannelId || '').trim().toLowerCase();
+
+          if (!actor && prev.timeoutActorMap) {
             actor = prev.timeoutActorMap.get(u) || prev.timeoutActorMap.get(d) || prev.timeoutActorMap.get(c);
           }
-        }
-        if (!actor) {
-          const modMsg = [...messages].reverse().find(m => 
-            m.platform === 'youtube' && 
-            (
-              (m.badges && (
-                m.badges.includes('moderator') || 
-                m.badges.includes('mod') || 
-                m.badges.some(b => String(b?.icon || b).toLowerCase().includes('mod'))
-              )) ||
-              m.isModerator || m.authorIsModerator ||
-              m.eventDetails?.modUser
-            )
-          );
-          if (modMsg) {
-            actor = modMsg.eventDetails?.modUser || (modMsg.username || modMsg.displayName || '').replace(/^@+/, '').trim();
+
+          if (!actor) {
+            // Find recent system moderation event explicitly targeting this message author
+            const modEvent = [...messages].reverse().find(m => 
+              m.isSystemEvent && 
+              m.eventType === 'moderation' && 
+              m.eventDetails?.modUser &&
+              (
+                (m.eventDetails.targetUser && (
+                  m.eventDetails.targetUser.toLowerCase() === u ||
+                  m.eventDetails.targetUser.toLowerCase() === d ||
+                  (c && m.eventDetails.targetUser.toLowerCase() === c)
+                )) ||
+                (m.text && (
+                  (u && m.text.toLowerCase().includes(`@${u}`)) ||
+                  (d && m.text.toLowerCase().includes(`@${d}`))
+                ))
+              )
+            );
+            if (modEvent) {
+              actor = modEvent.eventDetails.modUser;
+            }
+          }
+
+          if (!actor) {
+            const modMsg = [...messages].reverse().find(m => 
+              m.platform === 'youtube' && 
+              (
+                (m.badges && (
+                  m.badges.includes('moderator') || 
+                  m.badges.includes('mod') || 
+                  m.badges.some(b => String(b?.icon || b).toLowerCase().includes('mod'))
+                )) ||
+                m.isModerator || m.authorIsModerator ||
+                m.eventDetails?.modUser
+              ) &&
+              (m.username || '').replace(/^@+/, '').trim().toLowerCase() !== u &&
+              (m.displayName || '').replace(/^@+/, '').trim().toLowerCase() !== d &&
+              (m.channelId || m.authorChannelId || '').trim().toLowerCase() !== c
+            );
+            if (modMsg) {
+              actor = modMsg.eventDetails?.modUser || (modMsg.username || modMsg.displayName || '').replace(/^@+/, '').trim();
+            }
           }
         }
-        if (!actor && user?.custom_handle) {
-          actor = user.custom_handle.replace(/^@+/, '').trim();
-        }
+
+        // Only set actor if a real moderator was identified. NEVER fallback to user?.custom_handle!
         if (actor) {
           nextMap.set(msgId, actor);
         }
@@ -2430,22 +2494,67 @@ export default function ChatDashboard({
       const rawTargetHandle = targetMsgs[0]?.username || targetMsgs[0]?.displayName || authorChannelId || '';
       const targetUser = rawTargetHandle.replace(/^@+/, '').trim();
 
+      // Collect all representations for this user so lookups work regardless of channel ID or @handle
+      const userIdentifiers = new Set([cleanAuthorParam, targetUser.toLowerCase()]);
+      targetMsgs.forEach(m => {
+        if (m.username) userIdentifiers.add(m.username.replace(/^@+/, '').trim().toLowerCase());
+        if (m.displayName) userIdentifiers.add(m.displayName.replace(/^@+/, '').trim().toLowerCase());
+        if (m.channelId) userIdentifiers.add(String(m.channelId).trim().toLowerCase());
+        if (m.authorChannelId) userIdentifiers.add(String(m.authorChannelId).trim().toLowerCase());
+        if (m.authorExternalChannelId) userIdentifiers.add(String(m.authorExternalChannelId).trim().toLowerCase());
+      });
+
       let actor = explicitDeletedBy ? explicitDeletedBy.replace(/^@+/, '').replace(/\.$/, '').trim() : null;
 
       // Extract moderator from rawSnippetText if present
       if (!actor && rawSnippetText) {
-        const tm = String(rawSnippetText).match(/was timed out by\s+@?([^\s.]+)/i) || 
+        const tm = String(rawSnippetText).match(/(?:put\s+on\s+timeout|timed\s+out)(?:\s+for\s+[0-9]+\s+[a-zA-Z]+)?\s+by\s+@?([^\s.]+)/i) || 
+                   String(rawSnippetText).match(/(?:put\s+on\s+timeout|timed\s+out)\s+by\s+@?([^\s.]+)/i) ||
                    String(rawSnippetText).match(/(?:message\s+deleted|messages\s+deleted|deleted|hidden)\s+by\s+@?([^\s.\[\r\n]+)/i);
         if (tm) actor = tm[1].replace(/^@+/, '').replace(/\.$/, '').trim();
       }
 
-      // Check timeoutActorMap in moderation state
+      // Check timeoutActorMap in moderation state across all identifiers
       if (!actor && moderation?.timeoutActorMap) {
         const map = moderation.timeoutActorMap;
-        actor = (map instanceof Map ? (map.get(cleanAuthorParam) || map.get(targetUser.toLowerCase())) : map[cleanAuthorParam] || map[targetUser.toLowerCase()]);
+        for (const idKey of userIdentifiers) {
+          const found = map instanceof Map ? map.get(idKey) : map[idKey];
+          if (found) {
+            actor = found;
+            break;
+          }
+        }
       }
 
-      // Check for active moderator in previous chat messages
+      // Check system events in messages specifically targeting this user
+      if (!actor) {
+        const modEvent = [...prevMessages].reverse().find(m => 
+          m.isSystemEvent && 
+          m.eventType === 'moderation' && 
+          m.eventDetails?.modUser &&
+          (
+            (m.eventDetails.targetUser && userIdentifiers.has(m.eventDetails.targetUser.toLowerCase())) ||
+            (m.text && Array.from(userIdentifiers).some(u => u && m.text.toLowerCase().includes(`@${u}`)))
+          )
+        );
+        if (modEvent) {
+          actor = modEvent.eventDetails.modUser;
+        }
+      }
+
+      // Check if any target message already has a known actor in deletedByMap
+      if (!actor && moderation?.deletedByMap) {
+        const dMap = moderation.deletedByMap;
+        for (const mId of targetIds) {
+          const knownActor = dMap instanceof Map ? dMap.get(mId) : dMap[mId];
+          if (knownActor && knownActor !== user?.custom_handle) {
+            actor = knownActor;
+            break;
+          }
+        }
+      }
+
+      // Check recent messages for active moderator in chat (excluding the timed-out user)
       if (!actor) {
         const modMsg = [...prevMessages].reverse().find(m => 
           m.platform === 'youtube' && 
@@ -2458,37 +2567,27 @@ export default function ChatDashboard({
             m.isModerator || m.authorIsModerator ||
             m.eventDetails?.modUser
           ) &&
-          m.username?.toLowerCase() !== targetUser.toLowerCase() &&
-          m.displayName?.toLowerCase() !== targetUser.toLowerCase() &&
-          (m.channelId || m.authorChannelId) !== cleanAuthorParam
+          !userIdentifiers.has((m.username || '').replace(/^@+/, '').trim().toLowerCase()) &&
+          !userIdentifiers.has((m.displayName || '').replace(/^@+/, '').trim().toLowerCase()) &&
+          !userIdentifiers.has((m.channelId || m.authorChannelId || '').trim().toLowerCase())
         );
         if (modMsg) {
           actor = modMsg.eventDetails?.modUser || (modMsg.username || modMsg.displayName || '').replace(/^@+/, '').trim();
         }
       }
 
-      // Check active channels for configured moderator/owner
+      // Check active channels for configured moderator if matching explicitly
       if (!actor) {
-        const modCh = activeChannels.find(ch => ch.enabled && (ch.role === 'moderator' || ch.isModerator));
-        if (modCh?.name) actor = modCh.name.replace(/^@+/, '').trim();
-      }
-
-      // Fallback to channel/user handle
-      if (!actor && user?.custom_handle) {
-        actor = user.custom_handle.replace(/^@+/, '').trim();
-      }
-      if (!actor && channelName && !channelName.toLowerCase().includes('global')) {
-        actor = channelName.replace(/^@+/, '').trim();
+        const modCh = activeChannels.find(ch => ch.enabled && (ch.role === 'moderator' || ch.isModerator) && ch.name && !userIdentifiers.has(ch.name.toLowerCase()));
+        if (modCh?.name && modCh.name !== user?.custom_handle) {
+          actor = modCh.name.replace(/^@+/, '').trim();
+        }
       }
 
       // Default duration to 10 seconds if not specified (standard YouTube timeout)
-      if (!durationStr) {
-        durationStr = '10 seconds';
-      }
-
-      // Compute exact duration in milliseconds
-      let durationMs = 10000; // default 10 seconds
-      const dm = String(durationStr).match(/([0-9]+)\s*([a-zA-Z]+)/i);
+      const effectiveDuration = durationStr || '10 seconds';
+      let durationMs = 10000;
+      const dm = String(effectiveDuration).match(/([0-9]+)\s*([a-zA-Z]+)/i);
       if (dm) {
         const num = parseInt(dm[1], 10);
         const unit = dm[2].toLowerCase();
@@ -2499,28 +2598,28 @@ export default function ChatDashboard({
       }
       const expiryTime = Date.now() + durationMs;
 
+      const cleanMod = actor;
+
       if (targetIds.length > 0) {
         setModeration(prev => {
           const next = new Set(prev.deletedMessageIds);
           const nextMap = new Map(prev.deletedByMap || []);
           targetIds.forEach(id => {
             next.add(id);
-            if (actor) {
-              nextMap.set(id, actor);
+            if (cleanMod) {
+              nextMap.set(id, cleanMod);
             }
           });
           const nextTimed = new Map(prev.timedOutUsers || []);
-          nextTimed.set(cleanAuthorParam, expiryTime);
-          if (targetMsgs[0]?.username) nextTimed.set(targetMsgs[0].username.replace(/^@+/, '').trim().toLowerCase(), expiryTime);
-          if (targetMsgs[0]?.displayName) nextTimed.set(targetMsgs[0].displayName.replace(/^@+/, '').trim().toLowerCase(), expiryTime);
-          if (targetUser) nextTimed.set(targetUser.toLowerCase(), expiryTime);
+          userIdentifiers.forEach(idKey => {
+            if (idKey) nextTimed.set(idKey, expiryTime);
+          });
 
           const nextTimeoutActors = new Map(prev.timeoutActorMap || []);
-          if (actor) {
-            nextTimeoutActors.set(cleanAuthorParam, actor);
-            nextTimeoutActors.set(targetUser.toLowerCase(), actor);
-            if (targetMsgs[0]?.username) nextTimeoutActors.set(targetMsgs[0].username.replace(/^@+/, '').trim().toLowerCase(), actor);
-            if (targetMsgs[0]?.displayName) nextTimeoutActors.set(targetMsgs[0].displayName.replace(/^@+/, '').trim().toLowerCase(), actor);
+          if (cleanMod) {
+            userIdentifiers.forEach(idKey => {
+              if (idKey) nextTimeoutActors.set(idKey, cleanMod);
+            });
           }
 
           return { 
@@ -2533,20 +2632,23 @@ export default function ChatDashboard({
         });
       }
 
-      // Inject a visible system notification when a timeout / mod action is detected
-      const cleanMod = actor;
+      // Inject a visible system notification when a timeout / mod action is detected,
+      // deduplicated so we never show double notifications for the same event
       const channel = targetMsgs[0]?.channel || (channelName ? channelName.toLowerCase() : 'global');
       const platform = 'youtube';
 
       const timeoutText = cleanMod 
-        ? `@${targetUser} was timed out by @${cleanMod} for ${durationStr}.`
-        : `@${targetUser} was timed out for ${durationStr}.`;
+        ? `@${targetUser} was timed out by @${cleanMod} for ${effectiveDuration}.`
+        : `@${targetUser} was timed out for ${effectiveDuration}.`;
 
       const alreadyExists = prevMessages.some(m => 
         m.isSystemEvent && 
         m.eventType === 'moderation' && 
-        m.text === timeoutText && 
-        (Date.now() - (m.rawTimestamp || 0)) < 15000
+        (Date.now() - (m.rawTimestamp || 0)) < 15000 &&
+        (
+          (m.eventDetails?.targetUser && userIdentifiers.has(m.eventDetails.targetUser.toLowerCase())) ||
+          (m.text && Array.from(userIdentifiers).some(u => u && m.text.toLowerCase().includes(`@${u}`)))
+        )
       );
 
       if (!alreadyExists && targetUser) {
@@ -2564,7 +2666,7 @@ export default function ChatDashboard({
             eventDetails: {
               targetUser,
               modUser: cleanMod,
-              duration: durationStr,
+              duration: effectiveDuration,
               action: 'timeout'
             },
             rawTimestamp: Date.now(),

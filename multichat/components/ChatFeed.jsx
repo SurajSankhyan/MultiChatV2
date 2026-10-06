@@ -2740,13 +2740,20 @@ export default function ChatFeed({
                 (isUserTimedOut && moderation?.timeoutActorMap ? (moderation.timeoutActorMap instanceof Map ? (moderation.timeoutActorMap.get(cleanMsgUser) || moderation.timeoutActorMap.get(cleanMsgDisplay) || moderation.timeoutActorMap.get(msgChanId)) : moderation.timeoutActorMap[cleanMsgUser]) : null);
 
               if (!modActor && isHiddenOrDeleted) {
-                const modEvent = tabFilteredMessages.find(m => 
+                const modEvent = [...(messages || [])].reverse().find(m => 
                   m.isSystemEvent && 
                   m.eventType === 'moderation' && 
-                  m.eventDetails?.targetUser && 
+                  m.eventDetails?.modUser && 
                   (
-                    m.eventDetails.targetUser.toLowerCase() === cleanMsgUser ||
-                    m.eventDetails.targetUser.toLowerCase() === cleanMsgDisplay
+                    (m.eventDetails.targetUser && (
+                      m.eventDetails.targetUser.toLowerCase() === cleanMsgUser ||
+                      m.eventDetails.targetUser.toLowerCase() === cleanMsgDisplay ||
+                      (msgChanId && m.eventDetails.targetUser.toLowerCase() === msgChanId.toLowerCase())
+                    )) ||
+                    (m.text && (
+                      (cleanMsgUser && m.text.toLowerCase().includes(`@${cleanMsgUser}`)) ||
+                      (cleanMsgDisplay && m.text.toLowerCase().includes(`@${cleanMsgDisplay}`))
+                    ))
                   )
                 );
                 if (modEvent?.eventDetails?.modUser) {
@@ -3037,14 +3044,18 @@ export default function ChatFeed({
             ].map(opt => (
               <label 
                 key={opt.value} 
+                onClick={() => setSelectedTimeoutDuration(opt.value)}
                 style={{ 
                   display: 'flex', 
                   alignItems: 'center', 
                   gap: '8px', 
-                  color: '#d4d4d8', 
+                  color: selectedTimeoutDuration === opt.value ? '#ffffff' : '#d4d4d8', 
                   fontSize: '13px', 
                   cursor: 'pointer',
-                  padding: '4px 0'
+                  padding: '4px 6px',
+                  borderRadius: '6px',
+                  backgroundColor: selectedTimeoutDuration === opt.value ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+                  transition: 'background-color 0.15s ease'
                 }}
               >
                 <input 
@@ -3053,9 +3064,9 @@ export default function ChatFeed({
                   value={opt.value} 
                   checked={selectedTimeoutDuration === opt.value}
                   onChange={() => setSelectedTimeoutDuration(opt.value)}
-                  style={{ accentColor: '#3b82f6' }}
+                  style={{ accentColor: '#3b82f6', cursor: 'pointer' }}
                 />
-                <span>{opt.label}</span>
+                <span style={{ fontWeight: selectedTimeoutDuration === opt.value ? '600' : '400' }}>{opt.label}</span>
               </label>
             ))}
           </div>
