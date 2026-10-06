@@ -9,6 +9,10 @@
     "start": "next start",
     "lint": "eslint"
   },
+  "allowScripts": {
+    "sharp": true,
+    "unrs-resolver": true
+  },
   "dependencies": {
     "@ark-ui/react": "^5.37.2",
     "@heroui/react": "^3.2.1",
