@@ -746,7 +746,7 @@ export default function OverlayView() {
       }}
     >
       <div className={`feed-messages style-${chatStyle}`} style={{ background: 'transparent', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-        {messages.map(msg => {
+        {messages.map((msg, idx) => {
           const isFading = fadingMsgIds.has(msg.id);
           const isDefault = isDefaultAvatar(msg.avatar);
           const avatarUrl = isDefault ? getDefaultAvatar(msg.platform, msg.username, msg.userId) : proxifyAvatarUrl(msg.avatar);
@@ -790,7 +790,7 @@ export default function OverlayView() {
           return (
             <div 
               key={msg.id} 
-              className={`chat-message-row ${isFading ? 'fading' : ''} ${msg.repliedTo ? 'has-reply-thread' : ''}`}
+              className={`chat-message-row${settings.alternatingBackgrounds ? (idx % 2 === 0 ? ' row-even' : ' row-odd') : ''} ${isFading ? 'fading' : ''} ${msg.repliedTo ? 'has-reply-thread' : ''}`}
               style={{ 
                 opacity: isFading ? 0 : 1, 
                 transition: 'opacity 0.8s'

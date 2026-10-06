@@ -585,8 +585,7 @@ export default function SettingsDrawer({
           <div className={`feed-messages style-${settings.chatStyle || 'default'}`}>
             <div 
               key={previewIndex}
-              className={`chat-message-row ${settings.alternatingBackgrounds ? 'row-even' : ''} preview-message-animated`} 
-              style={{ border: 'none', background: 'none' }}
+              className={`chat-message-row ${settings.alternatingBackgrounds ? (previewIndex % 2 === 0 ? 'row-even' : 'row-odd') : ''} preview-message-animated`} 
             >
               {(settings.showTimestamps || settings.showIcons) && (
                 <div className="chat-message-meta-left" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '4px', flexShrink: 0, height: '1.5em' }}>

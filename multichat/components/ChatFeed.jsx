@@ -2705,113 +2705,123 @@ export default function ChatFeed({
               </div>
             </div>
           ) : (
-            tabFilteredMessages.map((msg, idx) => {
-              const cleanMsgUser = (msg.username || '').replace(/^@+/, '').trim().toLowerCase();
-              const cleanMsgDisplay = (msg.displayName || '').replace(/^@+/, '').trim().toLowerCase();
-              const msgChanId = msg.channelId || msg.userId || '';
+            (() => {
+              let chatRowIndex = 0;
+              return tabFilteredMessages.map((msg, idx) => {
+                const cleanMsgUser = (msg.username || '').replace(/^@+/, '').trim().toLowerCase();
+                const cleanMsgDisplay = (msg.displayName || '').replace(/^@+/, '').trim().toLowerCase();
+                const msgChanId = msg.channelId || msg.userId || '';
 
-              const isDeleted = (moderation?.deletedMessageIds instanceof Set) 
-                ? moderation.deletedMessageIds.has(msg.id) 
-                : (Array.isArray(moderation?.deletedMessageIds) ? moderation.deletedMessageIds.includes(msg.id) : false);
+                const isDeleted = (moderation?.deletedMessageIds instanceof Set) 
+                  ? moderation.deletedMessageIds.has(msg.id) 
+                  : (Array.isArray(moderation?.deletedMessageIds) ? moderation.deletedMessageIds.includes(msg.id) : false);
 
-              const checkTimedOut = (key) => {
-                if (!key || !moderation?.timedOutUsers) return false;
-                const exp = (moderation.timedOutUsers instanceof Map)
-                  ? moderation.timedOutUsers.get(key)
-                  : (typeof moderation.timedOutUsers === 'object' ? moderation.timedOutUsers[key] : null);
-                if (!exp) return false;
-                if (Date.now() >= exp) return false;
-                const msgTime = msg.rawTimestamp ? Number(msg.rawTimestamp) : Date.now();
-                return exp > msgTime;
-              };
+                const checkTimedOut = (key) => {
+                  if (!key || !moderation?.timedOutUsers) return false;
+                  const exp = (moderation.timedOutUsers instanceof Map)
+                    ? moderation.timedOutUsers.get(key)
+                    : (typeof moderation.timedOutUsers === 'object' ? moderation.timedOutUsers[key] : null);
+                  if (!exp) return false;
+                  if (Date.now() >= exp) return false;
+                  const msgTime = msg.rawTimestamp ? Number(msg.rawTimestamp) : Date.now();
+                  return exp > msgTime;
+                };
 
-              const isUserTimedOut = checkTimedOut(cleanMsgUser) || checkTimedOut(cleanMsgDisplay) || checkTimedOut(msgChanId);
+                const isUserTimedOut = checkTimedOut(cleanMsgUser) || checkTimedOut(cleanMsgDisplay) || checkTimedOut(msgChanId);
 
-              const isUserBanned = Boolean((cleanMsgUser || cleanMsgDisplay || msgChanId) && moderation?.bannedUsers && (
-                moderation.bannedUsers instanceof Set 
-                  ? (moderation.bannedUsers.has(cleanMsgUser) || moderation.bannedUsers.has(cleanMsgDisplay) || moderation.bannedUsers.has(msgChanId))
-                  : (Array.isArray(moderation?.bannedUsers) ? (moderation.bannedUsers.includes(cleanMsgUser) || moderation.bannedUsers.includes(cleanMsgDisplay) || moderation.bannedUsers.includes(msgChanId)) : false)
-              ));
+                const isUserBanned = Boolean((cleanMsgUser || cleanMsgDisplay || msgChanId) && moderation?.bannedUsers && (
+                  moderation.bannedUsers instanceof Set 
+                    ? (moderation.bannedUsers.has(cleanMsgUser) || moderation.bannedUsers.has(cleanMsgDisplay) || moderation.bannedUsers.has(msgChanId))
+                    : (Array.isArray(moderation?.bannedUsers) ? (moderation.bannedUsers.includes(cleanMsgUser) || moderation.bannedUsers.includes(cleanMsgDisplay) || moderation.bannedUsers.includes(msgChanId)) : false)
+                ));
 
-              const isHiddenOrDeleted = isDeleted || isUserTimedOut || isUserBanned;
+                const isHiddenOrDeleted = isDeleted || isUserTimedOut || isUserBanned;
 
-              let modActor = msg.deletedBy || 
-                (moderation?.deletedByMap ? (moderation.deletedByMap instanceof Map ? moderation.deletedByMap.get(msg.id) : moderation.deletedByMap[msg.id]) : null) ||
-                (isUserTimedOut && moderation?.timeoutActorMap ? (moderation.timeoutActorMap instanceof Map ? (moderation.timeoutActorMap.get(cleanMsgUser) || moderation.timeoutActorMap.get(cleanMsgDisplay) || moderation.timeoutActorMap.get(msgChanId)) : moderation.timeoutActorMap[cleanMsgUser]) : null);
+                let modActor = msg.deletedBy || 
+                  (moderation?.deletedByMap ? (moderation.deletedByMap instanceof Map ? moderation.deletedByMap.get(msg.id) : moderation.deletedByMap[msg.id]) : null) ||
+                  (isUserTimedOut && moderation?.timeoutActorMap ? (moderation.timeoutActorMap instanceof Map ? (moderation.timeoutActorMap.get(cleanMsgUser) || moderation.timeoutActorMap.get(cleanMsgDisplay) || moderation.timeoutActorMap.get(msgChanId)) : moderation.timeoutActorMap[cleanMsgUser]) : null);
 
-              if (!modActor && isHiddenOrDeleted) {
-                const modEvent = [...(messages || [])].reverse().find(m => 
-                  m.isSystemEvent && 
-                  m.eventType === 'moderation' && 
-                  m.eventDetails?.modUser && 
-                  (
-                    (m.eventDetails.targetUser && (
-                      m.eventDetails.targetUser.toLowerCase() === cleanMsgUser ||
-                      m.eventDetails.targetUser.toLowerCase() === cleanMsgDisplay ||
-                      (msgChanId && m.eventDetails.targetUser.toLowerCase() === msgChanId.toLowerCase())
-                    )) ||
-                    (m.text && (
-                      (cleanMsgUser && m.text.toLowerCase().includes(`@${cleanMsgUser}`)) ||
-                      (cleanMsgDisplay && m.text.toLowerCase().includes(`@${cleanMsgDisplay}`))
-                    ))
-                  )
-                );
-                if (modEvent?.eventDetails?.modUser) {
-                  modActor = modEvent.eventDetails.modUser;
+                if (!modActor && isHiddenOrDeleted) {
+                  const modEvent = [...(messages || [])].reverse().find(m => 
+                    m.isSystemEvent && 
+                    m.eventType === 'moderation' && 
+                    m.eventDetails?.modUser && 
+                    (
+                      (m.eventDetails.targetUser && (
+                        m.eventDetails.targetUser.toLowerCase() === cleanMsgUser ||
+                        m.eventDetails.targetUser.toLowerCase() === cleanMsgDisplay ||
+                        (msgChanId && m.eventDetails.targetUser.toLowerCase() === msgChanId.toLowerCase())
+                      )) ||
+                      (m.text && (
+                        (cleanMsgUser && m.text.toLowerCase().includes(`@${cleanMsgUser}`)) ||
+                        (cleanMsgDisplay && m.text.toLowerCase().includes(`@${cleanMsgDisplay}`))
+                      ))
+                    )
+                  );
+                  if (modEvent?.eventDetails?.modUser) {
+                    modActor = modEvent.eventDetails.modUser;
+                  }
                 }
-              }
-              const isRevealed = revealedDeletedIds.has(msg.id);
-              const showSeparator = firstNewMessageId && String(msg.id) === String(firstNewMessageId);
-              const isEven = msg._isEven !== undefined 
-                ? msg._isEven 
-                : (msg._isEven = (typeof msg.id === 'number' ? msg.id % 2 === 0 : (msg.rawTimestamp ? Math.floor(msg.rawTimestamp / 1000) % 2 === 0 : idx % 2 === 0)));
+                const isRevealed = revealedDeletedIds.has(msg.id);
+                const showSeparator = firstNewMessageId && String(msg.id) === String(firstNewMessageId);
+                const isSystemNotice = Boolean(
+                  msg.isSystemEvent || 
+                  msg.eventType === 'moderation' || 
+                  msg.eventType === 'system' ||
+                  msg.eventType === 'donation' ||
+                  msg.eventType === 'subscription' ||
+                  msg.isGift ||
+                  (typeof msg.text === 'string' && (msg.text.includes('timed out') || msg.text.includes('was hidden by')))
+                );
+                const isEven = !isSystemNotice ? ((chatRowIndex++) % 2 === 0) : false;
 
-              return (
-                <ChatMessageRow
-                  key={msg?.id || `msg-${idx}`}
-                  msg={msg}
-                  idx={idx}
-                  isEven={isEven}
-                  isInitialLoading={isInitialLoading}
-                  isHiddenOrDeleted={isHiddenOrDeleted}
-                  isRevealed={isRevealed}
-                  modActor={modActor}
-                  showSeparator={showSeparator}
-                  settings={settings}
-                  user={user}
-                  activeChannels={activeChannels}
-                  selectedChatter={selectedChatter}
-                  show24HrMs={show24HrMs}
-                  onChatterClick={onChatterClick}
-                  onThreadClick={onThreadClick}
-                  onTimeoutUser={onTimeoutUser}
-                  onBanUser={onBanUser}
-                  onUnbanUser={onUnbanUser}
-                  onDeleteMessage={onDeleteMessage}
-                  onToggleModerator={onToggleModerator}
-                  toggleRevealDeleted={toggleRevealDeleted}
-                  handleSpeakSuperchat={handleSpeakSuperchat}
-                  handleSpeakMessage={handleSpeakMessage}
-                  handleToggleMenu={handleToggleMenu}
-                  toggleTimestampFormat={toggleTimestampFormat}
-                  showAvatarForPlatform={showAvatarForPlatform}
-                  renderBadgeWithTooltip={renderBadgeWithTooltip}
-                  renderKickBadge={renderKickBadge}
-                  renderYoutubeBadge={renderYoutubeBadge}
-                  renderTwitchBadge={renderTwitchBadge}
-                  renderUsernameWithTooltip={renderUsernameWithTooltip}
-                  renderTimestampText={renderTimestampText}
-                  wrapWithTooltip={wrapWithTooltip}
-                  filterBlocklist={filterBlocklist}
-                  getUsernameColor={getUsernameColor}
-                  blockedUsers={blockedUsers}
-                  onHighlightMessage={onHighlightMessage}
-                  activeHighlightId={activeHighlightId}
-                  heldSuper={heldSuper}
-                  onAvatarClick={handleAvatarClick}
-                />
-              );
-            })
+                return (
+                  <ChatMessageRow
+                    key={msg?.id || `msg-${idx}`}
+                    msg={msg}
+                    idx={idx}
+                    isEven={isEven}
+                    isInitialLoading={isInitialLoading}
+                    isHiddenOrDeleted={isHiddenOrDeleted}
+                    isRevealed={isRevealed}
+                    modActor={modActor}
+                    showSeparator={showSeparator}
+                    settings={settings}
+                    user={user}
+                    activeChannels={activeChannels}
+                    selectedChatter={selectedChatter}
+                    show24HrMs={show24HrMs}
+                    onChatterClick={onChatterClick}
+                    onThreadClick={onThreadClick}
+                    onTimeoutUser={onTimeoutUser}
+                    onBanUser={onBanUser}
+                    onUnbanUser={onUnbanUser}
+                    onDeleteMessage={onDeleteMessage}
+                    onToggleModerator={onToggleModerator}
+                    toggleRevealDeleted={toggleRevealDeleted}
+                    handleSpeakSuperchat={handleSpeakSuperchat}
+                    handleSpeakMessage={handleSpeakMessage}
+                    handleToggleMenu={handleToggleMenu}
+                    toggleTimestampFormat={toggleTimestampFormat}
+                    showAvatarForPlatform={showAvatarForPlatform}
+                    renderBadgeWithTooltip={renderBadgeWithTooltip}
+                    renderKickBadge={renderKickBadge}
+                    renderYoutubeBadge={renderYoutubeBadge}
+                    renderTwitchBadge={renderTwitchBadge}
+                    renderUsernameWithTooltip={renderUsernameWithTooltip}
+                    renderTimestampText={renderTimestampText}
+                    wrapWithTooltip={wrapWithTooltip}
+                    filterBlocklist={filterBlocklist}
+                    getUsernameColor={getUsernameColor}
+                    blockedUsers={blockedUsers}
+                    onHighlightMessage={onHighlightMessage}
+                    activeHighlightId={activeHighlightId}
+                    heldSuper={heldSuper}
+                    onAvatarClick={handleAvatarClick}
+                  />
+                );
+              });
+            })()
           )}
           </div>
         </TooltipProvider>

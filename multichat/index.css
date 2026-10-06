@@ -1119,7 +1119,7 @@ body {
 }
 
 .chat-message-row.row-even {
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(255, 255, 255, 0.038);
 }
 .chat-message-row.row-odd {
   background: transparent;
@@ -1137,9 +1137,11 @@ body {
 .msg-avatar.smaller {
   width: 1.1em;
   height: 1.1em;
-}.chat-message-row.row-even:hover,
+}
+
+.chat-message-row.row-even:hover,
 .chat-message-row.row-odd:hover {
-  background: rgba(255, 255, 255, 0.045);
+  background: rgba(255, 255, 255, 0.065);
   border-left-color: var(--accent-color);
 }
 
@@ -1433,6 +1435,14 @@ body {
   border-radius: 12px;
   max-width: 85%;
   align-self: flex-start;
+}
+
+.feed-messages.style-bubble .chat-message-row.row-even {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.feed-messages.style-bubble .chat-message-row.row-odd {
+  background: rgba(255, 255, 255, 0.015);
 }
 
 .feed-messages.style-compact .chat-message-row {
