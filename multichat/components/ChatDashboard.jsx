@@ -42,6 +42,7 @@ import { KickChatClient } from '../utils/kickChat';
 import { YoutubeChatClient, calculateYoutubeTop3Ranks } from '../utils/youtubeChat';
 import { ChatSimulator } from '../utils/simulator';
 import { parseAmountString, detectCurrencySymbol, getHighResAvatarUrl } from './HighlightOverlay';
+import { convertDonationToTargetCurrency, initExchangeRates } from '../utils/currency';
 
 export const isBotMessage = (msg) => {
   if (!msg) return false;
@@ -478,6 +479,7 @@ export default function ChatDashboard({
   const prevYoutubeChatModeRef = useRef(settings?.youtubeChatMode || 'live');
   const clearedEventsAtRef = useRef(0);
   useEffect(() => {
+    initExchangeRates();
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem('multichat_cleared_events_at');
       if (stored) {
@@ -1516,6 +1518,30 @@ export default function ChatDashboard({
       // Deduplicate incoming system moderation events (prevent double timeout/mod messages)
       if (msg && msg.isSystemEvent && msg.eventType === 'moderation') {
         const target = (msg.eventDetails?.targetUser || '').replace(/^@+/, '').trim().toLowerCase();
+
+        // 1. Resolve duration from recentTimeoutsRef or moderation.timeoutDurationMap if missing on incoming msg
+        let msgDuration = msg.eventDetails?.duration || '';
+        if (!msgDuration && target) {
+          const cachedRef = recentTimeoutsRef.current.get(target);
+          if (cachedRef && (Date.now() - (cachedRef.timestamp || 0)) < 120000) {
+            msgDuration = cachedRef.durationStr || formatDurationText(cachedRef.durationSeconds);
+          }
+          if (!msgDuration && moderation?.timeoutDurationMap) {
+            msgDuration = moderation.timeoutDurationMap instanceof Map 
+              ? moderation.timeoutDurationMap.get(target) 
+              : moderation.timeoutDurationMap[target];
+          }
+        }
+        if (!msgDuration) {
+          msgDuration = '5 minutes';
+        }
+        msg.eventDetails = { ...(msg.eventDetails || {}), duration: msgDuration };
+        if (msg.eventDetails.targetUser && msg.eventDetails.modUser) {
+          msg.text = `@${msg.eventDetails.targetUser} was timed out by @${msg.eventDetails.modUser} for ${msgDuration}.`;
+        } else if (msg.text && !msg.text.includes(' for ')) {
+          msg.text = msg.text.replace(/\s*\.?$/, ` for ${msgDuration}.`);
+        }
+
         const existingModIdx = (messagesRef.current || []).findIndex(m =>
           m.isSystemEvent &&
           m.eventType === 'moderation' &&
@@ -1527,21 +1553,31 @@ export default function ChatDashboard({
           )
         );
         if (existingModIdx !== -1) {
-          // If the incoming message has richer information (like true modUser or duration), update the existing event in-place
-          if (msg.eventDetails?.modUser || msg.eventDetails?.duration) {
-            setMessages(prev => prev.map((m, idx) => {
-              if (idx === existingModIdx) {
-                return {
-                  ...m,
-                  ...msg,
-                  id: m.id, // preserve key
-                  text: msg.text || m.text,
-                  eventDetails: { ...(m.eventDetails || {}), ...(msg.eventDetails || {}) }
-                };
-              }
-              return m;
-            }));
-          }
+          // If the incoming message or existing message has richer information, update in-place while strictly preserving duration
+          setMessages(prev => prev.map((m, idx) => {
+            if (idx === existingModIdx) {
+              const bestMod = msg.eventDetails?.modUser || m.eventDetails?.modUser;
+              const bestTarget = msg.eventDetails?.targetUser || m.eventDetails?.targetUser;
+              const bestDuration = m.eventDetails?.duration || msg.eventDetails?.duration || msgDuration;
+              const bestText = (bestTarget && bestMod)
+                ? `@${bestTarget} was timed out by @${bestMod} for ${bestDuration}.`
+                : (m.text && m.text.includes(' for ') ? m.text : msg.text);
+              return {
+                ...m,
+                ...msg,
+                id: m.id, // preserve key
+                text: bestText,
+                eventDetails: {
+                  ...(m.eventDetails || {}),
+                  ...(msg.eventDetails || {}),
+                  duration: bestDuration,
+                  modUser: bestMod,
+                  targetUser: bestTarget
+                }
+              };
+            }
+            return m;
+          }));
           return; // Ignore duplicate system event
         }
       }
@@ -2750,13 +2786,10 @@ export default function ChatDashboard({
       const channel = targetMsgs[0]?.channel || (channelName ? channelName.toLowerCase() : 'global');
       const platform = 'youtube';
 
+      const effectiveDuration = durationStr || '5 minutes';
       const timeoutText = cleanMod 
-        ? (durationStr 
-            ? `@${targetUser} was timed out by @${cleanMod} for ${durationStr}.` 
-            : `@${targetUser} was timed out by @${cleanMod}.`)
-        : (durationStr 
-            ? `@${targetUser} was timed out for ${durationStr}.` 
-            : `@${targetUser} was timed out.`);
+        ? `@${targetUser} was timed out by @${cleanMod} for ${effectiveDuration}.`
+        : `@${targetUser} was timed out for ${effectiveDuration}.`;
 
       const alreadyExists = prevMessages.some(m => 
         m.isSystemEvent && 
@@ -2785,7 +2818,7 @@ export default function ChatDashboard({
               targetUser,
               targetChannelId: cleanAuthorParam,
               modUser: cleanMod,
-              duration: durationStr,
+              duration: effectiveDuration,
               durationSeconds: Math.round(durationMs / 1000),
               action: 'timeout'
             },
@@ -3614,12 +3647,7 @@ export default function ChatDashboard({
     return parts.length > 0 ? parts.join('\n') : 'No active streams';
   };
 
-  const parseAmountValue = (amountStr) => {
-    if (!amountStr || typeof amountStr !== 'string') return 0;
-    const clean = amountStr.replace(/[^\d.]/g, '');
-    const val = parseFloat(clean);
-    return isNaN(val) ? 0 : val;
-  };
+  const currencySymbol = settings.superchatCurrency || '₹';
 
   const { liveSuperchatTotal, liveSuperchatCount, liveMembershipCount } = useMemo(() => {
     let sum = 0;
@@ -3628,18 +3656,17 @@ export default function ChatDashboard({
     messages.forEach(msg => {
       if (msg.platform === 'youtube' && msg.isSystemEvent) {
         if (msg.eventType === 'donation') {
-          const amt = parseAmountValue(msg.eventDetails?.amount);
+          const amt = convertDonationToTargetCurrency(msg.eventDetails?.amount, currencySymbol);
           sum += amt;
           count += 1;
         } else if (msg.eventType === 'subscription' || msg.eventType === 'membership') {
-          memberCount += 1;
+          const gifts = msg.eventDetails?.giftCount || 1;
+          memberCount += gifts;
         }
       }
     });
     return { liveSuperchatTotal: sum, liveSuperchatCount: count, liveMembershipCount: memberCount };
-  }, [messages]);
-
-  const currencySymbol = settings.superchatCurrency || '₹';
+  }, [messages, currencySymbol]);
 
   const formatSuperchatAmount = (val) => {
     const num = Math.round((val || 0) * 100) / 100;

@@ -429,7 +429,11 @@ const ChatMessageRow = React.memo(({
                 ) : (
                   <span style={{ fontSize: '14px' }}>🎉</span>
                 )}
-                {msg.eventDetails?.milestoneText || msg.eventDetails?.tier || msg.text || 'Member'}
+                {msg.eventDetails?.subType === 'gift_purchase' && msg.eventDetails?.giftCount ? (
+                  `${msg.eventDetails.giftCount} Membership ${msg.eventDetails.giftCount === 1 ? 'Gift' : 'Gifts'}`
+                ) : (
+                  msg.eventDetails?.milestoneText || msg.eventDetails?.tier || msg.text || 'Member'
+                )}
               </span>
             </div>
             <div className="membership-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative', marginLeft: 'auto' }} onClick={(e) => e.stopPropagation()}>
@@ -708,6 +712,13 @@ const ChatMessageRow = React.memo(({
         </div>
       );
     } else if (msg.eventType === 'moderation' || (typeof msg.text === 'string' && (msg.text.includes('timed out') || msg.text.includes('was hidden by')))) {
+      let timeoutDisplayText = msg.text || '';
+      if (timeoutDisplayText.includes('timed out') || timeoutDisplayText.includes('put on timeout')) {
+        if (!timeoutDisplayText.includes(' for ') && !timeoutDisplayText.includes(' for\u00a0')) {
+          const dur = msg.eventDetails?.duration || '5 minutes';
+          timeoutDisplayText = timeoutDisplayText.replace(/\s*\.?$/, ` for ${dur}.`);
+        }
+      }
       element = (
         <div 
           key={msg.id} 
@@ -733,7 +744,7 @@ const ChatMessageRow = React.memo(({
               <PlatformLogo platform={msg.platform} isShorts={msg.isShorts} size={12} />
             </span>
           )}
-          <span>{msg.text}</span>
+          <span>{timeoutDisplayText}</span>
         </div>
       );
     } else if (msg.eventType === 'system' || String(msg.username).toLowerCase() === 'system' || String(msg.displayName).toLowerCase() === 'system') {

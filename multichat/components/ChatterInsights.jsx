@@ -286,6 +286,35 @@ export default function ChatterInsights({
         }
       };
       fetchTwitchData();
+    } else if (chatter.platform === 'youtube') {
+      const fetchYoutubeData = async () => {
+        try {
+          const target = chatter.channelId || chatter.authorExternalChannelId || chatter.username;
+          if (!target) return;
+          const res = await fetch('/api/youtube/innertube', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'get_channel',
+              channelId: target
+            })
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.success) {
+              setChannelData({
+                followers_count: data.subscribers || data.subscribersCount,
+                subscribersText: data.subscribersText,
+                avatar: data.avatarUrl || null,
+                profile_pic: data.avatarUrl || null
+              });
+            }
+          }
+        } catch (e) {
+          console.warn('[ChatterInsights] YouTube channel data fetch failed:', e);
+        }
+      };
+      fetchYoutubeData();
     }
   }, [chatter]);
 
@@ -440,22 +469,34 @@ export default function ChatterInsights({
   };
 
   const formatFollowersText = (count, platform) => {
-    const formattedCount = count.toLocaleString();
+    if (count === null || count === undefined) {
+      return `0 ${platform === 'youtube' ? 'YouTube Subscribers' : platform === 'kick' ? 'Kick Followers' : 'Twitch Followers'}`;
+    }
+    const cleanStr = typeof count === 'string'
+      ? count.replace(/\s*(?:youtube\s*)?subscribers?/i, '').replace(/\s*(?:kick|twitch)?\s*followers?/i, '').trim()
+      : count.toLocaleString();
     if (platform === 'youtube') {
-      return `${formattedCount} YouTube Subscriber${count === 1 ? '' : 's'}`;
+      return `${cleanStr} YouTube Subscriber${cleanStr === '1' ? '' : 's'}`;
     } else if (platform === 'kick') {
-      return `${formattedCount} Kick Follower${count === 1 ? '' : 's'}`;
+      return `${cleanStr} Kick Follower${cleanStr === '1' ? '' : 's'}`;
     } else {
-      return `${formattedCount} Twitch Follower${count === 1 ? '' : 's'}`;
+      return `${cleanStr} Twitch Follower${cleanStr === '1' ? '' : 's'}`;
     }
   };
 
   const getFollowerText = () => {
-    if (channelData && channelData.followers_count !== undefined) {
+    if (channelData && (channelData.subscribersText || channelData.followers_count !== undefined)) {
+      if (chatter.platform === 'youtube') {
+        const raw = channelData.subscribersText || channelData.followers_count;
+        return formatFollowersText(raw, 'youtube');
+      }
       return formatFollowersText(channelData.followers_count, chatter.platform);
     }
+    if (chatter.platform === 'youtube') {
+      return '0 YouTube Subscribers';
+    }
     if (!isSimulated) {
-      return `0 ${chatter.platform === 'youtube' ? 'YouTube Subscribers' : chatter.platform === 'kick' ? 'Kick Followers' : 'Twitch Followers'}`;
+      return `0 ${chatter.platform === 'kick' ? 'Kick Followers' : 'Twitch Followers'}`;
     }
     const count = getSimulatedSubscribers(chatter.username, chatter.platform);
     return formatFollowersText(count, chatter.platform);
@@ -965,17 +1006,21 @@ export default function ChatterInsights({
 
   const isSubscriber = chatter.badges?.includes('subscriber') || chatter.monthsSubscribed !== undefined;
 
-  const joinedText = isSimulated
-    ? getSimulatedJoinedDate(chatter.username, chatter.platform)
-    : (chatter.platform === 'twitch' && channelData?.joinedDate)
-      ? formatCreationDate(channelData.joinedDate, 'twitch')
-      : getSimulatedJoinedDate(chatter.username, chatter.platform);
+  const joinedText = chatter.platform === 'youtube'
+    ? null
+    : isSimulated
+      ? getSimulatedJoinedDate(chatter.username, chatter.platform)
+      : (chatter.platform === 'twitch' && channelData?.joinedDate)
+        ? formatCreationDate(channelData.joinedDate, 'twitch')
+        : getSimulatedJoinedDate(chatter.username, chatter.platform);
 
-  const followedText = isSimulated
-    ? getSimulatedFollowedDate(chatter.username, spokeChannel)
-    : isSubscriber
-      ? `Subscribed to ${spokeChannel} for ${chatter.monthsSubscribed || 1} month${chatter.monthsSubscribed === 1 ? '' : 's'}`
-      : getSimulatedFollowedDate(chatter.username, spokeChannel);
+  const followedText = chatter.platform === 'youtube'
+    ? null
+    : isSimulated
+      ? getSimulatedFollowedDate(chatter.username, spokeChannel)
+      : isSubscriber
+        ? `Subscribed to ${spokeChannel} for ${chatter.monthsSubscribed || 1} month${chatter.monthsSubscribed === 1 ? '' : 's'}`
+        : getSimulatedFollowedDate(chatter.username, spokeChannel);
 
   const subscriberText = getFollowerText();
 
@@ -1262,7 +1307,7 @@ export default function ChatterInsights({
             </div>
 
             {/* Stat Box 2: Joined */}
-            {joinedText && (
+            {joinedText && chatter.platform !== 'youtube' && (
               <div className="chatter-modal-stat-box">
                 <Calendar size={16} className="chatter-modal-stat-icon" style={{ color: platformColor }} />
                 <span>{joinedText}</span>
@@ -1276,7 +1321,7 @@ export default function ChatterInsights({
             </div>
 
             {/* Stat Box 5: Followed Creator date/time */}
-            {followedText && (
+            {followedText && chatter.platform !== 'youtube' && (
               <div className="chatter-modal-stat-box">
                 <User size={16} className="chatter-modal-stat-icon" style={{ color: platformColor }} />
                 <span>{followedText}</span>

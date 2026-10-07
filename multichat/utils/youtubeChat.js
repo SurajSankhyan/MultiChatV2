@@ -1655,10 +1655,10 @@ export class YoutubeChatClient {
                               item.liveChatGiftItemRenderer ||
                               item.liveChatPaidVirtualItemRenderer ||
                               item.liveChatVirtualGiftRenderer ||
-                              (Object.keys(item).find(k => /gift|jewel/i.test(k) && !/membership|sponsorship/i.test(k)) 
-                                ? item[Object.keys(item).find(k => /gift|jewel/i.test(k) && !/membership|sponsorship/i.test(k))] 
+                              (Object.keys(item).find(k => /renderer$/i.test(k) && /gift|jewel/i.test(k) && !/membership|sponsorship/i.test(k)) 
+                                ? item[Object.keys(item).find(k => /renderer$/i.test(k) && /gift|jewel/i.test(k) && !/membership|sponsorship/i.test(k))] 
                                 : null) ||
-                              (item.id && (item.jewelsAmount || item.jewels || item.gift) ? item : null);
+                              (item.id ? item : null);
               if (renderer && renderer.id) {
                 if (poll.seenIds.has(renderer.id)) return;
                 poll.seenIds.add(renderer.id);
@@ -1735,19 +1735,20 @@ export class YoutubeChatClient {
                              (authorRemoveDeleted && (authorRemoveDeleted.externalChannelId || authorRemoveDeleted.external_channel_id));
 
             if (timeoutTarget && timeoutMod && this.onMessage) {
+              const effectiveDuration = timeoutDuration || '5 minutes';
               const sysMsg = {
                 id: 'sys-timeout-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
                 platform: 'youtube',
                 channel: channelName ? channelName.toLowerCase() : 'global',
                 username: 'System',
                 displayName: 'System',
-                text: `@${timeoutTarget} was timed out by @${timeoutMod}${timeoutDuration ? ' for ' + timeoutDuration : ''}.`,
+                text: `@${timeoutTarget} was timed out by @${timeoutMod} for ${effectiveDuration}.`,
                 isSystemEvent: true,
                 eventType: 'moderation',
                 eventDetails: {
                   targetUser: timeoutTarget,
                   modUser: timeoutMod,
-                  duration: timeoutDuration,
+                  duration: effectiveDuration,
                   action: 'timeout'
                 },
                 rawTimestamp: Date.now(),
@@ -1758,11 +1759,11 @@ export class YoutubeChatClient {
 
             if (targetId) {
               if (this.onMessageDeleted) {
-                this.onMessageDeleted(targetId, null, deletedBy, channelName, rawSnippetText, timeoutDuration);
+                this.onMessageDeleted(targetId, null, deletedBy, channelName, rawSnippetText, timeoutDuration || '5 minutes');
               }
             } else if (authorId || timeoutTarget) {
               if (this.onMessageDeleted) {
-                this.onMessageDeleted(null, authorId || timeoutTarget, deletedBy, channelName, rawSnippetText, timeoutDuration);
+                this.onMessageDeleted(null, authorId || timeoutTarget, deletedBy, channelName, rawSnippetText, timeoutDuration || '5 minutes');
               }
             }
           });
@@ -1793,18 +1794,27 @@ export class YoutubeChatClient {
   parseChatAction(channelName, action, passedItem = null) {
     try {
       let item = passedItem || action.addChatItemAction?.item;
+      let tickerRenderer = null;
       
       if (!item && action.addLiveChatTickerItemAction?.item) {
         const tickerItem = action.addLiveChatTickerItemAction.item;
-        const tickerRenderer = tickerItem.liveChatTickerPaidMessageItemRenderer ||
-                               tickerItem.liveChatTickerPaidStickerItemRenderer ||
-                               tickerItem.liveChatTickerSponsorItemRenderer ||
-                               tickerItem.liveChatTickerPaidGiftItemRenderer ||
-                               tickerItem.liveChatTickerJewelsGiftItemRenderer ||
-                               Object.values(tickerItem)[0];
+        tickerRenderer = tickerItem.liveChatTickerPaidMessageItemRenderer ||
+                         tickerItem.liveChatTickerPaidStickerItemRenderer ||
+                         tickerItem.liveChatTickerSponsorItemRenderer ||
+                         tickerItem.liveChatTickerPaidGiftItemRenderer ||
+                         tickerItem.liveChatTickerJewelsGiftItemRenderer ||
+                         Object.values(tickerItem)[0];
         if (tickerRenderer?.showItemEndpoint?.showLiveChatItemEndpoint?.renderer) {
           item = tickerRenderer.showItemEndpoint.showLiveChatItemEndpoint.renderer;
         }
+      } else if (action.addLiveChatTickerItemAction?.item) {
+        const tickerItem = action.addLiveChatTickerItemAction.item;
+        tickerRenderer = tickerItem.liveChatTickerPaidMessageItemRenderer ||
+                         tickerItem.liveChatTickerPaidStickerItemRenderer ||
+                         tickerItem.liveChatTickerSponsorItemRenderer ||
+                         tickerItem.liveChatTickerPaidGiftItemRenderer ||
+                         tickerItem.liveChatTickerJewelsGiftItemRenderer ||
+                         Object.values(tickerItem)[0];
       }
 
       if (!item && action.addBannerRenderer?.bannerRenderer?.liveChatBannerRenderer?.contents) {
@@ -1932,16 +1942,29 @@ export class YoutubeChatClient {
         let headerText = '';
         if (renderer.giftHeader && renderer.giftHeader.runs) {
           renderer.giftHeader.runs.forEach(run => { headerText += run.text || ''; });
+        } else if (renderer.giftHeader?.simpleText) {
+          headerText = renderer.giftHeader.simpleText;
         }
-        text = headerText || 'Gifted memberships!';
+
+        let giftCount = 1;
+        const countMatch = headerText.match(/(\d+)/);
+        if (countMatch && countMatch[1]) {
+          giftCount = parseInt(countMatch[1], 10) || 1;
+        }
+
+        const giftTierText = giftCount > 1 ? `${giftCount} Membership Gifts` : 'Membership Gift';
+        text = headerText || (giftCount > 1 ? `Gifted ${giftCount} memberships!` : 'Gifted memberships!');
         parts.push({
           type: 'text',
           content: text
         });
         
         eventDetails = {
-          subType: 'gift_redemption',
-          tier: 'Membership Gift',
+          subType: 'gift_purchase',
+          isGift: true,
+          giftCount: giftCount,
+          tier: giftTierText,
+          milestoneText: `Gifted ${giftTierText}`,
           headerBg: '#0f9d58',
           bodyBg: '#0b8043',
           authorTextColor: '#ffffff'
@@ -1977,8 +2000,46 @@ export class YoutubeChatClient {
         let headerText = '';
         if (header?.primaryText?.runs) {
           header.primaryText.runs.forEach(r => { headerText += r.text || ''; });
+        } else if (header?.primaryText?.simpleText) {
+          headerText = header.primaryText.simpleText;
         }
-        text = headerText || 'Gifted memberships!';
+
+        // Extract gifted memberships count
+        let giftCount = 1;
+        if (renderer.giftMembershipsCount) {
+          giftCount = parseInt(renderer.giftMembershipsCount, 10) || 1;
+        } else if (header?.giftMembershipsCount) {
+          giftCount = parseInt(header.giftMembershipsCount, 10) || 1;
+        } else if (typeof renderer.amount === 'number') {
+          giftCount = renderer.amount;
+        } else if (typeof header?.amount === 'number') {
+          giftCount = header.amount;
+        } else {
+          // Check runs for a standalone number run
+          const runs = header?.primaryText?.runs || [];
+          for (const r of runs) {
+            const t = (r.text || '').trim();
+            if (/^\d+$/.test(t)) {
+              giftCount = parseInt(t, 10);
+              break;
+            }
+          }
+          if (giftCount === 1 && headerText) {
+            const m = headerText.match(/gifted\s+(\d+)\s*(?:channel\s*)?membership/i) ||
+                      headerText.match(/sent\s+(\d+)\s*membership\s*gift/i) ||
+                      headerText.match(/(\d+)\s*(?:channel\s*)?membership/i) ||
+                      headerText.match(/(\d+)\s*membership\s*gift/i) ||
+                      headerText.match(/gifted\s+(\d+)/i) ||
+                      headerText.match(/sent\s+(\d+)/i) ||
+                      headerText.match(/(\d+)/);
+            if (m && m[1]) {
+              giftCount = parseInt(m[1], 10) || 1;
+            }
+          }
+        }
+
+        const giftTierText = `${giftCount} Membership ${giftCount === 1 ? 'Gift' : 'Gifts'}`;
+        text = headerText || `Gifted ${giftTierText}!`;
         parts.push({
           type: 'text',
           content: text
@@ -1986,7 +2047,10 @@ export class YoutubeChatClient {
         
         eventDetails = {
           subType: 'gift_purchase',
-          tier: 'Membership Gift',
+          isGift: true,
+          giftCount: giftCount,
+          tier: giftTierText,
+          milestoneText: `Gifted ${giftTierText}`,
           headerBg: '#0f9d58',
           bodyBg: '#0b8043',
           authorTextColor: '#ffffff'
@@ -2016,25 +2080,29 @@ export class YoutubeChatClient {
       } else if (item.liveChatPaidGiftRenderer || 
                  item.liveChatGiftRenderer || 
                  item.liveChatGiftPurchaseRenderer || 
-                 item.liveChatJewelsGiftRenderer ||
-                 item.liveChatPaidGiftItemRenderer ||
-                 item.liveChatGiftItemRenderer ||
-                 item.liveChatPaidVirtualItemRenderer ||
-                 item.liveChatVirtualGiftRenderer ||
-                 item.liveChatJewelsGiftItemRenderer ||
-                 (item && typeof item === 'object' && Object.keys(item).some(k => /gift|jewel|virtualitem/i.test(k) && !/membership|sponsorship/i.test(k))) ||
-                 (item && (item.jewelsAmount || item.jewels || item.jewelAmount || item.rubies || item.gift || item.giftName))) {
-        const giftKey = item && typeof item === 'object' ? Object.keys(item).find(k => /gift|jewel|virtualitem/i.test(k) && !/membership|sponsorship/i.test(k)) : null;
-        renderer = (giftKey ? item[giftKey] : null) ||
+                 item.liveChatJewelsGiftRenderer || 
+                 item.liveChatPaidGiftItemRenderer || 
+                 item.liveChatGiftItemRenderer || 
+                 item.liveChatPaidVirtualItemRenderer || 
+                 item.liveChatVirtualGiftRenderer || 
+                 item.liveChatJewelsGiftItemRenderer || 
+                 (item && typeof item === 'object' && Object.keys(item).some(k => /renderer$/i.test(k) && /gift|jewel|virtualitem/i.test(k) && !/membership|sponsorship/i.test(k))) || 
+                 (item && typeof item === 'object' && (item.jewelsAmount !== undefined || item.jewels !== undefined || item.jewelAmount !== undefined || item.rubies !== undefined || item.gift !== undefined || item.giftName !== undefined))) {
+        const giftRendererKey = item && typeof item === 'object' ? Object.keys(item).find(k => /renderer$/i.test(k) && /gift|jewel|virtualitem/i.test(k) && !/membership|sponsorship/i.test(k)) : null;
+        renderer = (giftRendererKey ? item[giftRendererKey] : null) ||
                    item.liveChatPaidGiftRenderer || 
                    item.liveChatGiftRenderer || 
                    item.liveChatGiftPurchaseRenderer || 
                    item.liveChatJewelsGiftRenderer || 
                    item.liveChatPaidGiftItemRenderer || 
                    item.liveChatGiftItemRenderer || 
-                   item.liveChatPaidVirtualItemRenderer ||
-                   item.liveChatVirtualGiftRenderer ||
+                   item.liveChatPaidVirtualItemRenderer || 
+                   item.liveChatVirtualGiftRenderer || 
+                   item.liveChatJewelsGiftItemRenderer || 
                    item;
+        if (renderer && renderer.liveChatPaidGiftRenderer) {
+          renderer = renderer.liveChatPaidGiftRenderer;
+        }
         isSystemEvent = true;
         eventType = 'gift';
         console.warn('🚨 [MULTICHAT DEBUG] CAUGHT RENDERER:', JSON.stringify(renderer, null, 2));
@@ -2115,7 +2183,8 @@ export class YoutubeChatClient {
       let isGift = false;
       let giftDetails = null;
       const isExplicitGift = eventType === 'gift' || 
-                             Boolean(renderer && (renderer.jewelsAmount || renderer.jewels || renderer.jewelAmount || renderer.rubies || (renderer.purchaseAmountText?.simpleText && /jewel/i.test(renderer.purchaseAmountText.simpleText))));
+                             Boolean(renderer && (renderer.jewelsAmount || renderer.jewels || renderer.jewelAmount || renderer.rubies || (renderer.purchaseAmountText?.simpleText && /jewel/i.test(renderer.purchaseAmountText.simpleText)))) ||
+                             Boolean(item && (item.jewelsAmount || item.jewels || item.jewelAmount || item.rubies || item.gift || item.giftName));
 
       if (isExplicitGift) {
         isGift = true;
@@ -2126,10 +2195,12 @@ export class YoutubeChatClient {
                            renderer.giftThumbnail?.thumbnails || 
                            renderer.giftImage?.thumbnails || 
                            renderer.giftImage?.sources || 
-                           renderer.image?.thumbnails || [];
+                           renderer.image?.thumbnails || 
+                           item?.gift?.thumbnails || 
+                           item?.giftThumbnail?.thumbnails || [];
         let giftImageUrl = giftThumbs.length > 0 ? normalizeUrl(giftThumbs[giftThumbs.length - 1]?.url || giftThumbs[0]?.url) : null;
 
-        let giftName = renderer.gift?.name || renderer.giftName || renderer.title?.simpleText || renderer.title || (typeof renderer.headerText?.simpleText === 'string' ? renderer.headerText.simpleText : null) || 'Gift';
+        let giftName = renderer.gift?.name || renderer.giftName || renderer.title?.simpleText || renderer.title || (typeof renderer.headerText?.simpleText === 'string' ? renderer.headerText.simpleText : null) || item?.gift?.name || item?.giftName || 'Gift';
         if (typeof giftName !== 'string' || !giftName) giftName = 'Gift';
 
         if (giftImageUrl && !parts.some(p => p.type === 'emote' && p.url === giftImageUrl)) {
@@ -2144,8 +2215,8 @@ export class YoutubeChatClient {
         if (renderer.purchaseAmountText?.simpleText) {
           const m = renderer.purchaseAmountText.simpleText.match(/(\d+)/);
           if (m) jewels = m[1];
-        } else if (renderer.jewelsAmount || renderer.jewels || renderer.jewelAmount || renderer.rubies) {
-          jewels = String(renderer.jewelsAmount || renderer.jewels || renderer.jewelAmount || renderer.rubies);
+        } else if (renderer.jewelsAmount || renderer.jewels || renderer.jewelAmount || renderer.rubies || item?.jewelsAmount || item?.jewels || item?.jewelAmount || item?.rubies) {
+          jewels = String(renderer.jewelsAmount || renderer.jewels || renderer.jewelAmount || renderer.rubies || item?.jewelsAmount || item?.jewels || item?.jewelAmount || item?.rubies);
         } else if (giftName) {
           const cleanKey = giftName.toLowerCase().replace(/\.+$/, '').trim();
           if (YOUTUBE_GIFT_JEWELS_MAP[cleanKey]) {
@@ -2219,6 +2290,7 @@ export class YoutubeChatClient {
           const duration = tm[2].trim();
           const modUser = tm[3].replace(/^@+/, '').replace(/\.$/, '').trim();
           eventDetails = { targetUser, modUser, duration, action: 'timeout' };
+          text = `@${targetUser} was timed out by @${modUser} for ${duration}.`;
           if (this.onMessageDeleted) {
             this.onMessageDeleted(null, targetUser, modUser, channelName, text, duration);
           }
@@ -2227,8 +2299,9 @@ export class YoutubeChatClient {
           if (tm) {
             const targetUser = tm[1].replace(/^@+/, '').trim();
             const modUser = tm[2].replace(/^@+/, '').replace(/\.$/, '').trim();
-            const duration = tm[3] ? tm[3].trim() : '';
+            const duration = tm[3] ? tm[3].trim() : '5 minutes';
             eventDetails = { targetUser, modUser, duration, action: 'timeout' };
+            text = `@${targetUser} was timed out by @${modUser} for ${duration}.`;
             if (this.onMessageDeleted) {
               this.onMessageDeleted(null, targetUser, modUser, channelName, text, duration);
             }
@@ -2237,9 +2310,15 @@ export class YoutubeChatClient {
       }
 
       const isModEvent = isSystemEvent && eventType === 'moderation';
-      const headerRenderer = renderer.header?.liveChatSponsorshipsHeaderRenderer;
-      const authorChannelId = isModEvent ? null : (renderer.authorExternalChannelId || headerRenderer?.authorExternalChannelId || null);
-      const rawHandle = isModEvent ? 'System' : (renderer.authorName?.simpleText || headerRenderer?.authorName?.simpleText || 'anon');
+      const headerRenderer = renderer.header?.liveChatPaidGiftHeaderRenderer || 
+                             renderer.header?.liveChatSponsorshipsHeaderRenderer || 
+                             renderer.header?.liveChatHeaderRenderer || 
+                             renderer.header;
+
+      const authorCandidates = [renderer, headerRenderer, item, passedItem, tickerRenderer, action].filter(Boolean);
+
+      const authorChannelId = isModEvent ? null : extractAuthorChannelId(authorCandidates);
+      const rawHandle = isModEvent ? 'System' : extractAuthorName(authorCandidates, text);
       const username = isModEvent ? 'System' : rawHandle.toLowerCase().replace(/\s+/g, '');
 
       let displayName = isModEvent ? 'System' : rawHandle;
@@ -2247,7 +2326,15 @@ export class YoutubeChatClient {
         displayName = YOUTUBE_NAME_CACHE.get(authorChannelId);
       }
 
-
+      // If gift event and text begins with author's name, clean up text so username isn't duplicated in UI
+      if (isGift && text) {
+        const nameEscaped = rawHandle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const userEscaped = username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const cleanPattern = new RegExp(`^(?:@?(?:${nameEscaped}|${userEscaped}|anon)\\s+)?(sent|gifted)\\b`, 'i');
+        if (cleanPattern.test(text.trim())) {
+          text = text.trim().replace(cleanPattern, '$1');
+        }
+      }
 
       // Determine badges and badge image URLs
       const badges = [];
@@ -2258,24 +2345,26 @@ export class YoutubeChatClient {
       }
       let youtubeRank = null;
 
-      // Scan all potential badge containers in the renderer
-      const allBadgeSources = [
-        ...(Array.isArray(renderer.authorBadges) ? renderer.authorBadges : []),
-        ...(Array.isArray(renderer.badges) ? renderer.badges : []),
-        ...(Array.isArray(renderer.authorNameBadges) ? renderer.authorNameBadges : []),
-        ...(renderer.authorNameBadge ? [renderer.authorNameBadge] : []),
-        ...(Array.isArray(renderer.rankingBadges) ? renderer.rankingBadges : []),
-        ...(Array.isArray(renderer.leaderboardBadges) ? renderer.leaderboardBadges : []),
-        ...(Array.isArray(renderer.customBadges) ? renderer.customBadges : []),
-        ...(renderer.authorRankingBadge ? [renderer.authorRankingBadge] : []),
-        ...(renderer.rankingBadge ? [renderer.rankingBadge] : []),
-        ...(renderer.leaderboardBadge ? [renderer.leaderboardBadge] : []),
-        ...(renderer.topChatterBadge ? [renderer.topChatterBadge] : []),
-        ...(Array.isArray(renderer.beforeContentButtons) ? renderer.beforeContentButtons : []),
-        ...(Array.isArray(renderer.afterContentButtons) ? renderer.afterContentButtons : []),
-        ...(Array.isArray(renderer.inlineActionButtons) ? renderer.inlineActionButtons : []),
-        ...(Array.isArray(renderer.inline_action_buttons) ? renderer.inline_action_buttons : [])
-      ];
+      // Scan all potential badge containers across candidates
+      const allBadgeSources = [];
+      for (const cand of authorCandidates) {
+        if (!cand || typeof cand !== 'object') continue;
+        if (Array.isArray(cand.authorBadges)) allBadgeSources.push(...cand.authorBadges);
+        if (Array.isArray(cand.badges)) allBadgeSources.push(...cand.badges);
+        if (Array.isArray(cand.authorNameBadges)) allBadgeSources.push(...cand.authorNameBadges);
+        if (cand.authorNameBadge) allBadgeSources.push(cand.authorNameBadge);
+        if (Array.isArray(cand.rankingBadges)) allBadgeSources.push(...cand.rankingBadges);
+        if (Array.isArray(cand.leaderboardBadges)) allBadgeSources.push(...cand.leaderboardBadges);
+        if (Array.isArray(cand.customBadges)) allBadgeSources.push(...cand.customBadges);
+        if (cand.authorRankingBadge) allBadgeSources.push(cand.authorRankingBadge);
+        if (cand.rankingBadge) allBadgeSources.push(cand.rankingBadge);
+        if (cand.leaderboardBadge) allBadgeSources.push(cand.leaderboardBadge);
+        if (cand.topChatterBadge) allBadgeSources.push(cand.topChatterBadge);
+        if (Array.isArray(cand.beforeContentButtons)) allBadgeSources.push(...cand.beforeContentButtons);
+        if (Array.isArray(cand.afterContentButtons)) allBadgeSources.push(...cand.afterContentButtons);
+        if (Array.isArray(cand.inlineActionButtons)) allBadgeSources.push(...cand.inlineActionButtons);
+        if (Array.isArray(cand.inline_action_buttons)) allBadgeSources.push(...cand.inline_action_buttons);
+      }
 
       // Check whole renderer for direct crown/rank buttons or fields
       const wholeRendererRank = extractRankFromBadge(renderer);
@@ -2382,18 +2471,8 @@ export class YoutubeChatClient {
       }
 
       const color = this.getRandomColor(username);
-      // Use highest-quality thumbnail (last in array is largest) upgraded to 1280px
-      const photoThumbnails = renderer.authorPhoto?.thumbnails || headerRenderer?.authorPhoto?.thumbnails;
-      let avatar = photoThumbnails && photoThumbnails.length > 0 
-        ? normalizeUrl(photoThumbnails[photoThumbnails.length - 1].url) 
-        : null;
-      if (avatar && typeof avatar === 'string' && (avatar.includes('googleusercontent.com') || avatar.includes('ggpht.com') || avatar.includes('youtube.com') || avatar.includes('ytimg.com'))) {
-        if (/=s\d+/.test(avatar)) {
-          avatar = avatar.replace(/=s\d+/, '=s1280');
-        } else if (!avatar.includes('=')) {
-          avatar = `${avatar}=s1280`;
-        }
-      }
+      // Use highest-quality thumbnail upgraded to 1280px
+      const avatar = isModEvent ? null : extractAuthorPhoto(authorCandidates);
 
       let deleteParams = null;
       let timeoutParams = null;
@@ -2426,7 +2505,7 @@ export class YoutubeChatClient {
                          (typeof menuEndpoint === 'string' ? menuEndpoint : null);
 
       const parsedMsg = {
-        id: renderer.id || Math.random().toString(36).substring(2, 11),
+        id: renderer.id || item?.id || Math.random().toString(36).substring(2, 11),
         platform: 'youtube',
         isShorts: isShorts,
         videoId: poll ? poll.videoId : null,
@@ -2445,6 +2524,7 @@ export class YoutubeChatClient {
         text: text.trim(),
         parts: parts,
         avatar: isModEvent ? null : avatar,
+        avatarUrl: isModEvent ? null : avatar,
         badges: Array.from(new Set(badges)),
         badgeImages: badgeImages,
         youtubeRank: youtubeRank,
@@ -2548,6 +2628,130 @@ function normalizeUrl(url) {
     return 'https:' + trimmed;
   }
   return 'https://' + trimmed;
+}
+
+export function extractAuthorName(candidates, text) {
+  for (const cand of candidates) {
+    if (!cand || typeof cand !== 'object') continue;
+    // 1. authorName
+    if (typeof cand.authorName === 'string' && cand.authorName.trim()) {
+      return cand.authorName.trim();
+    }
+    if (cand.authorName?.simpleText && typeof cand.authorName.simpleText === 'string') {
+      return cand.authorName.simpleText.trim();
+    }
+    if (Array.isArray(cand.authorName?.runs) && cand.authorName.runs.length > 0) {
+      const t = cand.authorName.runs.map(r => r?.text || '').join('').trim();
+      if (t) return t;
+    }
+    // 2. author
+    if (typeof cand.author === 'string' && cand.author.trim()) {
+      return cand.author.trim();
+    }
+    if (cand.author?.displayName && typeof cand.author.displayName === 'string') {
+      return cand.author.displayName.trim();
+    }
+    if (cand.author?.name && typeof cand.author.name === 'string') {
+      return cand.author.name.trim();
+    }
+    if (cand.author?.simpleText && typeof cand.author.simpleText === 'string') {
+      return cand.author.simpleText.trim();
+    }
+    if (Array.isArray(cand.author?.runs) && cand.author.runs.length > 0) {
+      const t = cand.author.runs.map(r => r?.text || '').join('').trim();
+      if (t) return t;
+    }
+    // 3. authorNameText
+    if (cand.authorNameText?.simpleText && typeof cand.authorNameText.simpleText === 'string') {
+      return cand.authorNameText.simpleText.trim();
+    }
+    if (Array.isArray(cand.authorNameText?.runs) && cand.authorNameText.runs.length > 0) {
+      const t = cand.authorNameText.runs.map(r => r?.text || '').join('').trim();
+      if (t) return t;
+    }
+    // 4. authorDisplayName / chatterName
+    if (typeof cand.authorDisplayName === 'string' && cand.authorDisplayName.trim()) {
+      return cand.authorDisplayName.trim();
+    }
+    if (typeof cand.chatterName === 'string' && cand.chatterName.trim()) {
+      return cand.chatterName.trim();
+    }
+  }
+
+  // Fallback: extract from text if it starts with "@user sent" or "user sent"
+  if (text && typeof text === 'string') {
+    const match = text.match(/^(?:@)?([a-zA-Z0-9_\u00A0-\uFFFF.-]+)\s+(?:sent|gifted)\b/i);
+    if (match && match[1]) {
+      const cand = match[1].trim();
+      if (!['anon', 'someone', 'you'].includes(cand.toLowerCase())) {
+        return cand;
+      }
+    }
+  }
+
+  return 'anon';
+}
+
+export function extractAuthorPhoto(candidates) {
+  for (const cand of candidates) {
+    if (!cand || typeof cand !== 'object') continue;
+    const thumbs = cand.authorPhoto?.thumbnails ||
+                   cand.authorThumbnail?.thumbnails ||
+                   cand.authorThumbnails ||
+                   cand.author?.thumbnails ||
+                   cand.author?.photo?.thumbnails ||
+                   cand.author?.avatar?.thumbnails ||
+                   (cand.authorPhoto?.thumbnail ? [cand.authorPhoto.thumbnail] : null) ||
+                   cand.authorPhoto?.sources;
+    let url = null;
+    if (Array.isArray(thumbs) && thumbs.length > 0) {
+      url = thumbs[thumbs.length - 1]?.url || thumbs[0]?.url;
+    } else if (typeof cand.authorPhoto === 'string') {
+      url = cand.authorPhoto;
+    } else if (typeof cand.authorThumbnail === 'string') {
+      url = cand.authorThumbnail;
+    } else if (typeof cand.authorPhoto?.url === 'string') {
+      url = cand.authorPhoto.url;
+    } else if (typeof cand.authorThumbnail?.url === 'string') {
+      url = cand.authorThumbnail.url;
+    } else if (typeof cand.author?.avatarUrl === 'string') {
+      url = cand.author.avatarUrl;
+    } else if (typeof cand.author?.photoUrl === 'string') {
+      url = cand.author.photoUrl;
+    } else if (typeof cand.author?.photo === 'string') {
+      url = cand.author.photo;
+    }
+
+    if (url) {
+      url = normalizeUrl(url);
+      if (url && typeof url === 'string' && (url.includes('googleusercontent.com') || url.includes('ggpht.com') || url.includes('youtube.com') || url.includes('ytimg.com'))) {
+        if (/=s\d+/.test(url)) {
+          url = url.replace(/=s\d+/, '=s1280');
+        } else if (!url.includes('=')) {
+          url = `${url}=s1280`;
+        }
+      }
+      return url;
+    }
+  }
+  return null;
+}
+
+export function extractAuthorChannelId(candidates) {
+  for (const cand of candidates) {
+    if (!cand || typeof cand !== 'object') continue;
+    const id = cand.authorExternalChannelId ||
+               cand.authorChannelId ||
+               cand.externalChannelId ||
+               cand.channelId ||
+               cand.author?.channelId ||
+               cand.author?.externalChannelId ||
+               cand.author?.id;
+    if (typeof id === 'string' && id.trim()) {
+      return id.trim();
+    }
+  }
+  return null;
 }
 
 export function extractRankFromBadge(b) {

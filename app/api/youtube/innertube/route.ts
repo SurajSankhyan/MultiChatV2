@@ -238,6 +238,33 @@ export async function POST(request: Request) {
         }
         const ch = await yt.getChannel(browseId).catch(() => null);
         if (ch) {
+          let subscribersText = '';
+          if (ch.header?.subscribers?.text) {
+            subscribersText = ch.header.subscribers.text;
+          } else if (ch.header?.subscriber_count?.text) {
+            subscribersText = ch.header.subscriber_count.text;
+          } else {
+            const rows = ch.header?.content?.metadata?.metadata_rows || [];
+            for (const row of rows) {
+              for (const part of (row.metadata_parts || [])) {
+                const txt = part.text?.text || '';
+                if (/subscribers?/i.test(txt)) {
+                  subscribersText = txt;
+                  break;
+                }
+              }
+              if (subscribersText) break;
+            }
+          }
+          if (!subscribersText) {
+            const raw = JSON.stringify(ch.header || {});
+            const m = raw.match(/([0-9.,]+[KMBkmb]?\s+subscribers?)/i);
+            if (m) subscribersText = m[1];
+          }
+
+          const countMatch = subscribersText.match(/([0-9.,]+[KMBkmb]?)/);
+          const subscribersCount = countMatch ? countMatch[1] : (subscribersText ? subscribersText : '0');
+
           return NextResponse.json({
             success: true,
             engine: 'innertube_youtubei_js',
@@ -246,7 +273,8 @@ export async function POST(request: Request) {
             customHandle: ch.metadata?.vanity_channel_url?.replace(/^https?:\/\/(www\.)?youtube\.com\//, '') || target,
             avatarUrl: ch.metadata?.avatar?.[0]?.url || '',
             views: 0,
-            subscribers: 0
+            subscribers: subscribersCount,
+            subscribersText: subscribersText || `${subscribersCount} subscribers`
           });
         }
         return NextResponse.json({ success: false, error: 'Channel not found' }, { status: 404 });
