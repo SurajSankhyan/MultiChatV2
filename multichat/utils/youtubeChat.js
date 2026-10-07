@@ -927,9 +927,19 @@ export class YoutubeChatClient {
     let topContinuation = null;
     let genericContinuation = null;
 
+    const normalizeToken = (tok) => {
+      if (!tok || typeof tok !== 'string') return null;
+      let clean = tok.trim();
+      if (clean.includes('%')) {
+        try { clean = decodeURIComponent(clean); } catch (e) {}
+      }
+      return clean;
+    };
+
     const isValidContinuationToken = (tok) => {
       if (!tok || typeof tok !== 'string') return false;
-      if (tok.includes('%') || tok.includes(' ') || tok.length < 60) return false;
+      const clean = normalizeToken(tok);
+      if (!clean || clean.length < 40 || clean.includes(' ') || clean.includes('"') || clean.includes('<') || clean.includes('>') || clean.includes('\\')) return false;
       return true;
     };
 
@@ -958,9 +968,10 @@ export class YoutubeChatClient {
                 for (const it of items) {
                   const title = String(it.title || '').toLowerCase();
                   const subtitle = String(it.subtitle || '').toLowerCase();
-                  const token = it.continuation?.reloadContinuationData?.continuation ||
-                                it.continuation?.timedContinuationData?.continuation;
-                  if (isValidContinuationToken(token)) {
+                  const rawToken = it.continuation?.reloadContinuationData?.continuation ||
+                                   it.continuation?.timedContinuationData?.continuation;
+                  if (isValidContinuationToken(rawToken)) {
+                    const token = normalizeToken(rawToken);
                     if (title.includes('live chat') || subtitle.includes('all messages')) {
                       liveContinuation = token;
                     } else if (title.includes('top chat') || subtitle.includes('potential spam')) {
@@ -988,7 +999,7 @@ export class YoutubeChatClient {
       for (const reg of liveRegexes) {
         const m = html.match(reg);
         if (m && isValidContinuationToken(m[1])) {
-          liveContinuation = m[1];
+          liveContinuation = normalizeToken(m[1]);
           break;
         }
       }
@@ -1003,7 +1014,7 @@ export class YoutubeChatClient {
       for (const reg of topRegexes) {
         const m = html.match(reg);
         if (m && isValidContinuationToken(m[1])) {
-          topContinuation = m[1];
+          topContinuation = normalizeToken(m[1]);
           break;
         }
       }
@@ -1020,7 +1031,7 @@ export class YoutubeChatClient {
     for (const regex of contMatchers) {
       const match = html.match(regex);
       if (match && isValidContinuationToken(match[1])) {
-        genericContinuation = match[1];
+        genericContinuation = normalizeToken(match[1]);
         break;
       }
     }
@@ -1372,9 +1383,11 @@ export class YoutubeChatClient {
         }, delay);
       };
 
-      // Immediate first poll if chat continuation token is available
+      // Immediate first poll if chat continuation token is available, or schedule poll shortly to acquire/retry
       if (continuationToken) {
         scheduleNextPoll(0);
+      } else {
+        scheduleNextPoll(1500);
       }
 
       // Periodic viewer and like count update for YouTube
@@ -1480,9 +1493,32 @@ export class YoutubeChatClient {
   async pollChat(channelName) {
     const pollKey = (channelName || '').toLowerCase().replace('@', '').trim();
     const poll = this.activePolls.get(pollKey) || this.activePolls.get(channelName);
-    if (!poll || !poll.apiKey || !poll.continuationToken) return;
+    if (!poll || !poll.apiKey) return;
     if (poll.isPolling) return; // Prevent concurrent requests for same token
     poll.isPolling = true;
+
+    // If continuation token is missing, attempt to acquire it from live chat page
+    if (!poll.continuationToken && poll.videoId) {
+      try {
+        console.log(`YouTube client: acquiring continuation token for ${channelName}...`);
+        const chatPageUrl = `https://www.youtube.com/live_chat?v=${poll.videoId}`;
+        const chatHtml = await this.fetchWithProxyFallback(chatPageUrl);
+        if (chatHtml) {
+          const chatParams = this.extractInnertubeParams(chatHtml, poll.chatMode);
+          if (chatParams.continuationToken) {
+            poll.continuationToken = chatParams.continuationToken;
+            if (chatParams.apiKey) poll.apiKey = chatParams.apiKey;
+          }
+        }
+      } catch (err) {
+        console.warn(`YouTube client: failed to acquire token for ${channelName}:`, err.message);
+      }
+    }
+
+    if (!poll.continuationToken) {
+      poll.isPolling = false;
+      return;
+    }
 
     try {
       const endpoint = `https://www.youtube.com/youtubei/v1/live_chat/get_live_chat?key=${poll.apiKey}`;
@@ -1734,7 +1770,7 @@ export class YoutubeChatClient {
       }
 
       if (nextToken) {
-        poll.continuationToken = nextToken;
+        poll.continuationToken = (typeof nextToken === 'string' && nextToken.includes('%')) ? decodeURIComponent(nextToken) : nextToken;
       }
 
     } catch (e) {

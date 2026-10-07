@@ -1480,7 +1480,9 @@ export default function ChatDashboard({
                  cleanDisplay === msgChan ||
                  cleanChan.includes(msgChan) || 
                  msgChan.includes(cleanChan) ||
-                 (cleanId && cleanId === msgAuthorChan);
+                 (cleanId && cleanId === msgAuthorChan) ||
+                 (msg.videoId && cleanChan.includes(msg.videoId.toLowerCase())) ||
+                 (ch.videoId && msg.videoId && ch.videoId === msg.videoId);
         });
         if (!isChannelActive) {
           return; // Ignore messages from disconnected/removed channels
