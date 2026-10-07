@@ -952,12 +952,24 @@ export default function ChatDashboard({
         });
       }
 
+      const storedTimeoutDurations = typeof window !== 'undefined' ? localStorage.getItem('prochat_timeout_durations') : null;
+      const timeoutDurationMap = new Map();
+      if (storedTimeoutDurations) {
+        try {
+          const arr = JSON.parse(storedTimeoutDurations);
+          if (Array.isArray(arr)) {
+            arr.forEach(([u, dur]) => timeoutDurationMap.set(u, dur));
+          }
+        } catch (e) {}
+      }
+
       return {
         bannedUsers: bannedSet,
         timedOutUsers: timedOutMap,
         deletedMessageIds: deletedSet,
         deletedByMap,
-        timeoutActorMap: new Map()
+        timeoutActorMap: new Map(),
+        timeoutDurationMap
       };
     } catch (e) {
       return {
@@ -965,7 +977,8 @@ export default function ChatDashboard({
         timedOutUsers: new Map(),
         deletedMessageIds: new Set(),
         deletedByMap: new Map(),
-        timeoutActorMap: new Map()
+        timeoutActorMap: new Map(),
+        timeoutDurationMap: new Map()
       };
     }
   });
@@ -977,6 +990,7 @@ export default function ChatDashboard({
         localStorage.setItem('prochat_deleted_by_map', JSON.stringify(Array.from(moderation.deletedByMap ? moderation.deletedByMap.entries() : [])));
         localStorage.setItem('prochat_banned_users', JSON.stringify(Array.from(moderation.bannedUsers)));
         localStorage.setItem('prochat_timed_out_users', JSON.stringify(Array.from(moderation.timedOutUsers.entries())));
+        localStorage.setItem('prochat_timeout_durations', JSON.stringify(Array.from(moderation.timeoutDurationMap ? moderation.timeoutDurationMap.entries() : [])));
       }
     } catch (e) {}
   }, [moderation]);
@@ -1007,6 +1021,7 @@ export default function ChatDashboard({
   const kickClientRef = useRef(null);
   const youtubeClientRef = useRef(null);
   const simulatorRef = useRef(null);
+  const recentTimeoutsRef = useRef(new Map());
 
   const handleAddChannel = async (platform, name) => {
     let input = (name || '').trim();
@@ -1769,8 +1784,8 @@ export default function ChatDashboard({
           return msg;
         }));
       },
-      (msgId, authorChannelId, deletedBy, channelName, rawSnippetText) => {
-        handleRemoteMessageDeleted(msgId, authorChannelId, deletedBy, channelName, rawSnippetText);
+      (msgId, authorChannelId, deletedBy, channelName, rawSnippetText, timeoutDuration) => {
+        handleRemoteMessageDeleted(msgId, authorChannelId, deletedBy, channelName, rawSnippetText, timeoutDuration);
       }
     );
 
@@ -2313,9 +2328,58 @@ export default function ChatDashboard({
     return sec >= 60 ? `${Math.floor(sec / 60)} minutes` : `${sec} seconds`;
   };
 
+  const normalizeDurationText = (val) => {
+    if (!val) return '';
+    if (typeof val === 'number') return formatDurationText(val);
+    const str = String(val).trim();
+    const m = str.match(/([0-9]+)\s*([a-zA-Z]+)?/i);
+    if (!m) return str;
+    const num = parseInt(m[1], 10);
+    const unit = (m[2] || '').toLowerCase();
+    if (!unit || unit.startsWith('s')) {
+      if (num === 10) return '10 seconds';
+      if (num === 60) return '60 seconds';
+      if (num === 300) return '5 minutes';
+      if (num === 600) return '10 minutes';
+      if (num === 1800) return '30 minutes';
+      if (num === 86400) return '24 hours';
+      return `${num} seconds`;
+    }
+    if (unit.startsWith('m')) {
+      if (num === 1) return '60 seconds';
+      if (num === 5) return '5 minutes';
+      if (num === 10) return '10 minutes';
+      if (num === 30) return '30 minutes';
+      return `${num} minutes`;
+    }
+    if (unit.startsWith('h')) {
+      if (num === 24) return '24 hours';
+      if (num === 1) return '1 hour';
+      return `${num} hours`;
+    }
+    if (unit.startsWith('d')) {
+      if (num === 1) return '24 hours';
+      return `${num} days`;
+    }
+    return str;
+  };
+
+  const getDurationMs = (durationStr, defaultSec = 300) => {
+    if (!durationStr) return defaultSec * 1000;
+    const m = String(durationStr).match(/([0-9]+)\s*([a-zA-Z]+)?/i);
+    if (!m) return defaultSec * 1000;
+    const num = parseInt(m[1], 10);
+    const unit = (m[2] || '').toLowerCase();
+    if (!unit || unit.startsWith('s')) return num * 1000;
+    if (unit.startsWith('m')) return num * 60 * 1000;
+    if (unit.startsWith('h')) return num * 3600 * 1000;
+    if (unit.startsWith('d')) return num * 86400 * 1000;
+    return defaultSec * 1000;
+  };
+
   // Moderation Handlers
   // Handle remote deletion events received from YouTube live chat stream
-  const handleRemoteMessageDeleted = (msgId, authorChannelId, explicitDeletedBy = null, channelName = null, rawSnippetText = null) => {
+  const handleRemoteMessageDeleted = (msgId, authorChannelId, explicitDeletedBy = null, channelName = null, rawSnippetText = null, explicitDuration = null) => {
     if (msgId) {
       setModeration(prev => {
         const next = new Set(prev.deletedMessageIds);
@@ -2324,7 +2388,7 @@ export default function ChatDashboard({
 
         let actor = explicitDeletedBy ? explicitDeletedBy.replace(/^@+/, '').replace(/\.$/, '').trim() : null;
         if (!actor && rawSnippetText) {
-          const tm = String(rawSnippetText).match(/(?:put\s+on\s+timeout|timed\s+out)(?:\s+for\s+[0-9]+\s+[a-zA-Z]+)?\s+by\s+@?([^\s.]+)/i) || 
+          const tm = String(rawSnippetText).match(/(?:put\s+on\s+timeout|timed\s+out)(?:\s+for\s+[0-9]+\s*[a-zA-Z]+)?\s+by\s+@?([^\s.]+)/i) || 
                      String(rawSnippetText).match(/(?:put\s+on\s+timeout|timed\s+out)\s+by\s+@?([^\s.]+)/i) ||
                      String(rawSnippetText).match(/(?:message\s+deleted|messages\s+deleted|deleted|hidden)\s+by\s+@?([^\s.\[\r\n]+)/i);
           if (tm) actor = tm[1].replace(/^@+/, '').replace(/\.$/, '').trim();
@@ -2392,7 +2456,7 @@ export default function ChatDashboard({
         return { ...prev, deletedMessageIds: next, deletedByMap: nextMap };
       });
     } else if (authorChannelId) {
-      handleDeleteUserMessages(authorChannelId, explicitDeletedBy, channelName, rawSnippetText);
+      handleDeleteUserMessages(authorChannelId, explicitDeletedBy, channelName, rawSnippetText, explicitDuration);
     }
   };
 
@@ -2475,10 +2539,15 @@ export default function ChatDashboard({
     }
   };
 
-  const handleDeleteUserMessages = (authorChannelId, explicitDeletedBy = null, channelName = null, rawSnippetText = null) => {
+  const handleDeleteUserMessages = (authorChannelId, explicitDeletedBy = null, channelName = null, rawSnippetText = null, explicitDuration = null) => {
     const cleanAuthorParam = String(authorChannelId || '').replace(/^@+/, '').trim().toLowerCase();
-    const durationMatch = rawSnippetText ? String(rawSnippetText).match(/for\s+([0-9]+\s+[a-zA-Z]+)/i) : null;
-    let durationStr = durationMatch ? durationMatch[1] : '';
+    
+    // 1. Resolve duration from explicitDuration argument or rawSnippetText
+    let durationStr = explicitDuration ? normalizeDurationText(explicitDuration) : '';
+    if (!durationStr && rawSnippetText) {
+      const dm = String(rawSnippetText).match(/(?:for|during|timeout\s+for)\s+([0-9]+\s*[a-zA-Z]+)/i);
+      if (dm) durationStr = normalizeDurationText(dm[1]);
+    }
 
     setMessages(prevMessages => {
       const targetMsgs = prevMessages.filter(msg => {
@@ -2504,11 +2573,44 @@ export default function ChatDashboard({
         if (m.authorExternalChannelId) userIdentifiers.add(String(m.authorExternalChannelId).trim().toLowerCase());
       });
 
+      // 2. Resolve duration from recentTimeoutsRef or moderation.timeoutDurationMap if not in snippet
+      if (!durationStr) {
+        for (const idKey of userIdentifiers) {
+          if (!idKey) continue;
+          const cachedRef = recentTimeoutsRef.current.get(idKey);
+          if (cachedRef && (Date.now() - (cachedRef.timestamp || 0)) < 120000) {
+            durationStr = cachedRef.durationStr || formatDurationText(cachedRef.durationSeconds);
+            break;
+          }
+          const cachedMod = moderation?.timeoutDurationMap instanceof Map 
+            ? moderation.timeoutDurationMap.get(idKey) 
+            : moderation?.timeoutDurationMap?.[idKey];
+          if (cachedMod) {
+            durationStr = typeof cachedMod === 'string' ? cachedMod : formatDurationText(cachedMod);
+            break;
+          }
+        }
+      }
+
+      if (!durationStr && typeof window !== 'undefined') {
+        try {
+          const stored = JSON.parse(localStorage.getItem('prochat_recent_timeouts') || '{}');
+          for (const idKey of userIdentifiers) {
+            if (!idKey) continue;
+            const found = stored[idKey];
+            if (found && (Date.now() - (found.timestamp || 0)) < 120000) {
+              durationStr = found.durationStr || formatDurationText(found.durationSeconds);
+              break;
+            }
+          }
+        } catch (e) {}
+      }
+
       let actor = explicitDeletedBy ? explicitDeletedBy.replace(/^@+/, '').replace(/\.$/, '').trim() : null;
 
       // Extract moderator from rawSnippetText if present
       if (!actor && rawSnippetText) {
-        const tm = String(rawSnippetText).match(/(?:put\s+on\s+timeout|timed\s+out)(?:\s+for\s+[0-9]+\s+[a-zA-Z]+)?\s+by\s+@?([^\s.]+)/i) || 
+        const tm = String(rawSnippetText).match(/(?:put\s+on\s+timeout|timed\s+out)(?:\s+for\s+[0-9]+\s*[a-zA-Z]+)?\s+by\s+@?([^\s.]+)/i) || 
                    String(rawSnippetText).match(/(?:put\s+on\s+timeout|timed\s+out)\s+by\s+@?([^\s.]+)/i) ||
                    String(rawSnippetText).match(/(?:message\s+deleted|messages\s+deleted|deleted|hidden)\s+by\s+@?([^\s.\[\r\n]+)/i);
         if (tm) actor = tm[1].replace(/^@+/, '').replace(/\.$/, '').trim();
@@ -2526,6 +2628,18 @@ export default function ChatDashboard({
         }
       }
 
+      // Check recent timeouts recorded in memory
+      if (!actor) {
+        for (const idKey of userIdentifiers) {
+          if (!idKey) continue;
+          const cachedRef = recentTimeoutsRef.current.get(idKey);
+          if (cachedRef?.modHandle && (Date.now() - (cachedRef.timestamp || 0)) < 120000) {
+            actor = cachedRef.modHandle.replace(/^@+/, '').trim();
+            break;
+          }
+        }
+      }
+
       // Check system events in messages specifically targeting this user
       if (!actor) {
         const modEvent = [...prevMessages].reverse().find(m => 
@@ -2534,7 +2648,8 @@ export default function ChatDashboard({
           m.eventDetails?.modUser &&
           (
             (m.eventDetails.targetUser && userIdentifiers.has(m.eventDetails.targetUser.toLowerCase())) ||
-            (m.text && Array.from(userIdentifiers).some(u => u && m.text.toLowerCase().includes(`@${u}`)))
+            (m.eventDetails.targetChannelId && userIdentifiers.has(m.eventDetails.targetChannelId.toLowerCase())) ||
+            (m.text && Array.from(userIdentifiers).some(u => u && (m.text.toLowerCase().includes(`@${u}`) || m.text.toLowerCase().includes(u))))
           )
         );
         if (modEvent) {
@@ -2584,20 +2699,8 @@ export default function ChatDashboard({
         }
       }
 
-      // Default duration to 10 seconds if not specified (standard YouTube timeout)
-      const effectiveDuration = durationStr || '10 seconds';
-      let durationMs = 10000;
-      const dm = String(effectiveDuration).match(/([0-9]+)\s*([a-zA-Z]+)/i);
-      if (dm) {
-        const num = parseInt(dm[1], 10);
-        const unit = dm[2].toLowerCase();
-        if (unit.startsWith('s')) durationMs = num * 1000;
-        else if (unit.startsWith('m')) durationMs = num * 60 * 1000;
-        else if (unit.startsWith('h')) durationMs = num * 3600 * 1000;
-        else if (unit.startsWith('d')) durationMs = num * 86400 * 1000;
-      }
+      const durationMs = getDurationMs(durationStr, 300);
       const expiryTime = Date.now() + durationMs;
-
       const cleanMod = actor;
 
       if (targetIds.length > 0) {
@@ -2622,12 +2725,20 @@ export default function ChatDashboard({
             });
           }
 
+          const nextTimeoutDurations = new Map(prev.timeoutDurationMap || []);
+          if (durationStr) {
+            userIdentifiers.forEach(idKey => {
+              if (idKey) nextTimeoutDurations.set(idKey, durationStr);
+            });
+          }
+
           return { 
             ...prev, 
             deletedMessageIds: next, 
             deletedByMap: nextMap, 
             timedOutUsers: nextTimed,
-            timeoutActorMap: nextTimeoutActors
+            timeoutActorMap: nextTimeoutActors,
+            timeoutDurationMap: nextTimeoutDurations
           };
         });
       }
@@ -2638,8 +2749,12 @@ export default function ChatDashboard({
       const platform = 'youtube';
 
       const timeoutText = cleanMod 
-        ? `@${targetUser} was timed out by @${cleanMod} for ${effectiveDuration}.`
-        : `@${targetUser} was timed out for ${effectiveDuration}.`;
+        ? (durationStr 
+            ? `@${targetUser} was timed out by @${cleanMod} for ${durationStr}.` 
+            : `@${targetUser} was timed out by @${cleanMod}.`)
+        : (durationStr 
+            ? `@${targetUser} was timed out for ${durationStr}.` 
+            : `@${targetUser} was timed out.`);
 
       const alreadyExists = prevMessages.some(m => 
         m.isSystemEvent && 
@@ -2647,7 +2762,8 @@ export default function ChatDashboard({
         (Date.now() - (m.rawTimestamp || 0)) < 15000 &&
         (
           (m.eventDetails?.targetUser && userIdentifiers.has(m.eventDetails.targetUser.toLowerCase())) ||
-          (m.text && Array.from(userIdentifiers).some(u => u && m.text.toLowerCase().includes(`@${u}`)))
+          (m.eventDetails?.targetChannelId && userIdentifiers.has(m.eventDetails.targetChannelId.toLowerCase())) ||
+          (m.text && Array.from(userIdentifiers).some(u => u && (m.text.toLowerCase().includes(`@${u}`) || m.text.toLowerCase().includes(u))))
         )
       );
 
@@ -2665,8 +2781,10 @@ export default function ChatDashboard({
             eventType: 'moderation',
             eventDetails: {
               targetUser,
+              targetChannelId: cleanAuthorParam,
               modUser: cleanMod,
-              duration: effectiveDuration,
+              duration: durationStr,
+              durationSeconds: Math.round(durationMs / 1000),
               action: 'timeout'
             },
             rawTimestamp: Date.now(),
@@ -2698,12 +2816,37 @@ export default function ChatDashboard({
     const targetUsernames = new Set([cleanUserLower]);
     if (msgObj?.username) targetUsernames.add(msgObj.username.replace(/^@+/, '').trim().toLowerCase());
     if (msgObj?.displayName) targetUsernames.add(msgObj.displayName.replace(/^@+/, '').trim().toLowerCase());
-    if (msgObj?.channelId) targetUsernames.add(msgObj.channelId);
-    if (msgObj?.userId) targetUsernames.add(msgObj.userId);
+    if (msgObj?.channelId) targetUsernames.add(String(msgObj.channelId).trim().toLowerCase());
+    if (msgObj?.authorChannelId) targetUsernames.add(String(msgObj.authorChannelId).trim().toLowerCase());
+    if (msgObj?.userId) targetUsernames.add(String(msgObj.userId).trim().toLowerCase());
 
     const expiryTime = Date.now() + durationSeconds * 1000;
     const modHandle = getModeratorHandle(msgObj);
     const durationStr = formatDurationText(durationSeconds);
+
+    // Save in recentTimeoutsRef so handleDeleteUserMessages can match it immediately
+    targetUsernames.forEach(name => {
+      if (name) {
+        recentTimeoutsRef.current.set(name, {
+          durationStr,
+          durationSeconds,
+          modHandle,
+          timestamp: Date.now()
+        });
+      }
+    });
+
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = JSON.parse(localStorage.getItem('prochat_recent_timeouts') || '{}');
+        targetUsernames.forEach(name => {
+          if (name) {
+            stored[name] = { durationStr, durationSeconds, modHandle, timestamp: Date.now() };
+          }
+        });
+        localStorage.setItem('prochat_recent_timeouts', JSON.stringify(stored));
+      } catch (e) {}
+    }
 
     setModeration(prev => {
       const nextTimedOut = (prev.timedOutUsers instanceof Map) 
@@ -2719,7 +2862,7 @@ export default function ChatDashboard({
         messages.forEach(m => {
           const u = (m.username || '').replace(/^@+/, '').trim().toLowerCase();
           const d = (m.displayName || '').replace(/^@+/, '').trim().toLowerCase();
-          const c = m.channelId || m.authorChannelId;
+          const c = (m.channelId || m.authorChannelId || '').trim().toLowerCase();
           if (targetUsernames.has(u) || targetUsernames.has(d) || (c && targetUsernames.has(c))) {
             nextDeletedIds.add(m.id);
             nextDeletedByMap.set(m.id, modHandle.replace(/^@+/, '').trim());
@@ -2734,12 +2877,18 @@ export default function ChatDashboard({
         });
       }
 
+      const nextTimeoutDurations = new Map(prev.timeoutDurationMap || []);
+      targetUsernames.forEach(name => {
+        if (name) nextTimeoutDurations.set(name, durationStr);
+      });
+
       return { 
         ...prev, 
         timedOutUsers: nextTimedOut, 
         deletedMessageIds: nextDeletedIds, 
         deletedByMap: nextDeletedByMap,
-        timeoutActorMap: nextTimeoutActors
+        timeoutActorMap: nextTimeoutActors,
+        timeoutDurationMap: nextTimeoutDurations
       };
     });
     setSelectedChatter(null);
@@ -2755,6 +2904,14 @@ export default function ChatDashboard({
         text: `@${cleanUser} was timed out by @${modHandle} for ${durationStr}.`,
         isSystemEvent: true,
         eventType: 'moderation',
+        eventDetails: {
+          targetUser: cleanUser,
+          targetChannelId: msgObj?.channelId || msgObj?.authorChannelId,
+          modUser: modHandle,
+          duration: durationStr,
+          durationSeconds: durationSeconds,
+          action: 'timeout'
+        },
         rawTimestamp: Date.now(),
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
       }

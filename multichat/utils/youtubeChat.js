@@ -1627,7 +1627,7 @@ export class YoutubeChatClient {
 
             if (rawSnippetText) {
               // Case A: @user was put on timeout / timed out for <duration> by @mod
-              let tm = rawSnippetText.match(/(?:^|\s)@?([^\s]+(?:\s+[^\s]+)*?)\s+was\s+(?:put\s+on\s+timeout|timed\s+out)\s+for\s+([0-9]+\s+[a-zA-Z]+)\s+by\s+@?([^\s.]+)/i);
+              let tm = rawSnippetText.match(/(?:^|\s)@?([^\s]+(?:\s+[^\s]+)*?)\s+was\s+(?:put\s+on\s+timeout|timed\s+out)\s+for\s+([0-9]+\s*[a-zA-Z]+)\s+by\s+@?([^\s.]+)/i);
               if (tm) {
                 timeoutTarget = tm[1].replace(/^@+/, '').trim();
                 timeoutDuration = tm[2].trim();
@@ -1635,7 +1635,7 @@ export class YoutubeChatClient {
                 deletedBy = timeoutMod;
               } else {
                 // Case B: @user was timed out / put on timeout by @mod (optionally: for <duration>)
-                tm = rawSnippetText.match(/(?:^|\s)@?([^\s]+(?:\s+[^\s]+)*?)\s+was\s+(?:put\s+on\s+timeout|timed\s+out)\s+by\s+@?([^\s.]+)(?:\s+for\s+([0-9]+\s+[a-zA-Z]+))?/i);
+                tm = rawSnippetText.match(/(?:^|\s)@?([^\s]+(?:\s+[^\s]+)*?)\s+was\s+(?:put\s+on\s+timeout|timed\s+out)\s+by\s+@?([^\s.]+)(?:\s+for\s+([0-9]+\s*[a-zA-Z]+))?/i);
                 if (tm) {
                   timeoutTarget = tm[1].replace(/^@+/, '').trim();
                   timeoutMod = tm[2].replace(/^@+/, '').replace(/\.$/, '').trim();
@@ -1680,11 +1680,11 @@ export class YoutubeChatClient {
 
             if (targetId) {
               if (this.onMessageDeleted) {
-                this.onMessageDeleted(targetId, null, deletedBy, channelName, rawSnippetText);
+                this.onMessageDeleted(targetId, null, deletedBy, channelName, rawSnippetText, timeoutDuration);
               }
             } else if (authorId || timeoutTarget) {
               if (this.onMessageDeleted) {
-                this.onMessageDeleted(null, authorId || timeoutTarget, deletedBy, channelName, rawSnippetText);
+                this.onMessageDeleted(null, authorId || timeoutTarget, deletedBy, channelName, rawSnippetText, timeoutDuration);
               }
             }
           });
@@ -2083,24 +2083,24 @@ export class YoutubeChatClient {
       }
 
       if (isSystemEvent && eventType === 'moderation') {
-        let tm = text.match(/(?:^|\s)@?([^\s]+(?:\s+[^\s]+)*?)\s+was\s+(?:put\s+on\s+timeout|timed\s+out)\s+for\s+([0-9]+\s+[a-zA-Z]+)\s+by\s+@?([^\s.]+)/i);
+        let tm = text.match(/(?:^|\s)@?([^\s]+(?:\s+[^\s]+)*?)\s+was\s+(?:put\s+on\s+timeout|timed\s+out)\s+for\s+([0-9]+\s*[a-zA-Z]+)\s+by\s+@?([^\s.]+)/i);
         if (tm) {
           const targetUser = tm[1].replace(/^@+/, '').trim();
           const duration = tm[2].trim();
           const modUser = tm[3].replace(/^@+/, '').replace(/\.$/, '').trim();
           eventDetails = { targetUser, modUser, duration, action: 'timeout' };
           if (this.onMessageDeleted) {
-            this.onMessageDeleted(null, targetUser, modUser, channelName, text);
+            this.onMessageDeleted(null, targetUser, modUser, channelName, text, duration);
           }
         } else {
-          tm = text.match(/(?:^|\s)@?([^\s]+(?:\s+[^\s]+)*?)\s+was\s+(?:put\s+on\s+timeout|timed\s+out)\s+by\s+@?([^\s.]+)(?:\s+for\s+([0-9]+\s+[a-zA-Z]+))?/i);
+          tm = text.match(/(?:^|\s)@?([^\s]+(?:\s+[^\s]+)*?)\s+was\s+(?:put\s+on\s+timeout|timed\s+out)\s+by\s+@?([^\s.]+)(?:\s+for\s+([0-9]+\s*[a-zA-Z]+))?/i);
           if (tm) {
             const targetUser = tm[1].replace(/^@+/, '').trim();
             const modUser = tm[2].replace(/^@+/, '').replace(/\.$/, '').trim();
             const duration = tm[3] ? tm[3].trim() : '';
             eventDetails = { targetUser, modUser, duration, action: 'timeout' };
             if (this.onMessageDeleted) {
-              this.onMessageDeleted(null, targetUser, modUser, channelName, text);
+              this.onMessageDeleted(null, targetUser, modUser, channelName, text, duration);
             }
           }
         }

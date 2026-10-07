@@ -5,6 +5,18 @@ import { NextResponse } from 'next/server';
 import { hwSupabase, asSupabase } from '@/lib/supabase';
 
 
+const globalRecentTimeouts = new Map<string, { durationSeconds: number, durationStr: string, modUser?: string, timestamp: number }>();
+
+function formatTimeoutDuration(sec: number): string {
+  if (sec === 10) return '10 seconds';
+  if (sec === 60) return '60 seconds';
+  if (sec === 300) return '5 minutes';
+  if (sec === 600) return '10 minutes';
+  if (sec === 1800) return '30 minutes';
+  if (sec === 86400) return '24 hours';
+  return sec >= 60 ? `${Math.floor(sec / 60)} minutes` : `${sec} seconds`;
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -172,6 +184,21 @@ export async function POST(request: Request) {
       const innertubeData = await innertubeRes.json().catch(() => ({ error: 'Failed to parse InnerTube response' }));
       console.log(`[YouTube API Route] InnerTube engine dispatch result for "${action || 'send'}":`, innertubeData);
 
+      if (action === 'timeout' && innertubeData?.success) {
+        const targetClean = (body.targetChannelId || body.username || body.displayName || '').toLowerCase().replace(/^@+/, '').trim();
+        const durSec = Number(body.durationSeconds) || 300;
+        const durStr = formatTimeoutDuration(durSec);
+        const mod = (accountData?.custom_handle || accountData?.channel_name || '').replace(/^@+/, '').trim();
+        if (targetClean) {
+          globalRecentTimeouts.set(targetClean, {
+            durationSeconds: durSec,
+            durationStr: durStr,
+            modUser: mod,
+            timestamp: Date.now()
+          });
+        }
+      }
+
       return NextResponse.json(innertubeData, { status: innertubeRes.status });
     } catch (e: any) {
       console.error('[YouTube API Route] InnerTube dispatch exception:', e);
@@ -183,5 +210,26 @@ export async function POST(request: Request) {
       { error: error.message || 'Internal Server Error' },
       { status: 500 }
     );
+  }
+}
+
+export async function GET(request: Request) {
+  try {
+    const url = new URL(request.url);
+    if (url.searchParams.get('action') === 'recent_timeouts') {
+      const now = Date.now();
+      const result: Record<string, any> = {};
+      for (const [key, val] of globalRecentTimeouts.entries()) {
+        if (now - val.timestamp < 300000) {
+          result[key] = val;
+        } else {
+          globalRecentTimeouts.delete(key);
+        }
+      }
+      return NextResponse.json({ success: true, recentTimeouts: result });
+    }
+    return NextResponse.json({ success: true, status: 'ok' });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
