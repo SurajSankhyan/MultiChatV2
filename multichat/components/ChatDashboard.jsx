@@ -481,10 +481,7 @@ export default function ChatDashboard({
   useEffect(() => {
     initExchangeRates();
     if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('multichat_cleared_events_at');
-      if (stored) {
-        clearedEventsAtRef.current = parseInt(stored, 10) || 0;
-      }
+      try { localStorage.removeItem('multichat_cleared_events_at'); } catch (e) {}
     }
   }, []);
 
@@ -872,7 +869,7 @@ export default function ChatDashboard({
       isMembership: isMembershipEvent,
       membershipTier: msg.eventDetails?.tier || null,
       membershipDuration: msg.eventDetails?.milestoneText || msg.eventDetails?.tier || null,
-      isGift: msg.eventDetails?.subType === 'gift_purchase' || msg.eventDetails?.subType === 'gift_redemption' || !!msg.giftDetails,
+      isGift: msg.isGift || msg.eventType === 'gift' || msg.eventDetails?.subType === 'gift_purchase' || msg.eventDetails?.subType === 'gift_redemption' || !!msg.giftDetails,
       giftDetails: msg.giftDetails || null,
       backgroundColor: isDonationOrSuper ? (msg.eventDetails?.bodyBg || null) : null,
       textColor: isDonationOrSuper ? (msg.eventDetails?.contentTextColor || null) : null,
@@ -1462,8 +1459,11 @@ export default function ChatDashboard({
       const msg = (typeof msgOrChannel === 'string' && maybeMsg && typeof maybeMsg === 'object') ? maybeMsg : msgOrChannel;
       if (!msg || typeof msg !== 'object') return;
       
-      if (msg.isSystemEvent && msg.rawTimestamp && msg.rawTimestamp <= clearedEventsAtRef.current) {
-        return;
+      const isGift = msg.eventType === 'gift' || msg.isGift || Boolean(msg.giftDetails) || msg.eventDetails?.subType === 'gift';
+      if (!isGift && msg.eventType !== 'donation' && msg.isSystemEvent && msg.rawTimestamp && clearedEventsAtRef.current > 0) {
+        if (msg.rawTimestamp <= clearedEventsAtRef.current && (Date.now() - msg.rawTimestamp > 30000)) {
+          return;
+        }
       }
 
       // Filter out messages from channels that were removed or disabled
@@ -3334,7 +3334,7 @@ export default function ChatDashboard({
     const chattersMap = new Map();
     messages.forEach(msg => {
       if (!msg.username) return;
-      if (msg.isSystemEvent && msg.eventType !== 'donation' && msg.eventType !== 'subscription') return;
+      if (msg.isSystemEvent && msg.eventType !== 'donation' && msg.eventType !== 'subscription' && msg.eventType !== 'gift' && !msg.isGift) return;
       const lower = msg.username.toLowerCase();
       if (!chattersMap.has(lower)) {
         chattersMap.set(lower, {

@@ -257,6 +257,8 @@ export class ChatSimulator {
       parts: parts.length > 0 ? parts : [{ type: 'text', content: text }],
       isGift: isGift,
       giftDetails: giftDetails,
+      isSystemEvent: isGift ? true : false,
+      eventType: isGift ? 'gift' : 'chat',
       badges: badges,
       badgeImages: badgeImages,
       youtubeRank: badges.find(b => typeof b === 'string' && b.startsWith('rank_')) ? parseInt(badges.find(b => typeof b === 'string' && b.startsWith('rank_')).replace('rank_', ''), 10) : undefined,

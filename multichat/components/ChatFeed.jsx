@@ -247,7 +247,156 @@ const ChatMessageRow = React.memo(({
 
   let element = null;
 
-  if (msg.isSystemEvent) {
+  const isGiftEvent = msg.eventType === 'gift' || msg.isGift || Boolean(msg.giftDetails) || msg.eventDetails?.subType === 'gift';
+
+  if (isGiftEvent) {
+    const giftInfo = msg.giftDetails || {};
+    const giftName = giftInfo.name || msg.eventDetails?.giftName || 'Gift';
+    const jewelsAmount = giftInfo.jewels || msg.eventDetails?.jewels || null;
+    const giftImg = giftInfo.imageUrl || msg.eventDetails?.imageUrl || null;
+    
+    element = (
+      <div 
+        key={msg.id} 
+        className={`gift-event-row youtube-gift-card ${isHighlighted ? 'active-highlight' : ''}`}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          padding: '8px 14px',
+          margin: '4px 0',
+          backgroundColor: 'rgba(255, 116, 200, 0.08)',
+          border: '1px solid rgba(255, 116, 200, 0.28)',
+          borderRadius: '10px',
+          fontSize: '14px',
+          position: 'relative',
+          transition: 'all 0.15s ease'
+        }}
+      >
+        {showAvatarForPlatform(msg.platform) && wrapWithTooltip(
+          <img 
+            className="msg-avatar" 
+            src={avatarUrl} 
+            alt={msg.displayName} 
+            style={{ width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer', flexShrink: 0 }}
+            onClick={(e) => onAvatarClick && onAvatarClick(e, msg, avatarUrl)}
+            onError={(e) => {
+              e.target.src = getDefaultAvatar(msg.platform, msg.username, msg.userId);
+            }}
+          />,
+          'View profile picture',
+          `avatar-${msg.id}`
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, flexWrap: 'wrap', minWidth: 0 }}>
+          {renderUsernameWithTooltip(msg, '', { fontWeight: 700, color: '#f472b6' })}
+          
+          {msg.badges && msg.badges.map(badge => {
+            const badgeImageUrl = msg.badgeImages && msg.badgeImages[badge];
+            if (badgeImageUrl) {
+              return (
+                <img 
+                  key={badge} 
+                  className="msg-badge-icon" 
+                  src={badgeImageUrl} 
+                  alt={badge} 
+                  title={badge} 
+                  style={{ width: '16px', height: '16px', display: 'inline-block', verticalAlign: 'middle', margin: 0 }}
+                />
+              );
+            }
+            return null;
+          })}
+
+          <span style={{ color: '#ffffff', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <span>{msg.text || `sent ${giftName}`}</span>
+            {giftImg && (
+              <img 
+                src={giftImg} 
+                alt={giftName} 
+                style={{ width: '28px', height: '28px', objectFit: 'contain', verticalAlign: 'middle' }} 
+              />
+            )}
+          </span>
+
+          {jewelsAmount && (
+            <span className="youtube-jewels-badge" title={`${jewelsAmount} Jewels`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+              <svg className="jewel-icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '14px', height: '14px' }}>
+                <path d="M6 3h12l4 7-10 12L2 10l4-7z" fill="url(#jewelGradient-feed)" stroke="#ff74c8" strokeWidth="1.2" strokeLinejoin="round"/>
+                <path d="M2 10h20M12 22L7.5 10M12 22l4.5-12M6 3l1.5 7M18 3l-1.5 7M12 3v7" stroke="#ffffff" strokeOpacity="0.5" strokeWidth="0.8"/>
+              </svg>
+              <span>{jewelsAmount}</span>
+            </span>
+          )}
+        </div>
+
+        <div className="gift-actions" style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto', flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+          {settings.showIcons && (
+            <span className="msg-platform-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <PlatformLogo platform={msg.platform} isShorts={msg.isShorts} size={14} />
+            </span>
+          )}
+          <Tooltip delayDuration={150}>
+            <TooltipTrigger asChild>
+              <button 
+                type="button" 
+                className="message-actions-menu-btn"
+                style={{ 
+                  color: isHighlighted ? '#38bdf8' : '#ffffff',
+                  backgroundColor: isHighlighted ? 'rgba(56, 189, 248, 0.25)' : 'rgba(255, 255, 255, 0.08)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  width: '26px',
+                  height: '26px',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  padding: 0
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onHighlightMessage) onHighlightMessage(msg);
+                }}
+              >
+                <Tv size={15} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" align="center">
+              {isHighlighted ? "Hide from Stream Overlay (ESC)" : "Show on Stream Overlay"}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip delayDuration={150}>
+            <TooltipTrigger asChild>
+              <button 
+                type="button" 
+                className="message-actions-menu-btn"
+                style={{ 
+                  color: '#ffffff',
+                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  width: '26px',
+                  height: '26px',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  padding: 0
+                }}
+                onClick={(e) => handleToggleMenu(e, msg)}
+              >
+                <MoreVertical size={15} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" align="center">
+              Moderation & Insights
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+    );
+  } else if (msg.isSystemEvent) {
     if (msg.platform === 'youtube' && msg.eventType === 'donation') {
       const headerBg = msg.eventDetails?.headerBg || '#e62117';
       const bodyBg = msg.eventDetails?.bodyBg || '#f44336';
@@ -562,153 +711,6 @@ const ChatMessageRow = React.memo(({
               </div>
             </div>
           )}
-        </div>
-      );
-    } else if (msg.eventType === 'gift' || msg.giftDetails || msg.eventDetails?.subType === 'gift') {
-      const giftInfo = msg.giftDetails || {};
-      const giftName = giftInfo.name || msg.eventDetails?.giftName || 'Gift';
-      const jewelsAmount = giftInfo.jewels || msg.eventDetails?.jewels || null;
-      const giftImg = giftInfo.imageUrl || msg.eventDetails?.imageUrl || null;
-      
-      element = (
-        <div 
-          key={msg.id} 
-          className={`gift-event-row youtube-gift-card ${isHighlighted ? 'active-highlight' : ''}`}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            padding: '8px 14px',
-            margin: '4px 0',
-            backgroundColor: 'rgba(255, 116, 200, 0.08)',
-            border: '1px solid rgba(255, 116, 200, 0.28)',
-            borderRadius: '10px',
-            fontSize: '14px',
-            position: 'relative',
-            transition: 'all 0.15s ease'
-          }}
-        >
-          {showAvatarForPlatform(msg.platform) && wrapWithTooltip(
-            <img 
-              className="msg-avatar" 
-              src={avatarUrl} 
-              alt={msg.displayName} 
-              style={{ width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer', flexShrink: 0 }}
-              onClick={(e) => onAvatarClick && onAvatarClick(e, msg, avatarUrl)}
-              onError={(e) => {
-                e.target.src = getDefaultAvatar(msg.platform, msg.username, msg.userId);
-              }}
-            />,
-            'View profile picture',
-            `avatar-${msg.id}`
-          )}
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, flexWrap: 'wrap', minWidth: 0 }}>
-            {renderUsernameWithTooltip(msg, '', { fontWeight: 700, color: '#f472b6' })}
-            
-            {msg.badges && msg.badges.map(badge => {
-              const badgeImageUrl = msg.badgeImages && msg.badgeImages[badge];
-              if (badgeImageUrl) {
-                return (
-                  <img 
-                    key={badge} 
-                    className="msg-badge-icon" 
-                    src={badgeImageUrl} 
-                    alt={badge} 
-                    title={badge} 
-                    style={{ width: '16px', height: '16px', display: 'inline-block', verticalAlign: 'middle', margin: 0 }}
-                  />
-                );
-              }
-              return null;
-            })}
-
-            <span style={{ color: '#ffffff', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              <span>{msg.text || `sent ${giftName}`}</span>
-              {giftImg && (
-                <img 
-                  src={giftImg} 
-                  alt={giftName} 
-                  style={{ width: '28px', height: '28px', objectFit: 'contain', verticalAlign: 'middle' }} 
-                />
-              )}
-            </span>
-
-            {jewelsAmount && (
-              <span className="youtube-jewels-badge" title={`${jewelsAmount} Jewels`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                <svg className="jewel-icon-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '14px', height: '14px' }}>
-                  <path d="M6 3h12l4 7-10 12L2 10l4-7z" fill="url(#jewelGradient-feed)" stroke="#ff74c8" strokeWidth="1.2" strokeLinejoin="round"/>
-                  <path d="M2 10h20M12 22L7.5 10M12 22l4.5-12M6 3l1.5 7M18 3l-1.5 7M12 3v7" stroke="#ffffff" strokeOpacity="0.5" strokeWidth="0.8"/>
-                </svg>
-                <span>{jewelsAmount}</span>
-              </span>
-            )}
-          </div>
-
-          <div className="gift-actions" style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto', flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
-            {settings.showIcons && (
-              <span className="msg-platform-icon" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                <PlatformLogo platform={msg.platform} isShorts={msg.isShorts} size={14} />
-              </span>
-            )}
-            <Tooltip delayDuration={150}>
-              <TooltipTrigger asChild>
-                <button 
-                  type="button" 
-                  className="message-actions-menu-btn"
-                  style={{ 
-                    color: isHighlighted ? '#38bdf8' : '#ffffff',
-                    backgroundColor: isHighlighted ? 'rgba(56, 189, 248, 0.25)' : 'rgba(255, 255, 255, 0.08)',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    width: '26px',
-                    height: '26px',
-                    borderRadius: '6px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    padding: 0
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (onHighlightMessage) onHighlightMessage(msg);
-                  }}
-                >
-                  <Tv size={15} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="top" align="center">
-                {isHighlighted ? "Hide from Stream Overlay (ESC)" : "Show on Stream Overlay"}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip delayDuration={150}>
-              <TooltipTrigger asChild>
-                <button 
-                  type="button" 
-                  className="message-actions-menu-btn"
-                  style={{ 
-                    color: '#ffffff',
-                    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    width: '26px',
-                    height: '26px',
-                    borderRadius: '6px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    padding: 0
-                  }}
-                  onClick={(e) => handleToggleMenu(e, msg)}
-                >
-                  <MoreVertical size={15} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="top" align="center">
-                Moderation & Insights
-              </TooltipContent>
-            </Tooltip>
-          </div>
         </div>
       );
     } else if (msg.eventType === 'moderation' || (typeof msg.text === 'string' && (msg.text.includes('timed out') || msg.text.includes('was hidden by')))) {
@@ -1894,7 +1896,7 @@ export default function ChatFeed({
     }
 
     if (activeTab === 'all') return true;
-    if (activeTab === 'events') return msg.isSystemEvent;
+    if (activeTab === 'events') return msg.isSystemEvent || msg.eventType === 'gift' || msg.isGift || Boolean(msg.giftDetails);
     if (activeTab === 'mentions') {
       return checkIsMentioned(msg.text, user, activeChannels);
     }
@@ -2782,6 +2784,8 @@ export default function ChatFeed({
                   msg.eventType === 'donation' ||
                   msg.eventType === 'subscription' ||
                   msg.isGift ||
+                  msg.eventType === 'gift' ||
+                  Boolean(msg.giftDetails) ||
                   (typeof msg.text === 'string' && (msg.text.includes('timed out') || msg.text.includes('was hidden by')))
                 );
                 const isEven = !isSystemNotice ? ((chatRowIndex++) % 2 === 0) : false;

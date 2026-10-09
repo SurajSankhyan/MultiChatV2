@@ -5,7 +5,7 @@ const YOUTUBE_NAME_CACHE = new Map(); // channelId -> displayName
 const PENDING_NAME_RESOLVES = new Map(); // channelId -> Promise<displayName>
 
 // Mapping of YouTube Gift items to their default Jewel values
-const YOUTUBE_GIFT_JEWELS_MAP = {
+export const YOUTUBE_GIFT_JEWELS_MAP = {
   'star': 10,
   'stars': 10,
   'shooting star': 50,
@@ -63,8 +63,67 @@ const YOUTUBE_GIFT_JEWELS_MAP = {
   'rainbow': 100,
   'magic': 100,
   'sunglasses': 50,
-  'cool': 50
+  'cool': 50,
+  // YouTube Jewels Specific Gifts (India & Global Regional Releases)
+  'gold coin': 10,
+  'goldcoin': 10,
+  'vada pav': 10,
+  'vadapav': 10,
+  'chai toast': 10,
+  'chaitoast': 10,
+  'diya': 20,
+  'laddoo': 20,
+  'laddu': 20,
+  'jalebi': 50,
+  'biryani': 100,
+  'dhol': 100,
+  'rangoli': 200,
+  'namaste': 10,
+  'tabla': 50
 };
+
+export function detectGiftFromText(text, parts = []) {
+  if (!text || typeof text !== 'string') return null;
+  const clean = text.trim();
+  
+  const m = clean.match(/^(?:@?([^\s:]+(?:\s+[^\s:]+)*?)\s+)?(?:sent|gifted)\s+(.+)$/i);
+  if (!m) return null;
+
+  let authorFromText = m[1] ? m[1].replace(/^@+/, '').trim() : null;
+  let payload = (m[2] || '').trim();
+
+  let jewelsAmount = null;
+  const jewelsInPayload = payload.match(/(?:for\s+)?(\d+)\s*jewels?/i);
+  if (jewelsInPayload) {
+    jewelsAmount = jewelsInPayload[1];
+    payload = payload.replace(/\s*for\s+\d+\s*jewels?/i, '').replace(/\s*\d+\s*jewels?/i, '').trim();
+  }
+
+  let giftName = payload.replace(/[:*]/g, '').trim();
+  if (!giftName && jewelsAmount) {
+    giftName = 'Jewels';
+  }
+
+  const cleanKey = giftName.toLowerCase().replace(/\.+$/, '').trim();
+  const knownJewels = YOUTUBE_GIFT_JEWELS_MAP[cleanKey] || YOUTUBE_GIFT_JEWELS_MAP[giftName.toLowerCase()];
+
+  if (knownJewels && !jewelsAmount) {
+    jewelsAmount = String(knownJewels);
+  }
+
+  const hasEmote = Array.isArray(parts) && parts.some(p => p.type === 'emote');
+  const mentionsJewels = Boolean(jewelsAmount || /jewels?/i.test(text));
+
+  if (mentionsJewels || knownJewels || (hasEmote && giftName)) {
+    return {
+      authorFromText,
+      giftName: giftName || 'Gift',
+      jewels: jewelsAmount || String(knownJewels || 10)
+    };
+  }
+
+  return null;
+}
 
 export class YoutubeChatClient {
   constructor(onMessageCallback, onStatusCallback, onNameResolvedCallback, onMessageDeletedCallback) {
@@ -1621,6 +1680,10 @@ export class YoutubeChatClient {
                                      Object.values(tickerItem)[0];
               if (tickerRenderer?.showItemEndpoint?.showLiveChatItemEndpoint?.renderer) {
                 item = tickerRenderer.showItemEndpoint.showLiveChatItemEndpoint.renderer;
+              } else if (tickerRenderer?.showItemEndpoint?.showLiveChatActionPanelEndpoint?.panel?.liveChatActionPanelRenderer?.contents) {
+                item = tickerRenderer.showItemEndpoint.showLiveChatActionPanelEndpoint.panel.liveChatActionPanelRenderer.contents;
+              } else if (tickerRenderer) {
+                item = tickerRenderer;
               }
             }
 
@@ -1629,12 +1692,20 @@ export class YoutubeChatClient {
               item = action.addBannerRenderer.bannerRenderer.liveChatBannerRenderer.contents;
             }
 
-            // 4. Process direct jewel / gift action wrappers or action panels
+            // 4. Process direct action panel or endpoint
+            if (!item && action.showLiveChatActionPanelAction?.panelToShow?.liveChatActionPanelRenderer?.contents) {
+              item = action.showLiveChatActionPanelAction.panelToShow.liveChatActionPanelRenderer.contents;
+            }
+            if (!item && action.showLiveChatItemEndpoint?.renderer) {
+              item = action.showLiveChatItemEndpoint.renderer;
+            }
+
+            // 5. Process direct jewel / gift action wrappers or action panels
             if (!item) {
               const actionKeys = Object.keys(action);
-              const matchedKey = actionKeys.find(k => /jewel|gift/i.test(k));
+              const matchedKey = actionKeys.find(k => /jewel|gift|panel|paid/i.test(k));
               if (matchedKey) {
-                item = action[matchedKey]?.item || action[matchedKey];
+                item = action[matchedKey]?.item || action[matchedKey]?.contents || action[matchedKey]?.renderer || action[matchedKey];
               }
             }
 
@@ -1655,8 +1726,8 @@ export class YoutubeChatClient {
                               item.liveChatGiftItemRenderer ||
                               item.liveChatPaidVirtualItemRenderer ||
                               item.liveChatVirtualGiftRenderer ||
-                              (Object.keys(item).find(k => /renderer$/i.test(k) && /gift|jewel/i.test(k) && !/membership|sponsorship/i.test(k)) 
-                                ? item[Object.keys(item).find(k => /renderer$/i.test(k) && /gift|jewel/i.test(k) && !/membership|sponsorship/i.test(k))] 
+                              (Object.keys(item).find(k => /gift|jewel|virtualitem/i.test(k) && !/membership|sponsorship/i.test(k)) 
+                                ? item[Object.keys(item).find(k => /gift|jewel|virtualitem/i.test(k) && !/membership|sponsorship/i.test(k))] 
                                 : null) ||
                               (item.id ? item : null);
               if (renderer && renderer.id) {
@@ -1806,6 +1877,10 @@ export class YoutubeChatClient {
                          Object.values(tickerItem)[0];
         if (tickerRenderer?.showItemEndpoint?.showLiveChatItemEndpoint?.renderer) {
           item = tickerRenderer.showItemEndpoint.showLiveChatItemEndpoint.renderer;
+        } else if (tickerRenderer?.showItemEndpoint?.showLiveChatActionPanelEndpoint?.panel?.liveChatActionPanelRenderer?.contents) {
+          item = tickerRenderer.showItemEndpoint.showLiveChatActionPanelEndpoint.panel.liveChatActionPanelRenderer.contents;
+        } else if (tickerRenderer) {
+          item = tickerRenderer;
         }
       } else if (action.addLiveChatTickerItemAction?.item) {
         const tickerItem = action.addLiveChatTickerItemAction.item;
@@ -1820,14 +1895,21 @@ export class YoutubeChatClient {
       if (!item && action.addBannerRenderer?.bannerRenderer?.liveChatBannerRenderer?.contents) {
         item = action.addBannerRenderer.bannerRenderer.liveChatBannerRenderer.contents;
       }
+
+      if (!item && action.showLiveChatActionPanelAction?.panelToShow?.liveChatActionPanelRenderer?.contents) {
+        item = action.showLiveChatActionPanelAction.panelToShow.liveChatActionPanelRenderer.contents;
+      }
+      if (!item && action.showLiveChatItemEndpoint?.renderer) {
+        item = action.showLiveChatItemEndpoint.renderer;
+      }
       
       if (!item) {
         // If YouTube is using a brand new action wrapper for Jewels (e.g. addLiveChatJewelsGiftAction)
         const actionKeys = Object.keys(action);
-        const giftKey = actionKeys.find(k => /jewel|gift/i.test(k));
+        const giftKey = actionKeys.find(k => /jewel|gift|panel|paid/i.test(k));
         if (giftKey) {
           console.warn('🚨 [MULTICHAT DEBUG] FOUND RAW JEWEL ACTION:', JSON.stringify(action, null, 2));
-          item = action[giftKey]?.item || action[giftKey];
+          item = action[giftKey]?.item || action[giftKey]?.contents || action[giftKey]?.renderer || action[giftKey];
         }
       }
       
@@ -1916,6 +1998,24 @@ export class YoutubeChatClient {
         if (isJewelSticker) {
           isSystemEvent = true;
           eventType = 'gift';
+          let stickerUrl = normalizeUrl(renderer.sticker?.thumbnails?.[0]?.url);
+          const stickerName = renderer.sticker?.accessibility?.accessibilityData?.label || renderer.giftName || 'Gift';
+          let jewels = '10';
+          const jm = purchaseText.match(/(\d+)/);
+          if (jm) jewels = jm[1];
+          else if (renderer.jewelsAmount || renderer.jewels || renderer.jewelAmount) {
+            jewels = String(renderer.jewelsAmount || renderer.jewels || renderer.jewelAmount);
+          }
+          giftDetails = {
+            name: stickerName,
+            jewels: jewels,
+            imageUrl: stickerUrl
+          };
+          text = `sent ${stickerName}`;
+          parts.push({ type: 'text', content: text });
+          if (stickerUrl) {
+            parts.push({ type: 'emote', name: stickerName, url: stickerUrl });
+          }
         } else {
           isSystemEvent = true;
           eventType = 'donation';
@@ -2086,9 +2186,9 @@ export class YoutubeChatClient {
                  item.liveChatPaidVirtualItemRenderer || 
                  item.liveChatVirtualGiftRenderer || 
                  item.liveChatJewelsGiftItemRenderer || 
-                 (item && typeof item === 'object' && Object.keys(item).some(k => /renderer$/i.test(k) && /gift|jewel|virtualitem/i.test(k) && !/membership|sponsorship/i.test(k))) || 
+                 (item && typeof item === 'object' && Object.keys(item).some(k => /gift|jewel|virtualitem/i.test(k) && !/membership|sponsorship/i.test(k))) || 
                  (item && typeof item === 'object' && (item.jewelsAmount !== undefined || item.jewels !== undefined || item.jewelAmount !== undefined || item.rubies !== undefined || item.gift !== undefined || item.giftName !== undefined))) {
-        const giftRendererKey = item && typeof item === 'object' ? Object.keys(item).find(k => /renderer$/i.test(k) && /gift|jewel|virtualitem/i.test(k) && !/membership|sponsorship/i.test(k)) : null;
+        const giftRendererKey = item && typeof item === 'object' ? Object.keys(item).find(k => /gift|jewel|virtualitem/i.test(k) && !/membership|sponsorship/i.test(k)) : null;
         renderer = (giftRendererKey ? item[giftRendererKey] : null) ||
                    item.liveChatPaidGiftRenderer || 
                    item.liveChatGiftRenderer || 
@@ -2129,12 +2229,20 @@ export class YoutubeChatClient {
 
       if (!renderer) return;
 
+      const candidateHeader = renderer.header?.liveChatPaidGiftHeaderRenderer || 
+                              renderer.header?.liveChatSponsorshipsHeaderRenderer || 
+                              renderer.header?.liveChatHeaderRenderer || 
+                              renderer.header;
+
       // Extract message content and build parts array
       const runs = renderer.message?.runs || 
                    renderer.headerText?.runs || 
                    renderer.primaryText?.runs || 
                    renderer.title?.runs || 
-                   renderer.giftText?.runs || [];
+                   renderer.giftText?.runs || 
+                   candidateHeader?.primaryText?.runs ||
+                   candidateHeader?.headerText?.runs ||
+                   candidateHeader?.title?.runs || [];
 
       if (parts.length === 0) {
         runs.forEach(run => {
@@ -2177,6 +2285,12 @@ export class YoutubeChatClient {
       } else if (!text && renderer.primaryText?.simpleText) {
         text = renderer.primaryText.simpleText;
         parts.push({ type: 'text', content: text });
+      } else if (!text && candidateHeader?.primaryText?.simpleText) {
+        text = candidateHeader.primaryText.simpleText;
+        parts.push({ type: 'text', content: text });
+      } else if (!text && candidateHeader?.headerText?.simpleText) {
+        text = candidateHeader.headerText.simpleText;
+        parts.push({ type: 'text', content: text });
       }
 
       // Check for Gift / Jewels item and images strictly on real gift events
@@ -2184,6 +2298,7 @@ export class YoutubeChatClient {
       let giftDetails = null;
       const isExplicitGift = eventType === 'gift' || 
                              Boolean(renderer && (renderer.jewelsAmount || renderer.jewels || renderer.jewelAmount || renderer.rubies || (renderer.purchaseAmountText?.simpleText && /jewel/i.test(renderer.purchaseAmountText.simpleText)))) ||
+                             Boolean(candidateHeader && (candidateHeader.jewelsAmount || candidateHeader.jewels || candidateHeader.jewelAmount || candidateHeader.rubies || (candidateHeader.purchaseAmountText?.simpleText && /jewel/i.test(candidateHeader.purchaseAmountText.simpleText)))) ||
                              Boolean(item && (item.jewelsAmount || item.jewels || item.jewelAmount || item.rubies || item.gift || item.giftName));
 
       if (isExplicitGift) {
@@ -2196,11 +2311,26 @@ export class YoutubeChatClient {
                            renderer.giftImage?.thumbnails || 
                            renderer.giftImage?.sources || 
                            renderer.image?.thumbnails || 
+                           candidateHeader?.gift?.thumbnails ||
+                           candidateHeader?.giftThumbnail?.thumbnails ||
+                           candidateHeader?.image?.thumbnails ||
                            item?.gift?.thumbnails || 
                            item?.giftThumbnail?.thumbnails || [];
         let giftImageUrl = giftThumbs.length > 0 ? normalizeUrl(giftThumbs[giftThumbs.length - 1]?.url || giftThumbs[0]?.url) : null;
 
-        let giftName = renderer.gift?.name || renderer.giftName || renderer.title?.simpleText || renderer.title || (typeof renderer.headerText?.simpleText === 'string' ? renderer.headerText.simpleText : null) || item?.gift?.name || item?.giftName || 'Gift';
+        let giftName = renderer.gift?.name || 
+                       renderer.giftName || 
+                       renderer.title?.simpleText || 
+                       renderer.title || 
+                       (typeof renderer.headerText?.simpleText === 'string' ? renderer.headerText.simpleText : null) || 
+                       candidateHeader?.gift?.name ||
+                       candidateHeader?.giftName ||
+                       candidateHeader?.title?.simpleText ||
+                       candidateHeader?.title ||
+                       (typeof candidateHeader?.headerText?.simpleText === 'string' ? candidateHeader.headerText.simpleText : null) ||
+                       item?.gift?.name || 
+                       item?.giftName || 
+                       'Gift';
         if (typeof giftName !== 'string' || !giftName) giftName = 'Gift';
 
         if (giftImageUrl && !parts.some(p => p.type === 'emote' && p.url === giftImageUrl)) {
@@ -2215,8 +2345,11 @@ export class YoutubeChatClient {
         if (renderer.purchaseAmountText?.simpleText) {
           const m = renderer.purchaseAmountText.simpleText.match(/(\d+)/);
           if (m) jewels = m[1];
-        } else if (renderer.jewelsAmount || renderer.jewels || renderer.jewelAmount || renderer.rubies || item?.jewelsAmount || item?.jewels || item?.jewelAmount || item?.rubies) {
-          jewels = String(renderer.jewelsAmount || renderer.jewels || renderer.jewelAmount || renderer.rubies || item?.jewelsAmount || item?.jewels || item?.jewelAmount || item?.rubies);
+        } else if (candidateHeader?.purchaseAmountText?.simpleText) {
+          const m = candidateHeader.purchaseAmountText.simpleText.match(/(\d+)/);
+          if (m) jewels = m[1];
+        } else if (renderer.jewelsAmount || renderer.jewels || renderer.jewelAmount || renderer.rubies || candidateHeader?.jewelsAmount || candidateHeader?.jewels || candidateHeader?.jewelAmount || candidateHeader?.rubies || item?.jewelsAmount || item?.jewels || item?.jewelAmount || item?.rubies) {
+          jewels = String(renderer.jewelsAmount || renderer.jewels || renderer.jewelAmount || renderer.rubies || candidateHeader?.jewelsAmount || candidateHeader?.jewels || candidateHeader?.jewelAmount || candidateHeader?.rubies || item?.jewelsAmount || item?.jewels || item?.jewelAmount || item?.rubies);
         } else if (giftName) {
           const cleanKey = giftName.toLowerCase().replace(/\.+$/, '').trim();
           if (YOUTUBE_GIFT_JEWELS_MAP[cleanKey]) {
@@ -2224,6 +2357,13 @@ export class YoutubeChatClient {
           } else if (YOUTUBE_GIFT_JEWELS_MAP[giftName.toLowerCase().trim()]) {
             jewels = String(YOUTUBE_GIFT_JEWELS_MAP[giftName.toLowerCase().trim()]);
           }
+        }
+
+        // Check candidateHeader subtitle or renderer subtitle for jewel amount
+        if (!jewels) {
+          const subtitleText = candidateHeader?.subtitle?.simpleText || renderer.subtitle?.simpleText || '';
+          const sm = subtitleText.match(/(\d+)\s*jewels?/i);
+          if (sm) jewels = sm[1];
         }
 
         // Check if message runs or text has jewel amount (e.g. "50 Jewels")
@@ -2246,30 +2386,21 @@ export class YoutubeChatClient {
         }
       }
 
-      // Check text for sent gifts (e.g. "@heliqx sent Star" or "sent Goat trophy" or "sent 50 Jewels")
-      // ONLY triggers if the message strictly begins with "sent" or "@user sent" or "gifted"
-      // AND either mentions jewels, matches a known gift, or includes a gift emote
+      // Check text for sent gifts (e.g. "@heliqx sent Star" or "Suraj sent Vada Pav" or "vidi_1118 sent Gold coin for 10 Jewels" or "sent 50 Jewels")
+      let detectedAuthorFromText = null;
       if (!isGift && text && eventType !== 'subscription' && eventType !== 'moderation') {
-        const giftMatch = text.match(/^(?:@\S+\s+)?(?:sent|gifted)\s+(.+)/i);
-        if (giftMatch) {
-          const rawContent = giftMatch[1].replace(/[:*]/g, '').trim();
-          const cleanKey = rawContent.toLowerCase().replace(/\.+$/, '').trim();
-          const explicitJewelsMatch = rawContent.match(/^(\d+)\s*jewels?$/i) || text.match(/(\d+)\s*jewels?/i);
-          const knownJewels = YOUTUBE_GIFT_JEWELS_MAP[cleanKey] || YOUTUBE_GIFT_JEWELS_MAP[rawContent.toLowerCase()];
+        const detectedGift = detectGiftFromText(text, parts);
+        if (detectedGift) {
+          isGift = true;
+          isSystemEvent = true;
+          eventType = 'gift';
+          detectedAuthorFromText = detectedGift.authorFromText;
           const emotePart = parts.find(p => p.type === 'emote');
-
-          if (explicitJewelsMatch || knownJewels || (emotePart && /jewel/i.test(text))) {
-            isGift = true;
-            isSystemEvent = true;
-            eventType = 'gift';
-            const jewelsAmount = explicitJewelsMatch ? explicitJewelsMatch[1] : String(knownJewels || 10);
-            const giftDisplayName = explicitJewelsMatch ? (knownJewels ? rawContent : 'Jewels') : rawContent;
-            giftDetails = {
-              name: giftDisplayName,
-              jewels: jewelsAmount,
-              imageUrl: emotePart?.url || null
-            };
-          }
+          giftDetails = {
+            name: detectedGift.giftName,
+            jewels: detectedGift.jewels,
+            imageUrl: emotePart?.url || null
+          };
         }
       }
 
@@ -2318,7 +2449,10 @@ export class YoutubeChatClient {
       const authorCandidates = [renderer, headerRenderer, item, passedItem, tickerRenderer, action].filter(Boolean);
 
       const authorChannelId = isModEvent ? null : extractAuthorChannelId(authorCandidates);
-      const rawHandle = isModEvent ? 'System' : extractAuthorName(authorCandidates, text);
+      let rawHandle = isModEvent ? 'System' : extractAuthorName(authorCandidates, text);
+      if (!isModEvent && (rawHandle === 'anon' || !rawHandle) && detectedAuthorFromText) {
+        rawHandle = detectedAuthorFromText;
+      }
       const username = isModEvent ? 'System' : rawHandle.toLowerCase().replace(/\s+/g, '');
 
       let displayName = isModEvent ? 'System' : rawHandle;
@@ -2328,11 +2462,14 @@ export class YoutubeChatClient {
 
       // If gift event and text begins with author's name, clean up text so username isn't duplicated in UI
       if (isGift && text) {
-        const nameEscaped = rawHandle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const userEscaped = username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const cleanPattern = new RegExp(`^(?:@?(?:${nameEscaped}|${userEscaped}|anon)\\s+)?(sent|gifted)\\b`, 'i');
-        if (cleanPattern.test(text.trim())) {
-          text = text.trim().replace(cleanPattern, '$1');
+        const nameToClean = (rawHandle && rawHandle !== 'anon') ? rawHandle : (detectedAuthorFromText || '');
+        if (nameToClean) {
+          const nameEscaped = nameToClean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const userEscaped = username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const cleanPattern = new RegExp(`^(?:@?(?:${nameEscaped}|${userEscaped}|anon)\\s+)?(sent|gifted)\\b`, 'i');
+          if (cleanPattern.test(text.trim())) {
+            text = text.trim().replace(cleanPattern, '$1');
+          }
         }
       }
 
@@ -2633,54 +2770,62 @@ function normalizeUrl(url) {
 export function extractAuthorName(candidates, text) {
   for (const cand of candidates) {
     if (!cand || typeof cand !== 'object') continue;
-    // 1. authorName
-    if (typeof cand.authorName === 'string' && cand.authorName.trim()) {
-      return cand.authorName.trim();
-    }
-    if (cand.authorName?.simpleText && typeof cand.authorName.simpleText === 'string') {
-      return cand.authorName.simpleText.trim();
-    }
-    if (Array.isArray(cand.authorName?.runs) && cand.authorName.runs.length > 0) {
-      const t = cand.authorName.runs.map(r => r?.text || '').join('').trim();
-      if (t) return t;
-    }
-    // 2. author
-    if (typeof cand.author === 'string' && cand.author.trim()) {
-      return cand.author.trim();
-    }
-    if (cand.author?.displayName && typeof cand.author.displayName === 'string') {
-      return cand.author.displayName.trim();
-    }
-    if (cand.author?.name && typeof cand.author.name === 'string') {
-      return cand.author.name.trim();
-    }
-    if (cand.author?.simpleText && typeof cand.author.simpleText === 'string') {
-      return cand.author.simpleText.trim();
-    }
-    if (Array.isArray(cand.author?.runs) && cand.author.runs.length > 0) {
-      const t = cand.author.runs.map(r => r?.text || '').join('').trim();
-      if (t) return t;
-    }
-    // 3. authorNameText
-    if (cand.authorNameText?.simpleText && typeof cand.authorNameText.simpleText === 'string') {
-      return cand.authorNameText.simpleText.trim();
-    }
-    if (Array.isArray(cand.authorNameText?.runs) && cand.authorNameText.runs.length > 0) {
-      const t = cand.authorNameText.runs.map(r => r?.text || '').join('').trim();
-      if (t) return t;
-    }
-    // 4. authorDisplayName / chatterName
-    if (typeof cand.authorDisplayName === 'string' && cand.authorDisplayName.trim()) {
-      return cand.authorDisplayName.trim();
-    }
-    if (typeof cand.chatterName === 'string' && cand.chatterName.trim()) {
-      return cand.chatterName.trim();
+    const subHeader = cand.header?.liveChatPaidGiftHeaderRenderer || 
+                      cand.header?.liveChatSponsorshipsHeaderRenderer || 
+                      cand.header?.liveChatHeaderRenderer || 
+                      cand.header;
+    const allCands = subHeader ? [cand, subHeader] : [cand];
+
+    for (const c of allCands) {
+      // 1. authorName
+      if (typeof c.authorName === 'string' && c.authorName.trim()) {
+        return c.authorName.trim();
+      }
+      if (c.authorName?.simpleText && typeof c.authorName.simpleText === 'string') {
+        return c.authorName.simpleText.trim();
+      }
+      if (Array.isArray(c.authorName?.runs) && c.authorName.runs.length > 0) {
+        const t = c.authorName.runs.map(r => r?.text || '').join('').trim();
+        if (t) return t;
+      }
+      // 2. author
+      if (typeof c.author === 'string' && c.author.trim()) {
+        return c.author.trim();
+      }
+      if (c.author?.displayName && typeof c.author.displayName === 'string') {
+        return c.author.displayName.trim();
+      }
+      if (c.author?.name && typeof c.author.name === 'string') {
+        return c.author.name.trim();
+      }
+      if (c.author?.simpleText && typeof c.author.simpleText === 'string') {
+        return c.author.simpleText.trim();
+      }
+      if (Array.isArray(c.author?.runs) && c.author.runs.length > 0) {
+        const t = c.author.runs.map(r => r?.text || '').join('').trim();
+        if (t) return t;
+      }
+      // 3. authorNameText
+      if (c.authorNameText?.simpleText && typeof c.authorNameText.simpleText === 'string') {
+        return c.authorNameText.simpleText.trim();
+      }
+      if (Array.isArray(c.authorNameText?.runs) && c.authorNameText.runs.length > 0) {
+        const t = c.authorNameText.runs.map(r => r?.text || '').join('').trim();
+        if (t) return t;
+      }
+      // 4. authorDisplayName / chatterName
+      if (typeof c.authorDisplayName === 'string' && c.authorDisplayName.trim()) {
+        return c.authorDisplayName.trim();
+      }
+      if (typeof c.chatterName === 'string' && c.chatterName.trim()) {
+        return c.chatterName.trim();
+      }
     }
   }
 
   // Fallback: extract from text if it starts with "@user sent" or "user sent"
   if (text && typeof text === 'string') {
-    const match = text.match(/^(?:@)?([a-zA-Z0-9_\u00A0-\uFFFF.-]+)\s+(?:sent|gifted)\b/i);
+    const match = text.trim().match(/^(?:@)?([^\s:]+(?:\s+[^\s:]+)*?)\s+(?:sent|gifted)\b/i);
     if (match && match[1]) {
       const cand = match[1].trim();
       if (!['anon', 'someone', 'you'].includes(cand.toLowerCase())) {
@@ -2695,43 +2840,51 @@ export function extractAuthorName(candidates, text) {
 export function extractAuthorPhoto(candidates) {
   for (const cand of candidates) {
     if (!cand || typeof cand !== 'object') continue;
-    const thumbs = cand.authorPhoto?.thumbnails ||
-                   cand.authorThumbnail?.thumbnails ||
-                   cand.authorThumbnails ||
-                   cand.author?.thumbnails ||
-                   cand.author?.photo?.thumbnails ||
-                   cand.author?.avatar?.thumbnails ||
-                   (cand.authorPhoto?.thumbnail ? [cand.authorPhoto.thumbnail] : null) ||
-                   cand.authorPhoto?.sources;
-    let url = null;
-    if (Array.isArray(thumbs) && thumbs.length > 0) {
-      url = thumbs[thumbs.length - 1]?.url || thumbs[0]?.url;
-    } else if (typeof cand.authorPhoto === 'string') {
-      url = cand.authorPhoto;
-    } else if (typeof cand.authorThumbnail === 'string') {
-      url = cand.authorThumbnail;
-    } else if (typeof cand.authorPhoto?.url === 'string') {
-      url = cand.authorPhoto.url;
-    } else if (typeof cand.authorThumbnail?.url === 'string') {
-      url = cand.authorThumbnail.url;
-    } else if (typeof cand.author?.avatarUrl === 'string') {
-      url = cand.author.avatarUrl;
-    } else if (typeof cand.author?.photoUrl === 'string') {
-      url = cand.author.photoUrl;
-    } else if (typeof cand.author?.photo === 'string') {
-      url = cand.author.photo;
-    }
+    const subHeader = cand.header?.liveChatPaidGiftHeaderRenderer || 
+                      cand.header?.liveChatSponsorshipsHeaderRenderer || 
+                      cand.header?.liveChatHeaderRenderer || 
+                      cand.header;
+    const allCands = subHeader ? [cand, subHeader] : [cand];
 
-    if (url) {
-      url = normalizeUrl(url);
-      if (url && typeof url === 'string' && (url.includes('googleusercontent.com') || url.includes('ggpht.com') || url.includes('youtube.com') || url.includes('ytimg.com'))) {
-        if (/=s\d+/.test(url)) {
-          url = url.replace(/=s\d+/, '=s1280');
-        } else if (!url.includes('=')) {
-          url = `${url}=s1280`;
-        }
+    for (const c of allCands) {
+      const thumbs = c.authorPhoto?.thumbnails ||
+                     c.authorThumbnail?.thumbnails ||
+                     c.authorThumbnails ||
+                     c.author?.thumbnails ||
+                     c.author?.photo?.thumbnails ||
+                     c.author?.avatar?.thumbnails ||
+                     (c.authorPhoto?.thumbnail ? [c.authorPhoto.thumbnail] : null) ||
+                     c.authorPhoto?.sources;
+      let url = null;
+      if (Array.isArray(thumbs) && thumbs.length > 0) {
+        url = thumbs[thumbs.length - 1]?.url || thumbs[0]?.url;
+      } else if (typeof c.authorPhoto === 'string') {
+        url = c.authorPhoto;
+      } else if (typeof c.authorThumbnail === 'string') {
+        url = c.authorThumbnail;
+      } else if (typeof c.authorPhoto?.url === 'string') {
+        url = c.authorPhoto.url;
+      } else if (typeof c.authorThumbnail?.url === 'string') {
+        url = c.authorThumbnail.url;
+      } else if (typeof c.author?.avatarUrl === 'string') {
+        url = c.author.avatarUrl;
+      } else if (typeof c.author?.photoUrl === 'string') {
+        url = c.author.photoUrl;
+      } else if (typeof c.author?.photo === 'string') {
+        url = c.author.photo;
       }
-      return url;
+
+      if (url) {
+        url = normalizeUrl(url);
+        if (url && typeof url === 'string' && (url.includes('googleusercontent.com') || url.includes('ggpht.com') || url.includes('youtube.com') || url.includes('ytimg.com'))) {
+          if (/=s\d+/.test(url)) {
+            url = url.replace(/=s\d+/, '=s1280');
+          } else if (!url.includes('=')) {
+            url = `${url}=s1280`;
+          }
+        }
+        return url;
+      }
     }
   }
   return null;
@@ -2740,15 +2893,23 @@ export function extractAuthorPhoto(candidates) {
 export function extractAuthorChannelId(candidates) {
   for (const cand of candidates) {
     if (!cand || typeof cand !== 'object') continue;
-    const id = cand.authorExternalChannelId ||
-               cand.authorChannelId ||
-               cand.externalChannelId ||
-               cand.channelId ||
-               cand.author?.channelId ||
-               cand.author?.externalChannelId ||
-               cand.author?.id;
-    if (typeof id === 'string' && id.trim()) {
-      return id.trim();
+    const subHeader = cand.header?.liveChatPaidGiftHeaderRenderer || 
+                      cand.header?.liveChatSponsorshipsHeaderRenderer || 
+                      cand.header?.liveChatHeaderRenderer || 
+                      cand.header;
+    const allCands = subHeader ? [cand, subHeader] : [cand];
+
+    for (const c of allCands) {
+      const id = c.authorExternalChannelId ||
+                 c.authorChannelId ||
+                 c.externalChannelId ||
+                 c.channelId ||
+                 c.author?.channelId ||
+                 c.author?.externalChannelId ||
+                 c.author?.id;
+      if (typeof id === 'string' && id.trim()) {
+        return id.trim();
+      }
     }
   }
   return null;
