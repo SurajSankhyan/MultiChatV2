@@ -4,15 +4,39 @@ import PlatformLogo from './PlatformLogo';
 import { Tooltip, TooltipTrigger, TooltipContent } from './ui/interfaces-tooltip';
 import { AnimatePresence, motion } from 'framer-motion';
 
+let cachedKickUser = null;
+let cachedStoredUser = null;
+let lastCacheTime = 0;
+
+const getCachedStorage = () => {
+  if (typeof window === 'undefined') return { kickUser: '', storedUser: {} };
+  const now = Date.now();
+  if (now - lastCacheTime > 1500) {
+    try {
+      cachedKickUser = String(localStorage.getItem('prochat_kick_username') || '').toLowerCase().replace(/^@+/, '').trim();
+      cachedStoredUser = JSON.parse(localStorage.getItem('prochat_user') || '{}');
+    } catch (e) {
+      cachedStoredUser = {};
+    }
+    lastCacheTime = now;
+  }
+  return { kickUser: cachedKickUser || '', storedUser: cachedStoredUser || {} };
+};
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', () => { lastCacheTime = 0; });
+}
+
 const isChannelConnected = (ch, user) => {
   if (!ch) return false;
   if (ch.platform === 'global') return true;
 
+  const { kickUser, storedUser } = getCachedStorage();
+
   if (ch.platform === 'kick') {
-    const connectedKickUser = typeof window !== 'undefined' ? String(localStorage.getItem('prochat_kick_username') || '').toLowerCase().replace(/^@+/, '').trim() : '';
     const cleanChName = String(ch.name || '').toLowerCase().replace(/^@+/, '').trim();
-    if (ch.is_connected === true) return true;
-    if (connectedKickUser && cleanChName === connectedKickUser) return true;
+    if (ch.is_connected === true || ch.verified === true) return true;
+    if (kickUser && cleanChName === kickUser) return true;
     return false;
   }
 
@@ -25,24 +49,16 @@ const isChannelConnected = (ch, user) => {
     const uName = String(user?.ytChannelName || user?.channel_name || '').toLowerCase().replace(/^@+/, '').trim();
     const uId = String(user?.ytChannelId || user?.channel_id || '').trim();
 
-    let sHandle = '';
-    let sName = '';
-    let sId = '';
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = JSON.parse(localStorage.getItem('prochat_user') || '{}');
-        sHandle = String(stored.ytCustomHandle || stored.custom_handle || '').toLowerCase().replace(/^@+/, '').trim();
-        sName = String(stored.ytChannelName || stored.channel_name || '').toLowerCase().replace(/^@+/, '').trim();
-        sId = String(stored.ytChannelId || stored.channel_id || '').trim();
-      } catch (e) {}
-    }
+    const sHandle = String(storedUser.ytCustomHandle || storedUser.custom_handle || '').toLowerCase().replace(/^@+/, '').trim();
+    const sName = String(storedUser.ytChannelName || storedUser.channel_name || '').toLowerCase().replace(/^@+/, '').trim();
+    const sId = String(storedUser.ytChannelId || storedUser.channel_id || '').trim();
 
     const myHandles = [uHandle, sHandle].filter(Boolean);
     const myNames = [uName, sName].filter(Boolean);
     const myIds = [uId, sId].filter(Boolean);
 
-    if (ch.verified === true && ch.userId && user?.id && String(ch.userId) === String(user.id)) return true;
-    if (ch.is_connected === true) return true;
+    if (ch.verified === true || ch.is_connected === true) return true;
+    if (ch.userId && user?.id && String(ch.userId) === String(user.id)) return true;
 
     if (myIds.length > 0 && myIds.some(id => id === cleanChId)) return true;
     if (myHandles.length > 0 && myHandles.some(h => h === cleanCh || h === cleanChDisplay)) return true;

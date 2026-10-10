@@ -856,26 +856,7 @@ export class YoutubeChatClient {
       return null;
     }
 
-    const meta = this.parseMetadataFromHtml(html);
-    if (!meta || !meta.isLive) {
-      // Check if confirmed live via multiple regexes
-      const isLiveMatch = /"isLive"\s*:\s*true/i.test(html) ||
-                     /"isLiveNow"\s*:\s*true/i.test(html) ||
-                     /"isLiveContent"\s*:\s*true/i.test(html) ||
-                     /"isLiveBroadcast"\s*:\s*true/i.test(html) ||
-                     /"status"\s*:\s*"LIVE"/i.test(html) ||
-                     /\bwatching now\b/i.test(html) ||
-                     /liveChatRenderer/i.test(html);
-      if (!isLiveMatch) return null;
-    }
-    
-    // Explicit offline safeguard: if the canonical URL is a channel page, it's not a live watch page
-    const channelCanonicalMatch = html.match(/<link\s+rel="canonical"\s+href="[^"]*(?:\/channel\/|\/@)[^"]+"/i);
-    if (channelCanonicalMatch) {
-      return null;
-    }
-
-    // 1. Try canonical URL watch?v= or /shorts/
+    // 1. Try canonical URL watch?v= or /shorts/ (definitive watch page)
     const canonicalMatch = html.match(/<link\s+rel="canonical"\s+href="[^"]*(?:watch\?v=|\/shorts\/)([a-zA-Z0-9_-]{11})"/i);
     if (canonicalMatch && canonicalMatch[1]) {
       return canonicalMatch[1];
@@ -887,22 +868,35 @@ export class YoutubeChatClient {
       return liveStreamMatch[1];
     }
 
-    // 3. Try watchEndpoint / currentVideoEndpoint videoId
-    const endpointMatch = html.match(/"watchEndpoint"\s*:\s*\{\s*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
-    if (endpointMatch && endpointMatch[1]) {
-      return endpointMatch[1];
-    }
-    
-    // 4. Try videoDetails videoId
-    const vidDetailsMatch = html.match(/"videoDetails"\s*:\s*\{[^}]*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
-    if (vidDetailsMatch && vidDetailsMatch[1]) {
-      return vidDetailsMatch[1];
-    }
+    // 3. Check if confirmed live via metadata or regexes
+    const meta = this.parseMetadataFromHtml(html);
+    const isLiveMatch = (meta && meta.isLive) ||
+                   /"isLive"\s*:\s*true/i.test(html) ||
+                   /"isLiveNow"\s*:\s*true/i.test(html) ||
+                   /"isLiveContent"\s*:\s*true/i.test(html) ||
+                   /"isLiveBroadcast"\s*:\s*true/i.test(html) ||
+                   /"status"\s*:\s*"LIVE"/i.test(html) ||
+                   /\bwatching now\b/i.test(html) ||
+                   /liveChatRenderer/i.test(html);
 
-    // 5. Fallback to general videoId
-    const videoIdMatch = html.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
-    if (videoIdMatch && videoIdMatch[1]) {
-      return videoIdMatch[1];
+    if (isLiveMatch) {
+      // 4. Try watchEndpoint / currentVideoEndpoint videoId
+      const endpointMatch = html.match(/"watchEndpoint"\s*:\s*\{\s*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
+      if (endpointMatch && endpointMatch[1]) {
+        return endpointMatch[1];
+      }
+      
+      // 5. Try videoDetails videoId
+      const vidDetailsMatch = html.match(/"videoDetails"\s*:\s*\{[^}]*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
+      if (vidDetailsMatch && vidDetailsMatch[1]) {
+        return vidDetailsMatch[1];
+      }
+
+      // 6. Fallback to general videoId
+      const videoIdMatch = html.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
+      if (videoIdMatch && videoIdMatch[1]) {
+        return videoIdMatch[1];
+      }
     }
     
     return null;
@@ -910,7 +904,7 @@ export class YoutubeChatClient {
 
   setupOfflinePoll(channelName, chatMode = 'live') {
     const trimmedName = channelName.trim();
-    const pollKey = trimmedName.toLowerCase().replace('@', '');
+    const pollKey = trimmedName.toLowerCase().replace(/^@+/, '').trim();
     
     const existing = this.activePolls.get(pollKey);
     if (existing) {
@@ -1150,7 +1144,7 @@ export class YoutubeChatClient {
     const trimmedName = channelName.trim();
     if (!trimmedName) return;
 
-    const pollKey = trimmedName.toLowerCase().replace('@', '');
+    const pollKey = trimmedName.toLowerCase().replace(/^@+/, '').trim();
     let existingSeenIds = new Set();
 
     if (this.activePolls.has(pollKey)) {
@@ -1530,7 +1524,7 @@ export class YoutubeChatClient {
   }
 
   leave(channelName) {
-    const pollKey = channelName.toLowerCase().replace('@', '').trim();
+    const pollKey = (channelName || '').toLowerCase().replace(/^@+/, '').trim();
     const poll = this.activePolls.get(pollKey);
     if (poll) {
       if (poll.timeoutId) clearTimeout(poll.timeoutId);
@@ -1550,7 +1544,7 @@ export class YoutubeChatClient {
   }
 
   async pollChat(channelName) {
-    const pollKey = (channelName || '').toLowerCase().replace('@', '').trim();
+    const pollKey = (channelName || '').toLowerCase().replace(/^@+/, '').trim();
     const poll = this.activePolls.get(pollKey) || this.activePolls.get(channelName);
     if (!poll || !poll.apiKey) return;
     if (poll.isPolling) return; // Prevent concurrent requests for same token
@@ -1666,8 +1660,12 @@ export class YoutubeChatClient {
 
         if (liveChatCont.actions) {
           liveChatCont.actions.forEach(action => {
-            // 1. Process normal chat item
-            let item = action.addChatItemAction?.item;
+            // 1. Process normal chat item or moderation item
+            let item = action.addChatItemAction?.item ||
+                       action.addLiveChatItemAction?.item ||
+                       action.addLiveChatModerationMessageAction?.item ||
+                       action.item ||
+                       (action.liveChatModerationMessageRenderer ? action : null);
 
             // 2. Process ticker Super Chat / Super Sticker / Gift item
             if (!item && action.addLiveChatTickerItemAction?.item) {
@@ -1726,6 +1724,8 @@ export class YoutubeChatClient {
                               item.liveChatGiftItemRenderer ||
                               item.liveChatPaidVirtualItemRenderer ||
                               item.liveChatVirtualGiftRenderer ||
+                              item.liveChatModerationMessageRenderer ||
+                              item.liveChatViewerEngagementMessageRenderer ||
                               (Object.keys(item).find(k => /gift|jewel|virtualitem/i.test(k) && !/membership|sponsorship/i.test(k)) 
                                 ? item[Object.keys(item).find(k => /gift|jewel|virtualitem/i.test(k) && !/membership|sponsorship/i.test(k))] 
                                 : null) ||
@@ -1745,19 +1745,26 @@ export class YoutubeChatClient {
             }
             this.parseChatAction(channelName, action, item);
 
-            // Handle YouTube message deletion actions
+            // Handle YouTube message deletion actions and moderation announcements
             const markDeleted = action.markChatItemAsDeletedAction || action.mark_chat_item_as_deleted_action || (action.type === 'MarkChatItemAsDeletedAction' ? action : null);
             const removeDeleted = action.removeChatItemAction || action.remove_chat_item_action || (action.type === 'RemoveChatItemAction' ? action : null);
             const authorMarkDeleted = action.markChatItemsByAuthorAsDeletedAction || action.mark_chat_items_by_author_as_deleted_action || action.markChatItemByAuthorAsDeletedAction || action.mark_chat_item_by_author_as_deleted_action || (action.type === 'MarkChatItemsByAuthorAsDeletedAction' ? action : null);
             const authorRemoveDeleted = action.removeChatItemByAuthorAction || action.remove_chat_item_by_author_action || action.removeChatItemsByAuthorAction || action.remove_chat_items_by_author_action || (action.type === 'RemoveChatItemByAuthorAction' ? action : null);
             const replaceDeleted = action.replaceChatItemAction || action.replace_chat_item_action;
+            const modRenderer = action.liveChatModerationMessageRenderer || 
+                                action.addChatItemAction?.item?.liveChatModerationMessageRenderer || 
+                                action.addLiveChatItemAction?.item?.liveChatModerationMessageRenderer || 
+                                action.addLiveChatModerationMessageAction?.item?.liveChatModerationMessageRenderer || 
+                                action.addLiveChatModerationMessageAction?.renderer?.liveChatModerationMessageRenderer || 
+                                item?.liveChatModerationMessageRenderer;
 
             let deletedBy = null;
             let timeoutTarget = null;
             let timeoutMod = null;
             let timeoutDuration = null;
 
-            const snippet = (markDeleted && (markDeleted.deletedStateMessageSnippet || markDeleted.deletedStateMessage || markDeleted.deleted_state_message || markDeleted.deleted_state_message_snippet)) || 
+            const snippet = (modRenderer && (modRenderer.message || modRenderer.text)) ||
+                            (markDeleted && (markDeleted.deletedStateMessageSnippet || markDeleted.deletedStateMessage || markDeleted.deleted_state_message || markDeleted.deleted_state_message_snippet)) || 
                             (authorMarkDeleted && (authorMarkDeleted.deletedStateMessageSnippet || authorMarkDeleted.deletedStateMessage || authorMarkDeleted.deleted_state_message || authorMarkDeleted.deleted_state_message_snippet)) ||
                             (removeDeleted && (removeDeleted.deletedStateMessageSnippet || removeDeleted.deletedStateMessage || removeDeleted.deleted_state_message || removeDeleted.deleted_state_message_snippet)) ||
                             (authorRemoveDeleted && (authorRemoveDeleted.deletedStateMessageSnippet || authorRemoveDeleted.deletedStateMessage || authorRemoveDeleted.deleted_state_message || authorRemoveDeleted.deleted_state_message_snippet)) ||
@@ -1765,13 +1772,13 @@ export class YoutubeChatClient {
             
             let rawSnippetText = '';
             if (typeof snippet === 'string') {
-              rawSnippetText = snippet;
+              rawSnippetText = snippet.trim();
             } else if (typeof snippet?.text === 'string') {
-              rawSnippetText = snippet.text;
+              rawSnippetText = snippet.text.trim();
             } else if (typeof snippet?.simpleText === 'string') {
-              rawSnippetText = snippet.simpleText;
+              rawSnippetText = snippet.simpleText.trim();
             } else if (Array.isArray(snippet?.runs)) {
-              rawSnippetText = snippet.runs.map(r => r?.text || '').join('');
+              rawSnippetText = snippet.runs.map(r => r?.text || '').join('').trim();
             }
 
             if (rawSnippetText) {
@@ -1779,7 +1786,7 @@ export class YoutubeChatClient {
               let tm = rawSnippetText.match(/(?:^|\s)@?([^\s]+(?:\s+[^\s]+)*?)\s+was\s+(?:put\s+on\s+timeout|timed\s+out)\s+for\s+([0-9]+\s*[a-zA-Z]+)\s+by\s+@?([^\s.]+)/i);
               if (tm) {
                 timeoutTarget = tm[1].replace(/^@+/, '').trim();
-                timeoutDuration = tm[2].trim();
+                timeoutDuration = tm[2].trim().replace(/\s+/g, ' ');
                 timeoutMod = tm[3].replace(/^@+/, '').replace(/\.$/, '').trim();
                 deletedBy = timeoutMod;
               } else {
@@ -1788,12 +1795,19 @@ export class YoutubeChatClient {
                 if (tm) {
                   timeoutTarget = tm[1].replace(/^@+/, '').trim();
                   timeoutMod = tm[2].replace(/^@+/, '').replace(/\.$/, '').trim();
-                  timeoutDuration = tm[3] ? tm[3].trim() : '';
+                  timeoutDuration = tm[3] ? tm[3].trim().replace(/\s+/g, ' ') : null;
                   deletedBy = timeoutMod;
                 } else {
-                  const dm = rawSnippetText.match(/(?:message\s+deleted|messages\s+deleted|deleted|hidden)\s+by\s+@?([^\s.\[\r\n]+)/i);
-                  if (dm) {
-                    deletedBy = dm[1].replace(/^@+/, '').replace(/\.$/, '').trim();
+                  // Case C: @user was put on timeout (optionally: for <duration>) without explicit "by @mod"
+                  tm = rawSnippetText.match(/(?:^|\s)@?([^\s]+(?:\s+[^\s]+)*?)\s+was\s+(?:put\s+on\s+timeout|timed\s+out)(?:\s+for\s+([0-9]+\s*[a-zA-Z]+))?/i);
+                  if (tm) {
+                    timeoutTarget = tm[1].replace(/^@+/, '').trim();
+                    timeoutDuration = tm[2] ? tm[2].trim().replace(/\s+/g, ' ') : null;
+                  } else {
+                    const dm = rawSnippetText.match(/(?:message\s+deleted|messages\s+deleted|deleted|hidden)\s+by\s+@?([^\s.\[\r\n]+)/i);
+                    if (dm) {
+                      deletedBy = dm[1].replace(/^@+/, '').replace(/\.$/, '').trim();
+                    }
                   }
                 }
               }
@@ -1805,21 +1819,27 @@ export class YoutubeChatClient {
             const authorId = (authorMarkDeleted && (authorMarkDeleted.externalChannelId || authorMarkDeleted.external_channel_id)) ||
                              (authorRemoveDeleted && (authorRemoveDeleted.externalChannelId || authorRemoveDeleted.external_channel_id));
 
-            if (timeoutTarget && timeoutMod && this.onMessage) {
-              const effectiveDuration = timeoutDuration || '5 minutes';
+            if (timeoutTarget && this.onMessage) {
+              const text = timeoutDuration
+                ? (timeoutMod 
+                    ? `@${timeoutTarget} was timed out by @${timeoutMod} for ${timeoutDuration}.`
+                    : `@${timeoutTarget} was timed out for ${timeoutDuration}.`)
+                : (timeoutMod
+                    ? `@${timeoutTarget} was timed out by @${timeoutMod}.`
+                    : `@${timeoutTarget} was timed out.`);
               const sysMsg = {
-                id: 'sys-timeout-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
+                id: (modRenderer?.id) || ('sys-timeout-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7)),
                 platform: 'youtube',
                 channel: channelName ? channelName.toLowerCase() : 'global',
                 username: 'System',
                 displayName: 'System',
-                text: `@${timeoutTarget} was timed out by @${timeoutMod} for ${effectiveDuration}.`,
+                text: text,
                 isSystemEvent: true,
                 eventType: 'moderation',
                 eventDetails: {
                   targetUser: timeoutTarget,
-                  modUser: timeoutMod,
-                  duration: effectiveDuration,
+                  modUser: timeoutMod || undefined,
+                  duration: timeoutDuration || undefined,
                   action: 'timeout'
                 },
                 rawTimestamp: Date.now(),
@@ -1830,11 +1850,11 @@ export class YoutubeChatClient {
 
             if (targetId) {
               if (this.onMessageDeleted) {
-                this.onMessageDeleted(targetId, null, deletedBy, channelName, rawSnippetText, timeoutDuration || '5 minutes');
+                this.onMessageDeleted(targetId, null, deletedBy, channelName, rawSnippetText, timeoutDuration || null);
               }
             } else if (authorId || timeoutTarget) {
               if (this.onMessageDeleted) {
-                this.onMessageDeleted(null, authorId || timeoutTarget, deletedBy, channelName, rawSnippetText, timeoutDuration || '5 minutes');
+                this.onMessageDeleted(null, authorId || timeoutTarget, deletedBy, channelName, rawSnippetText, timeoutDuration || null);
               }
             }
           });
@@ -1911,6 +1931,10 @@ export class YoutubeChatClient {
           console.warn('🚨 [MULTICHAT DEBUG] FOUND RAW JEWEL ACTION:', JSON.stringify(action, null, 2));
           item = action[giftKey]?.item || action[giftKey]?.contents || action[giftKey]?.renderer || action[giftKey];
         }
+      }
+      
+      if (!item && action.liveChatModerationMessageRenderer) {
+        item = action;
       }
       
       if (!item) return;
@@ -2206,12 +2230,12 @@ export class YoutubeChatClient {
         isSystemEvent = true;
         eventType = 'gift';
         console.warn('🚨 [MULTICHAT DEBUG] CAUGHT RENDERER:', JSON.stringify(renderer, null, 2));
-      } else if (item.liveChatModerationMessageRenderer) {
-        renderer = item.liveChatModerationMessageRenderer;
+      } else if (item.liveChatModerationMessageRenderer || action.liveChatModerationMessageRenderer) {
+        renderer = item.liveChatModerationMessageRenderer || action.liveChatModerationMessageRenderer;
         isSystemEvent = true;
         eventType = 'moderation';
-      } else if (item.liveChatViewerEngagementMessageRenderer) {
-        renderer = item.liveChatViewerEngagementMessageRenderer;
+      } else if (item.liveChatViewerEngagementMessageRenderer || action.liveChatViewerEngagementMessageRenderer) {
+        renderer = item.liveChatViewerEngagementMessageRenderer || action.liveChatViewerEngagementMessageRenderer;
         let engText = '';
         if (renderer.message?.runs) {
           engText = renderer.message.runs.map(r => r?.text || '').join('');
@@ -2228,6 +2252,23 @@ export class YoutubeChatClient {
       }
 
       if (!renderer) return;
+
+      if (isSystemEvent && eventType === 'moderation') {
+        const modRuns = renderer.message?.runs || renderer.text?.runs || [];
+        if (modRuns.length > 0) {
+          text = modRuns.map(r => r?.text || '').join('').trim();
+          parts.length = 0;
+          parts.push({ type: 'text', content: text });
+        } else if (renderer.message?.simpleText) {
+          text = renderer.message.simpleText.trim();
+          parts.length = 0;
+          parts.push({ type: 'text', content: text });
+        } else if (renderer.text?.content) {
+          text = renderer.text.content.trim();
+          parts.length = 0;
+          parts.push({ type: 'text', content: text });
+        }
+      }
 
       const candidateHeader = renderer.header?.liveChatPaidGiftHeaderRenderer || 
                               renderer.header?.liveChatSponsorshipsHeaderRenderer || 
@@ -2418,7 +2459,7 @@ export class YoutubeChatClient {
         let tm = text.match(/(?:^|\s)@?([^\s]+(?:\s+[^\s]+)*?)\s+was\s+(?:put\s+on\s+timeout|timed\s+out)\s+for\s+([0-9]+\s*[a-zA-Z]+)\s+by\s+@?([^\s.]+)/i);
         if (tm) {
           const targetUser = tm[1].replace(/^@+/, '').trim();
-          const duration = tm[2].trim();
+          const duration = tm[2].trim().replace(/\s+/g, ' ');
           const modUser = tm[3].replace(/^@+/, '').replace(/\.$/, '').trim();
           eventDetails = { targetUser, modUser, duration, action: 'timeout' };
           text = `@${targetUser} was timed out by @${modUser} for ${duration}.`;
@@ -2430,11 +2471,27 @@ export class YoutubeChatClient {
           if (tm) {
             const targetUser = tm[1].replace(/^@+/, '').trim();
             const modUser = tm[2].replace(/^@+/, '').replace(/\.$/, '').trim();
-            const duration = tm[3] ? tm[3].trim() : '5 minutes';
+            const duration = tm[3] ? tm[3].trim().replace(/\s+/g, ' ') : null;
             eventDetails = { targetUser, modUser, duration, action: 'timeout' };
-            text = `@${targetUser} was timed out by @${modUser} for ${duration}.`;
+            text = duration 
+              ? `@${targetUser} was timed out by @${modUser} for ${duration}.`
+              : `@${targetUser} was timed out by @${modUser}.`;
             if (this.onMessageDeleted) {
               this.onMessageDeleted(null, targetUser, modUser, channelName, text, duration);
+            }
+          } else {
+            // Case C: @user was put on timeout (optionally: for <duration>) without explicit "by @mod"
+            tm = text.match(/(?:^|\s)@?([^\s]+(?:\s+[^\s]+)*?)\s+was\s+(?:put\s+on\s+timeout|timed\s+out)(?:\s+for\s+([0-9]+\s*[a-zA-Z]+))?/i);
+            if (tm) {
+              const targetUser = tm[1].replace(/^@+/, '').trim();
+              const duration = tm[2] ? tm[2].trim().replace(/\s+/g, ' ') : null;
+              eventDetails = { targetUser, duration, action: 'timeout' };
+              text = duration
+                ? `@${targetUser} was timed out for ${duration}.`
+                : `@${targetUser} was timed out.`;
+              if (this.onMessageDeleted) {
+                this.onMessageDeleted(null, targetUser, null, channelName, text, duration);
+              }
             }
           }
         }

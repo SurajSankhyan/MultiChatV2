@@ -1,3 +1,6 @@
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import { NextResponse } from 'next/server';
 import { execFile } from 'child_process';
 import util from 'util';
@@ -28,6 +31,20 @@ async function fetchWithCurl(url: string) {
   }
 }
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+  'Cache-Control': 'no-store, max-age=0'
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: corsHeaders
+  });
+}
+
 export async function GET(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
   const { searchParams } = new URL(request.url);
   const { path } = await params;
@@ -38,7 +55,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
   // 1. Return fresh cached response if available
   const cached = kickApiCache.get(cacheKey);
   if (cached && Date.now() < cached.expiresAt) {
-    return NextResponse.json(cached.data);
+    return NextResponse.json(cached.data, { headers: corsHeaders });
   }
 
   const headers = new Headers();
@@ -53,7 +70,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
       const data = await res.json();
       if (data && !data.error && (data.chatroom || data.id || data.slug || Array.isArray(data))) {
         kickApiCache.set(cacheKey, { data, expiresAt: Date.now() + CACHE_TTL_MS });
-        return NextResponse.json(data);
+        return NextResponse.json(data, { headers: corsHeaders });
       }
     }
   } catch (err: any) {
@@ -64,14 +81,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
   const fallbackData = await fetchWithCurl(targetUrl);
   if (fallbackData && !fallbackData.error) {
     kickApiCache.set(cacheKey, { data: fallbackData, expiresAt: Date.now() + CACHE_TTL_MS });
-    return NextResponse.json(fallbackData);
+    return NextResponse.json(fallbackData, { headers: corsHeaders });
   }
 
   // If fallback data contains a response even if non-standard, cache it briefly (5s) to avoid spamming Kick
   if (fallbackData) {
     kickApiCache.set(cacheKey, { data: fallbackData, expiresAt: Date.now() + 5000 });
-    return NextResponse.json(fallbackData);
+    return NextResponse.json(fallbackData, { headers: corsHeaders });
   }
 
-  return NextResponse.json({ error: 'Failed to fetch Kick data' }, { status: 500 });
+  return NextResponse.json({ error: 'Failed to fetch Kick data' }, { status: 500, headers: corsHeaders });
 }

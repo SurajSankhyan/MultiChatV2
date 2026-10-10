@@ -6,6 +6,7 @@ import { getLiveTwitchBadgeUrl } from '../utils/twitchChat';
 import { calculateYoutubeTop3Ranks } from '../utils/youtubeChat';
 import { Tooltip, TooltipTrigger, TooltipContent } from './ui/interfaces-tooltip';
 import { GLOBAL_AVATAR_CACHE } from './ChatFeed';
+import { ttsManager } from '../utils/ttsEngine';
 
 
 const MOCK_USERNAMES = [
@@ -326,53 +327,22 @@ export default function ChatterInsights({
   };
 
   const handleSpeakUsername = () => {
-    if (!window.speechSynthesis) return;
-
     try {
       const textToSpeak = chatter.displayName || chatter.username;
       const vol = settings?.ttsVolume !== undefined ? settings.ttsVolume / 100 : 0.5;
       const speed = settings?.ttsSpeed !== undefined ? settings.ttsSpeed : 1.0;
-
-      if (window.ttsManager) {
-        window.ttsManager.speak(textToSpeak, vol, speed, settings?.ttsVoiceName, true);
-      } else {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(textToSpeak);
-        utterance.volume = vol;
-        utterance.rate = speed;
-        if (settings?.ttsVoiceName) {
-          const voices = window.speechSynthesis.getVoices();
-          const voice = voices.find(v => v.name === settings.ttsVoiceName);
-          if (voice) utterance.voice = voice;
-        }
-        window.speechSynthesis.speak(utterance);
-      }
+      ttsManager.speak(textToSpeak, vol, speed, settings?.ttsVoiceName, true);
     } catch (e) {
       console.error('Failed to speak username:', e);
     }
   };
 
   const handleSpeakSuperchat = (msg) => {
-    if (!window.speechSynthesis) return;
     try {
       const textToSpeak = `@${msg.displayName || msg.username} Gave ${msg.eventDetails?.amount || ''}${msg.text ? ' , ' + msg.text : ''}`;
-      const vol = settings.ttsVolume !== undefined ? settings.ttsVolume / 100 : 0.5;
-      const speed = settings.ttsSpeed !== undefined ? settings.ttsSpeed : 1.0;
-      
-      if (window.ttsManager) {
-        window.ttsManager.speak(textToSpeak, vol, speed, settings.ttsVoiceName, true);
-      } else {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(textToSpeak);
-        utterance.volume = vol;
-        utterance.rate = speed;
-        if (settings.ttsVoiceName) {
-          const voices = window.speechSynthesis.getVoices();
-          const voice = voices.find(v => v.name === settings.ttsVoiceName);
-          if (voice) utterance.voice = voice;
-        }
-        window.speechSynthesis.speak(utterance);
-      }
+      const vol = settings?.ttsVolume !== undefined ? settings.ttsVolume / 100 : 0.5;
+      const speed = settings?.ttsSpeed !== undefined ? settings.ttsSpeed : 1.0;
+      ttsManager.speak(textToSpeak, vol, speed, settings?.ttsVoiceName, true);
     } catch (err) {
       console.error('Failed to speak Superchat:', err);
     }

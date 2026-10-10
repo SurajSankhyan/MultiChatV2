@@ -96,7 +96,9 @@ export default function App({ logout }) {
         const stored = localStorage.getItem('prochat_channels');
         if (stored) {
           const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed.map(ch => ({ ...ch, id: String(ch.id) }));
+          }
         }
       } catch (e) {}
     }
@@ -431,6 +433,7 @@ export default function App({ logout }) {
                 platform: 'youtube',
                 enabled: true,
                 verified: true,
+                is_connected: true,
                 userId: session.user.id,
                 userEmail: session.user.email
               };
@@ -498,7 +501,8 @@ export default function App({ logout }) {
                       avatar: kickData.avatar_url,
                       platform: 'kick',
                       enabled: true,
-                      verified: true
+                      verified: true,
+                      is_connected: true
                     };
 
                     let updated;
@@ -791,7 +795,7 @@ export default function App({ logout }) {
         const cleanName = (itemObj.name || '').toLowerCase().trim();
         if (!nextList.some(ch => ch.platform === platform && ch.name.toLowerCase().trim() === cleanName)) {
           nextList.push({
-            id: baseId + idx,
+            id: String(itemObj.id || (baseId + idx)),
             platform,
             name: itemObj.name,
             displayName: itemObj.displayName || (itemObj.name.startsWith('@') ? itemObj.name.replace(/^@+/, '') : itemObj.name),

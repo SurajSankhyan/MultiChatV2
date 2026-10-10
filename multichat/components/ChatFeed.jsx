@@ -9,6 +9,7 @@ import { calculateYoutubeTop3Ranks } from '../utils/youtubeChat';
 import { requestKickAvatar } from '../utils/kickAvatarResolver';
 import CustomTipModal from './CustomTipModal';
 import AvatarModal from './AvatarModal';
+import { ttsManager } from '../utils/ttsEngine';
 
 const appStartTime = Date.now();
 export const GLOBAL_AVATAR_CACHE = new Map();
@@ -716,8 +717,8 @@ const ChatMessageRow = React.memo(({
     } else if (msg.eventType === 'moderation' || (typeof msg.text === 'string' && (msg.text.includes('timed out') || msg.text.includes('was hidden by')))) {
       let timeoutDisplayText = msg.text || '';
       if (timeoutDisplayText.includes('timed out') || timeoutDisplayText.includes('put on timeout')) {
-        if (!timeoutDisplayText.includes(' for ') && !timeoutDisplayText.includes(' for\u00a0')) {
-          const dur = msg.eventDetails?.duration || '5 minutes';
+        const dur = msg.eventDetails?.duration;
+        if (dur && !timeoutDisplayText.includes(' for ') && !timeoutDisplayText.includes(' for\u00a0')) {
           timeoutDisplayText = timeoutDisplayText.replace(/\s*\.?$/, ` for ${dur}.`);
         }
       }
@@ -1367,33 +1368,17 @@ export default function ChatFeed({
   };
 
   const handleSpeakSuperchat = (msg) => {
-    if (!window.speechSynthesis) return;
     try {
       const textToSpeak = `@${msg.displayName || msg.username} Gave ${msg.eventDetails?.amount || ''}${msg.text ? ' , ' + msg.text : ''}`;
       const vol = settings.ttsVolume !== undefined ? settings.ttsVolume / 100 : 0.5;
       const speed = settings.ttsSpeed !== undefined ? settings.ttsSpeed : 1.0;
-      
-      if (window.ttsManager) {
-        window.ttsManager.speak(textToSpeak, vol, speed, settings.ttsVoiceName, true);
-      } else {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(textToSpeak);
-        utterance.volume = vol;
-        utterance.rate = speed;
-        if (settings.ttsVoiceName) {
-          const voices = window.speechSynthesis.getVoices();
-          const voice = voices.find(v => v.name === settings.ttsVoiceName);
-          if (voice) utterance.voice = voice;
-        }
-        window.speechSynthesis.speak(utterance);
-      }
+      ttsManager.speak(textToSpeak, vol, speed, settings.ttsVoiceName, true);
     } catch (err) {
       console.error('Failed to speak Superchat:', err);
     }
   };
 
   const handleSpeakMessage = (msg) => {
-    if (!window.speechSynthesis) return;
     try {
       let cleanText = msg.text
         .replace(/https?:\/\/\S+/gi, 'link')
@@ -1406,21 +1391,7 @@ export default function ChatFeed({
 
       const vol = settings.ttsVolume !== undefined ? settings.ttsVolume / 100 : 0.5;
       const speed = settings.ttsSpeed !== undefined ? settings.ttsSpeed : 1.0;
-      
-      if (window.ttsManager) {
-        window.ttsManager.speak(textToSpeak, vol, speed, settings.ttsVoiceName, true);
-      } else {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(textToSpeak);
-        utterance.volume = vol;
-        utterance.rate = speed;
-        if (settings.ttsVoiceName) {
-          const voices = window.speechSynthesis.getVoices();
-          const voice = voices.find(v => v.name === settings.ttsVoiceName);
-          if (voice) utterance.voice = voice;
-        }
-        window.speechSynthesis.speak(utterance);
-      }
+      ttsManager.speak(textToSpeak, vol, speed, settings.ttsVoiceName, true);
     } catch (err) {
       console.error('Failed to speak message:', err);
     }
@@ -1830,23 +1801,47 @@ export default function ChatFeed({
 
   // Filter messages based on active channels, blocked and banned users checking all candidate user keys
   const visibleMessages = useMemo(() => {
+    const enabledChannels = (activeChannels || []).filter(ch => ch.enabled);
+    if (enabledChannels.length === 0) return [];
+
     const enabledSet = new Set(
-      (activeChannels || []).filter(ch => ch.enabled).map(ch => `${ch.platform}:${ch.name.toLowerCase().replace(/^@+/, '').trim()}`)
+      enabledChannels.flatMap(ch => [
+        `${ch.platform}:${String(ch.name || '').toLowerCase().replace(/^@+/, '').trim()}`,
+        `${ch.platform}:${String(ch.displayName || '').toLowerCase().replace(/^@+/, '').trim()}`,
+        ch.channelHandle ? `${ch.platform}:${String(ch.channelHandle).toLowerCase().replace(/^@+/, '').trim()}` : null,
+        ch.videoId ? `${ch.platform}:${String(ch.videoId).toLowerCase().trim()}` : null,
+        ch.id ? `${ch.platform}:${String(ch.id).toLowerCase().trim()}` : null
+      ]).filter(Boolean)
     );
-    const enabledPlatforms = new Set(
-      (activeChannels || []).filter(ch => ch.enabled).map(ch => ch.platform)
-    );
+    const enabledPlatforms = new Set(enabledChannels.map(ch => ch.platform));
 
     return messages.filter(msg => {
       // Filter out messages from removed or disabled channels
-      if (!msg.isSystemEvent && activeChannels && activeChannels.length > 0) {
-        const cleanChan = (msg.channel || '').toLowerCase().replace(/^@+/, '').trim();
+      if (!msg.isSystemEvent) {
+        if (!enabledPlatforms.has(msg.platform)) return false;
+
+        const cleanChan = String(msg.channel || '').toLowerCase().replace(/^@+/, '').trim();
         const msgKey = `${msg.platform}:${cleanChan}`;
-        if (cleanChan) {
-          if (!enabledSet.has(msgKey) && !enabledPlatforms.has(msg.platform)) return false;
-        } else {
-          if (!enabledPlatforms.has(msg.platform)) return false;
-        }
+        const vidKey = msg.videoId ? `${msg.platform}:${String(msg.videoId).toLowerCase().trim()}` : null;
+
+        const matchesChannel = !cleanChan || 
+                               cleanChan === msg.platform || 
+                               cleanChan === 'global' ||
+                               enabledSet.has(msgKey) || 
+                               (vidKey && enabledSet.has(vidKey)) ||
+                               enabledChannels.some(ch => {
+                                 if (ch.platform !== msg.platform) return false;
+                                 const cName = String(ch.name || '').toLowerCase().replace(/^@+/, '').trim();
+                                 const cHandle = String(ch.channelHandle || '').toLowerCase().replace(/^@+/, '').trim();
+                                 const cDisp = String(ch.displayName || '').toLowerCase().replace(/^@+/, '').trim();
+                                 const cVid = String(ch.videoId || '').toLowerCase().trim();
+                                 return cName === cleanChan || cHandle === cleanChan || cDisp === cleanChan ||
+                                        (cleanChan && (cName.includes(cleanChan) || cleanChan.includes(cName))) ||
+                                        (cHandle && (cHandle.includes(cleanChan) || cleanChan.includes(cHandle))) ||
+                                        (vidKey && (cName === vidKey || cVid === vidKey));
+                               });
+
+        if (!matchesChannel) return false;
       }
 
       const u1 = String(msg.username || '').replace(/^@+/, '').trim().toLowerCase();
@@ -1900,13 +1895,33 @@ export default function ChatFeed({
     if (activeTab === 'mentions') {
       return checkIsMentioned(msg.text, user, activeChannels);
     }
-    const cleanChannel = msg.channel?.toLowerCase().replace('@', '').trim();
-    const cleanTab = activeTab.toLowerCase().replace('@', '').trim();
+    const cleanChannel = String(msg.channel || '').toLowerCase().replace(/@/g, '').trim();
+    const cleanTab = activeTab.toLowerCase().replace(/@/g, '').trim();
+    const msgVid = String(msg.videoId || '').toLowerCase().trim();
+
+    // Match against active tab channel from activeChannels
+    const targetChannel = (activeChannels || []).find(ch => {
+      const rClean = String(ch.name || '').toLowerCase().replace(/^@+/, '').trim();
+      const tabKey = `${ch.platform}_${rClean}`;
+      return tabKey === cleanTab || rClean === cleanTab || (ch.id && String(ch.id).toLowerCase() === cleanTab);
+    });
+
+    if (targetChannel) {
+      if (targetChannel.platform !== msg.platform) return false;
+      const tName = String(targetChannel.name || '').toLowerCase().replace(/^@+/, '').trim();
+      const tHandle = String(targetChannel.channelHandle || '').toLowerCase().replace(/^@+/, '').trim();
+      const tDisplay = String(targetChannel.displayName || '').toLowerCase().replace(/^@+/, '').trim();
+      const tVid = String(targetChannel.videoId || '').toLowerCase().trim();
+
+      if (cleanChannel === tName || cleanChannel === tHandle || cleanChannel === tDisplay) return true;
+      if (msgVid && (msgVid === tVid || tName.includes(msgVid) || msgVid.includes(tName))) return true;
+      if (cleanChannel && (tName.includes(cleanChannel) || cleanChannel.includes(tName))) return true;
+    }
     
-    // If the activeTab includes a platform prefix (e.g. youtube_akio or kick_akio)
+    // Fallback for platform prefix format
     if (cleanTab.includes('_') && !['all', 'events', 'mentions'].includes(cleanTab)) {
       const msgPlatformPrefix = msg.platform ? msg.platform.toLowerCase() + '_' : '';
-      return `${msgPlatformPrefix}${cleanChannel}` === cleanTab;
+      return `${msgPlatformPrefix}${cleanChannel}` === cleanTab || cleanChannel === cleanTab;
     }
     
     // Fallback for old tabs without platform prefix
@@ -2698,24 +2713,49 @@ export default function ChatFeed({
               <div className="empty-feed-icon-box">
                 <MessageSquare size={32} />
               </div>
-              <h2 className="empty-feed-title">Let's chat away!</h2>
-              <p className="empty-feed-description">
-                Your focus workspace is primed for productivity. Connect a channel or start a thread when you're ready to break the quiet.
-              </p>
-              <div className="empty-feed-actions">
-                <button 
-                  className="empty-feed-btn primary"
-                  onClick={onConnectChannel}
-                >
-                  Connect Channel
-                </button>
-                <button 
-                  className="empty-feed-btn secondary"
-                  onClick={onExploreEvents}
-                >
-                  Explore Events
-                </button>
-              </div>
+              {activeChannels && activeChannels.filter(ch => ch.enabled).length > 0 ? (
+                <>
+                  <h2 className="empty-feed-title">Listening for live chat...</h2>
+                  <p className="empty-feed-description">
+                    Connected to {activeChannels.filter(ch => ch.enabled).map(ch => ch.displayName || ch.name).join(', ')}. Live chat messages will stream here automatically once your broadcast begins or viewers chat.
+                  </p>
+                  <div className="empty-feed-actions">
+                    <button 
+                      className="empty-feed-btn primary"
+                      onClick={onConnectChannel}
+                    >
+                      Manage Channels
+                    </button>
+                    <button 
+                      className="empty-feed-btn secondary"
+                      onClick={onExploreEvents}
+                    >
+                      Explore Events
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h2 className="empty-feed-title">Let's chat away!</h2>
+                  <p className="empty-feed-description">
+                    Your focus workspace is primed for productivity. Connect a channel or start a thread when you're ready to break the quiet.
+                  </p>
+                  <div className="empty-feed-actions">
+                    <button 
+                      className="empty-feed-btn primary"
+                      onClick={onConnectChannel}
+                    >
+                      Connect Channel
+                    </button>
+                    <button 
+                      className="empty-feed-btn secondary"
+                      onClick={onExploreEvents}
+                    >
+                      Explore Events
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             (() => {
@@ -2731,9 +2771,13 @@ export default function ChatFeed({
 
                 const checkTimedOut = (key) => {
                   if (!key || !moderation?.timedOutUsers) return false;
-                  const exp = (moderation.timedOutUsers instanceof Map)
-                    ? moderation.timedOutUsers.get(key)
-                    : (typeof moderation.timedOutUsers === 'object' ? moderation.timedOutUsers[key] : null);
+                  const cleanKey = String(key).replace(/^@+/, '').trim().toLowerCase();
+                  let exp = null;
+                  if (moderation.timedOutUsers instanceof Map) {
+                    exp = moderation.timedOutUsers.get(key) || moderation.timedOutUsers.get(cleanKey) || moderation.timedOutUsers.get(`@${cleanKey}`);
+                  } else if (typeof moderation.timedOutUsers === 'object') {
+                    exp = moderation.timedOutUsers[key] || moderation.timedOutUsers[cleanKey] || moderation.timedOutUsers[`@${cleanKey}`];
+                  }
                   if (!exp) return false;
                   if (Date.now() >= exp) return false;
                   const msgTime = msg.rawTimestamp ? Number(msg.rawTimestamp) : Date.now();

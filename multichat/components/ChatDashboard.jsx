@@ -43,6 +43,7 @@ import { YoutubeChatClient, calculateYoutubeTop3Ranks } from '../utils/youtubeCh
 import { ChatSimulator } from '../utils/simulator';
 import { parseAmountString, detectCurrencySymbol, getHighResAvatarUrl } from './HighlightOverlay';
 import { convertDonationToTargetCurrency, initExchangeRates } from '../utils/currency';
+import { isTtsSpam, sanitizeTtsText, ttsManager, speakMessage } from '../utils/ttsEngine';
 
 export const isBotMessage = (msg) => {
   if (!msg) return false;
@@ -189,267 +190,158 @@ const playMentionSound = (volume = 0.5, soundType = 'bell') => {
   }
 };
 
-// Global Anti-Spam tracking for TTS (sliding window of recent messages)
-const ttsRecentHistory = [];
+export { isTtsSpam, sanitizeTtsText, speakMessage, ttsManager };
 
-/**
- * Validates whether a message is spam and should be skipped by TTS
- */
-export const isTtsSpam = (rawText, username = '') => {
-  if (!rawText || typeof rawText !== 'string') return { isSpam: true, reason: 'empty' };
-
-  const text = rawText.trim();
-  if (text.length === 0) return { isSpam: true, reason: 'empty' };
-
-  // 1. Bot & Chat Commands: starts with !, /, ., #, $ followed by word (e.g. !drop, !points, !discord, !uptime)
-  if (/^[!/.#$][a-zA-Z0-9_-]{2,}/i.test(text)) {
-    return { isSpam: true, reason: 'command' };
+export const parseStartTimeMs = (val) => {
+  if (!val) return null;
+  if (val instanceof Date || (val && typeof val.getTime === 'function')) {
+    const ms = val.getTime();
+    return !isNaN(ms) && ms > 0 ? ms : null;
   }
-
-  // 2. Pure Links / URLs
-  const urlRegex = /https?:\/\/\S+|discord\.(gg|io|me)\/\S+|t\.me\/\S+|bit\.ly\/\S+/gi;
-  const withoutUrls = text.replace(urlRegex, '').trim();
-  if (withoutUrls.length < 2 && text.match(urlRegex)) {
-    return { isSpam: true, reason: 'link_only' };
+  if (typeof val === 'number') {
+    if (val <= 0) return null;
+    return val < 10000000000 ? val * 1000 : val;
   }
-
-  // 3. Pure Emojis, Emotes, or Symbols (nothing readable for TTS)
-  const readableChars = text
-    .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F1E6}-\u{1F1FF}]/gu, '')
-    .replace(/:[a-zA-Z0-9_]+:/g, '')
-    .replace(/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~`§±\s]/g, '')
-    .trim();
-
-  if (readableChars.length === 0) {
-    return { isSpam: true, reason: 'emoji_or_symbol_only' };
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (!trimmed || trimmed === 'offline' || trimmed === 'N/A') return null;
+    if (/^\d+$/.test(trimmed)) {
+      const num = parseInt(trimmed, 10);
+      return num < 10000000000 ? num * 1000 : num;
+    }
+    let parseable = trimmed;
+    if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}/.test(trimmed)) {
+      parseable = trimmed.replace(' ', 'T') + 'Z';
+    }
+    const ms = Date.parse(parseable);
+    if (!isNaN(ms) && ms > 0) return ms;
   }
-
-  // 4. Character Flood Spam (e.g. "aaaaaaaaaaaa", "wwwwwwwwwwww", "GGGGGGGGGGGGGG")
-  const singleCharRepeats = text.match(/(.)\1{4,}/gi);
-  if (singleCharRepeats) {
-    const totalRepeatedChars = singleCharRepeats.reduce((sum, m) => sum + m.length, 0);
-    if (totalRepeatedChars >= 8 || totalRepeatedChars / text.length >= 0.45) {
-      return { isSpam: true, reason: 'character_flood' };
-    }
-  }
-
-  // Check repeating 2-char or 3-char patterns (e.g. "hahahahahaha", "lolololololol", "kekwkekw")
-  const patternMatch = text.match(/(.{2,3})\1{3,}/gi);
-  if (patternMatch) {
-    const totalPatternChars = patternMatch.reduce((sum, m) => sum + m.length, 0);
-    if (totalPatternChars / text.length >= 0.5) {
-      return { isSpam: true, reason: 'pattern_flood' };
-    }
-  }
-
-  // 5. Word Flood Spam (e.g. "hi hi hi hi hi hi" or "sub sub sub sub sub sub")
-  const words = text.toLowerCase().split(/\s+/).filter(Boolean);
-  if (words.length >= 4) {
-    const freq = {};
-    for (const w of words) {
-      freq[w] = (freq[w] || 0) + 1;
-    }
-    const maxFreq = Math.max(...Object.values(freq));
-    if (maxFreq / words.length >= 0.55) {
-      return { isSpam: true, reason: 'word_flood' };
-    }
-  }
-
-  // 6. User Flood & Duplicate Message Rate Limiting
-  if (username) {
-    const userKey = username.toLowerCase().trim();
-    const now = Date.now();
-    const normalizedText = text.toLowerCase().replace(/\s+/g, ' ').trim();
-
-    // Clean history older than 25 seconds
-    while (ttsRecentHistory.length > 0 && (now - ttsRecentHistory[0].time) > 25000) {
-      ttsRecentHistory.shift();
-    }
-
-    const userRecent = ttsRecentHistory.filter(h => h.username === userKey);
-
-    // Duplicate message by same user within 15 seconds
-    if (userRecent.some(h => h.text === normalizedText && (now - h.time) < 15000)) {
-      return { isSpam: true, reason: 'duplicate_user_message' };
-    }
-
-    // Rate limit: same user sending more than 2 messages within 6 seconds
-    const rapidCount = userRecent.filter(h => (now - h.time) < 6000).length;
-    if (rapidCount >= 2) {
-      return { isSpam: true, reason: 'user_rate_limit' };
-    }
-  }
-
-  return { isSpam: false };
+  return null;
 };
 
-/**
- * Cleans and formats chat text for optimal, natural speech synthesis
- */
-export const sanitizeTtsText = (text, maxChars = 150) => {
-  if (!text || typeof text !== 'string') return '';
-
-  let clean = text
-    // Strip links
-    .replace(/https?:\/\/\S+/gi, '')
-    // Strip colon/bracket emotes like :smile: or [emote:123]
-    .replace(/:[a-zA-Z0-9_]+:/g, '')
-    .replace(/\[emote:[^\]]+\]/gi, '')
-    // Strip emojis so TTS doesn't read out "fire flame red heart"
-    .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F1E6}-\u{1F1FF}]/gu, '')
-    // Collapse single character repetitions: e.g. "sooooo" -> "soo", "Wwwwwww" -> "Ww"
-    .replace(/(.)\1{2,}/gi, '$1$1')
-    // Collapse repeated words: e.g. "hi hi hi hi" -> "hi hi"
-    .replace(/\b(\w+)(?:\s+\1\b){2,}/gi, '$1 $1')
-    // Collapse punctuation: "????" -> "?", "!!!!" -> "!"
-    .replace(/([?!.,~])\1+/g, '$1')
-    // Normalize whitespace
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  // Enforce max character limit to prevent audio lockup from wall of text
-  if (maxChars && clean.length > maxChars) {
-    clean = clean.substring(0, maxChars).trim() + '...';
-  }
-
-  return clean;
+export const formatUptime = (seconds) => {
+  if (seconds === null || seconds === undefined) return 'N/A';
+  const hrs = Math.floor(seconds / 3600).toString().padStart(2, '0');
+  const mins = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
+  const secs = (seconds % 60).toString().padStart(2, '0');
+  return `${hrs}:${mins}:${secs}`;
 };
 
-// Global TTS Queue Manager to speak messages sequentially (1 by 1)
-window.ttsManager = {
-  queue: [],
-  isSpeaking: false,
-  activeUtterances: new Set(),
+export const StreamUptimeBadge = React.memo(function StreamUptimeBadge({
+  activeChannels,
+  streamStartTimes,
+  platformStatuses,
+  youtubeShortsChannels,
+  streamViewers,
+  uptimeDisplayMode,
+  onClick,
+  PlatformLogo
+}) {
+  const [uptimeSeconds, setUptimeSeconds] = useState(null);
+  const [uptimesByPlatform, setUptimesByPlatform] = useState({});
 
-  speak: function(text, volume, rate, voiceName, forceImmediate = false, username = '', readUsername = false, antiSpam = true, maxChars = 150) {
-    if (!window.speechSynthesis) return;
+  useEffect(() => {
+    const calculateTimes = () => {
+      const activeChannelKeys = new Set(
+        (activeChannels || [])
+          .filter(ch => ch.enabled)
+          .flatMap(ch => {
+            const raw = ch.name.toLowerCase().replace(/^@+/, '').trim();
+            const atClean = `@${raw}`;
+            const justClean = ch.name.toLowerCase().replace('@', '').trim();
+            return [raw, ch.name.toLowerCase(), atClean, justClean];
+          })
+      );
 
-    // Run anti-spam filter for queued/auto-read messages
-    if (!forceImmediate && antiSpam) {
-      const spamCheck = isTtsSpam(text, username);
-      if (spamCheck.isSpam) {
-        console.log(`[TTS Anti-Spam] Skipped spam chat from ${username || 'User'} (${spamCheck.reason}): "${text}"`);
-        return;
+      // 1. Overall earliest uptime
+      const times = Object.entries(streamStartTimes || {})
+        .filter(([k]) => {
+          if (activeChannelKeys.size === 0) return true;
+          const lowerK = String(k).toLowerCase().trim();
+          const cleanK = lowerK.replace(/^@+/, '').trim();
+          return activeChannelKeys.has(lowerK) || activeChannelKeys.has(cleanK) || activeChannelKeys.has(`@${cleanK}`);
+        })
+        .map(([, t]) => parseStartTimeMs(t))
+        .filter(t => t !== null && t > 0 && t <= Date.now() + 60000);
+
+      if (times.length > 0) {
+        const earliest = Math.min(...times);
+        const diffSecs = Math.floor((Date.now() - earliest) / 1000);
+        setUptimeSeconds(diffSecs >= 0 ? diffSecs : 0);
+      } else {
+        setUptimeSeconds(null);
       }
-    }
 
-    // Clean text of emotes, excessive repeats, emojis, links, and length limit
-    let cleanText = sanitizeTtsText(text, maxChars);
-    if (!cleanText || cleanText.length === 0) return;
+      // 2. Platform-specific uptimes
+      const platformMap = {};
+      const enabled = (activeChannels || []).filter(ch => ch.enabled);
+      enabled.forEach(ch => {
+        const cleanName = ch.name.toLowerCase().replace(/^@+/, '').trim();
+        const rawClean = ch.name.toLowerCase().replace('@', '').trim();
+        const lowerName = ch.name.toLowerCase();
+        const status = (platformStatuses && (platformStatuses[`${ch.platform}_${cleanName}`] || platformStatuses[`${ch.platform}_${rawClean}`] || platformStatuses[`${ch.platform}_${lowerName}`] || platformStatuses[ch.platform])) || '';
+        const isShorts = ch.platform === 'youtube' && (youtubeShortsChannels?.has(cleanName) || youtubeShortsChannels?.has(rawClean));
+        const displayPlatform = isShorts ? 'youtube_shorts' : ch.platform;
+        const realCount = (streamViewers && (streamViewers[`${ch.platform}_${cleanName}`] ?? streamViewers[`${ch.platform}_${rawClean}`] ?? streamViewers[`${ch.platform}_@${cleanName}`] ?? streamViewers[`${ch.platform}_${ch.name}`] ?? streamViewers[`${ch.platform}_${lowerName}`])) ?? 0;
 
-    // Record entry into recent history for flood protection
-    if (username) {
-      ttsRecentHistory.push({
-        username: username.toLowerCase().trim(),
-        text: cleanText.toLowerCase().trim(),
-        time: Date.now()
-      });
-      if (ttsRecentHistory.length > 50) ttsRecentHistory.shift();
-    }
+        const isStreamActive = ch.platform === 'youtube'
+          ? (status === 'connected' || realCount > 0)
+          : (status === 'connected' && (realCount > 0 || !!(streamStartTimes && (streamStartTimes[`${ch.platform}_${cleanName}`] || streamStartTimes[`${ch.platform}_${rawClean}`]))));
 
-    const textToSpeak = readUsername && username ? `${username} says: ${cleanText}` : cleanText;
-
-    if (forceImmediate) {
-      this.cancel();
-
-      try {
-        const utterance = new SpeechSynthesisUtterance(textToSpeak);
-        utterance.volume = volume;
-        utterance.rate = rate;
-        this.activeUtterances.add(utterance);
-
-        if (voiceName) {
-          const voices = window.speechSynthesis.getVoices();
-          const voice = voices.find(v => v.name === voiceName);
-          if (voice) utterance.voice = voice;
+        if (isStreamActive && streamStartTimes) {
+          const startTimeVal = streamStartTimes[`${ch.platform}_${cleanName}`] || 
+                               streamStartTimes[`${ch.platform}_${rawClean}`] || 
+                               streamStartTimes[`${ch.platform}_@${cleanName}`] || 
+                               streamStartTimes[`${ch.platform}_@${rawClean}`] || 
+                               streamStartTimes[`${ch.platform}_${ch.name}`] || 
+                               streamStartTimes[`${ch.platform}_${lowerName}`];
+          if (startTimeVal) {
+            const startMs = parseStartTimeMs(startTimeVal);
+            if (startMs && !isNaN(startMs)) {
+              const elapsedSecs = Math.floor((Date.now() - startMs) / 1000);
+              const currentEarliest = platformMap[displayPlatform];
+              const secs = elapsedSecs >= 0 ? elapsedSecs : 0;
+              if (currentEarliest === undefined || secs > currentEarliest) {
+                platformMap[displayPlatform] = secs;
+              }
+            }
+          }
         }
+      });
+      setUptimesByPlatform(platformMap);
+    };
 
-        utterance.onend = () => {
-          this.activeUtterances.delete(utterance);
-        };
-        utterance.onerror = () => {
-          this.activeUtterances.delete(utterance);
-        };
+    calculateTimes();
+    const interval = setInterval(calculateTimes, 1000);
+    return () => clearInterval(interval);
+  }, [activeChannels, streamStartTimes, platformStatuses, youtubeShortsChannels, streamViewers]);
 
-        window.speechSynthesis.speak(utterance);
-      } catch (e) {
-        console.error("Manual TTS error:", e);
-      }
-      return;
-    }
-
-    // Auto-play queuing: cap queue size to 10 to prevent infinite backlog
-    if (this.queue.length >= 10) {
-      this.queue.shift(); // remove oldest to make room for newest
-    }
-
-    this.queue.push({
-      textToSpeak,
-      volume,
-      rate,
-      voiceName
-    });
-
-    if (!this.isSpeaking) {
-      this.processNext();
-    }
-  },
-
-  processNext: function() {
-    if (!window.speechSynthesis) return;
-    if (this.queue.length === 0) {
-      this.isSpeaking = false;
-      return;
-    }
-
-    this.isSpeaking = true;
-    const next = this.queue.shift();
-
-    try {
-      const utterance = new SpeechSynthesisUtterance(next.textToSpeak);
-      utterance.volume = next.volume;
-      utterance.rate = next.rate;
-      this.activeUtterances.add(utterance);
-
-      if (next.voiceName) {
-        const voices = window.speechSynthesis.getVoices();
-        const voice = voices.find(v => v.name === next.voiceName);
-        if (voice) utterance.voice = voice;
-      }
-
-      utterance.onend = () => {
-        this.activeUtterances.delete(utterance);
-        this.processNext();
-      };
-      utterance.onerror = (e) => {
-        this.activeUtterances.delete(utterance);
-        console.warn("TTS error:", e);
-        this.processNext();
-      };
-
-      window.speechSynthesis.speak(utterance);
-    } catch (e) {
-      console.error("Queue TTS error:", e);
-      this.isSpeaking = false;
-      this.processNext();
-    }
-  },
-
-  cancel: function() {
-    this.queue = [];
-    this.isSpeaking = false;
-    this.activeUtterances.clear();
-    if (window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
-  }
-};
-
-const speakMessage = (username, text, ttsVolume = 0.5, ttsSpeed = 1.0, readUsername = true, ttsVoiceName = '', antiSpam = true, maxChars = 150) => {
-  if (window.ttsManager) {
-    window.ttsManager.speak(text, ttsVolume, ttsSpeed, ttsVoiceName, false, username, readUsername, antiSpam, maxChars);
-  }
-};
+  return (
+    <div className="metric-pill-section" onClick={onClick}>
+      <Clock size={13} style={{ color: 'var(--text-muted)' }} />
+      {uptimeDisplayMode === 'individual' && (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+          {Object.keys(uptimesByPlatform).length > 0 ? (
+            Object.entries(uptimesByPlatform).map(([platform, secs]) => (
+              <span key={platform} style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                <PlatformLogo platform={platform} size={12} />
+                <span>{formatUptime(secs)}</span>
+              </span>
+            ))
+          ) : (
+            <span>N/A</span>
+          )}
+        </span>
+      )}
+      {uptimeDisplayMode === 'combined' && (
+        <span>{uptimeSeconds !== null ? formatUptime(uptimeSeconds) : 'N/A'}</span>
+      )}
+      {uptimeDisplayMode === 'hidden' && (
+        <span>--</span>
+      )}
+    </div>
+  );
+});
 
 export default function ChatDashboard({ 
   user, 
@@ -957,7 +849,11 @@ export default function ChatDashboard({
         try {
           const arr = JSON.parse(storedTimeoutDurations);
           if (Array.isArray(arr)) {
-            arr.forEach(([u, dur]) => timeoutDurationMap.set(u, dur));
+            arr.forEach(([u, dur]) => {
+              if (timedOutMap.has(u)) {
+                timeoutDurationMap.set(u, dur);
+              }
+            });
           }
         } catch (e) {}
       }
@@ -1103,10 +999,11 @@ export default function ChatDashboard({
 
                     const hasVerticalTitle = liveStreams.some(s => s.title.toLowerCase().includes('vertical') || s.title.toLowerCase().includes('shorts'));
 
-                    liveStreams.forEach((stream, idx) => {
+                    const streamsToAdd = liveStreams.length > 2 ? liveStreams.slice(0, 2) : liveStreams;
+                    streamsToAdd.forEach((stream, idx) => {
                       const isVertical = stream.title.toLowerCase().includes('vertical') || 
                                          stream.title.toLowerCase().includes('shorts') || 
-                                         (liveStreams.length > 1 && !hasVerticalTitle && idx === 0);
+                                         (streamsToAdd.length > 1 && !hasVerticalTitle && idx === 0);
 
                       let displayName = baseHandle;
                       if (liveStreams.length > 1) {
@@ -1168,33 +1065,6 @@ export default function ChatDashboard({
     addChannel(platform, cleanName);
   };
 
-  const parseStartTimeMs = (val) => {
-    if (!val) return null;
-    if (val instanceof Date || (val && typeof val.getTime === 'function')) {
-      const ms = val.getTime();
-      return !isNaN(ms) && ms > 0 ? ms : null;
-    }
-    if (typeof val === 'number') {
-      if (val <= 0) return null;
-      return val < 10000000000 ? val * 1000 : val;
-    }
-    if (typeof val === 'string') {
-      const trimmed = val.trim();
-      if (!trimmed || trimmed === 'offline' || trimmed === 'N/A') return null;
-      if (/^\d+$/.test(trimmed)) {
-        const num = parseInt(trimmed, 10);
-        return num < 10000000000 ? num * 1000 : num;
-      }
-      let parseable = trimmed;
-      if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}/.test(trimmed)) {
-        parseable = trimmed.replace(' ', 'T') + 'Z';
-      }
-      const ms = Date.parse(parseable);
-      if (!isNaN(ms) && ms > 0) return ms;
-    }
-    return null;
-  };
-
   // Uptime, Viewers, and Filter Tab state
   const [activeTab, setActiveTab] = useState('all');
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
@@ -1210,28 +1080,6 @@ export default function ChatDashboard({
       } catch (e) {}
     }
     return {};
-  });
-
-  const [uptime, setUptime] = useState(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = localStorage.getItem('multichat_stream_start_times_v2');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (parsed && typeof parsed === 'object') {
-            const times = Object.values(parsed)
-              .map(t => parseStartTimeMs(t))
-              .filter(t => t !== null && t > 0 && t <= Date.now() + 60000);
-            if (times.length > 0) {
-              const earliest = Math.min(...times);
-              const diffSecs = Math.floor((Date.now() - earliest) / 1000);
-              return diffSecs >= 0 ? diffSecs : 0;
-            }
-          }
-        }
-      } catch (e) {}
-    }
-    return null;
   });
   const [viewerCount, setViewerCount] = useState(19);
 
@@ -1284,51 +1132,6 @@ export default function ChatDashboard({
     }
     prevMessagesLengthRef.current = messages.length;
   }, [messages, activeTab]);
-
-  // Uptime tick timer relative to stream start times
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const activeChannelKeys = new Set(
-        activeChannels
-          .filter(ch => ch.enabled)
-          .flatMap(ch => {
-            const raw = ch.name.toLowerCase().replace(/^@+/, '').trim();
-            const atClean = `@${raw}`;
-            const justClean = ch.name.toLowerCase().replace('@', '').trim();
-            return [raw, ch.name.toLowerCase(), atClean, justClean];
-          })
-      );
-
-      const times = Object.entries(streamStartTimes)
-        .filter(([k]) => {
-          if (activeChannelKeys.size === 0) return true;
-          const lowerK = String(k).toLowerCase().trim();
-          const cleanK = lowerK.replace(/^@+/, '').trim();
-          return activeChannelKeys.has(lowerK) || activeChannelKeys.has(cleanK) || activeChannelKeys.has(`@${cleanK}`);
-        })
-        .map(([, t]) => parseStartTimeMs(t))
-        .filter(t => t !== null && t > 0 && t <= Date.now() + 60000);
-      
-      if (times.length > 0) {
-        const earliest = Math.min(...times);
-        const diffSecs = Math.floor((Date.now() - earliest) / 1000);
-        setUptime(diffSecs >= 0 ? diffSecs : 0);
-      } else {
-        setUptime(null);
-      }
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [streamStartTimes, activeChannels]);
-
-
-
-  const formatUptime = (seconds) => {
-    if (seconds === null || seconds === undefined) return 'N/A';
-    const hrs = Math.floor(seconds / 3600).toString().padStart(2, '0');
-    const mins = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
-    const secs = (seconds % 60).toString().padStart(2, '0');
-    return `${hrs}:${mins}:${secs}`;
-  };
 
   const activeChannelsRef = useRef(activeChannels);
   useEffect(() => {
@@ -1468,26 +1271,51 @@ export default function ChatDashboard({
 
       // Filter out messages from channels that were removed or disabled
       if (!modeDemo && activeChannelsRef.current) {
-        const isChannelActive = activeChannelsRef.current.some(ch => {
-          if (!ch.enabled) return false;
-          if (ch.platform !== msg.platform) return false;
-          const cleanChan = (ch.name || '').toLowerCase().replace(/^@+/, '').trim();
-          const cleanId = (ch.id || '').toLowerCase().trim();
-          const cleanDisplay = (ch.displayName || '').toLowerCase().replace(/^@+/, '').trim();
-          const msgChan = (msg.channel || '').toLowerCase().replace(/^@+/, '').trim();
-          const msgAuthorChan = (msg.channelId || msg.authorChannelId || '').toLowerCase().trim();
-          if (!msgChan) return true;
-          return cleanChan === msgChan || 
-                 cleanId === msgChan || 
-                 cleanDisplay === msgChan ||
-                 cleanChan.includes(msgChan) || 
-                 msgChan.includes(cleanChan) ||
-                 (cleanId && cleanId === msgAuthorChan) ||
-                 (msg.videoId && cleanChan.includes(msg.videoId.toLowerCase())) ||
-                 (ch.videoId && msg.videoId && ch.videoId === msg.videoId);
-        });
-        if (!isChannelActive) {
-          return; // Ignore messages from disconnected/removed channels
+        try {
+          const isChannelActive = activeChannelsRef.current.some(ch => {
+            if (!ch.enabled) return false;
+            if (ch.platform !== msg.platform) return false;
+
+            const msgChan = String(msg.channel || '').toLowerCase().replace(/^@+/, '').trim();
+            // If this is a Kick message and channel is generic or empty, accept if any Kick channel is enabled
+            if (msg.platform === 'kick' && (!msgChan || msgChan === 'kick')) {
+              return true;
+            }
+            // If this is a YouTube message and channel is generic or global, accept if any YouTube channel is enabled
+            if (msg.platform === 'youtube' && (!msgChan || msgChan === 'youtube' || msgChan === 'global')) {
+              return true;
+            }
+            // If only 1 channel of this platform is active in the dashboard, match automatically
+            const enabledSamePlatform = activeChannelsRef.current.filter(c => c.enabled && c.platform === msg.platform);
+            if (enabledSamePlatform.length === 1) {
+              return true;
+            }
+
+            const cleanChan = String(ch.name || '').toLowerCase().replace(/^@+/, '').trim();
+            const cleanId = String(ch.id || '').toLowerCase().trim();
+            const cleanDisplay = String(ch.displayName || '').toLowerCase().replace(/^@+/, '').trim();
+            const cleanHandle = String(ch.channelHandle || '').toLowerCase().replace(/^@+/, '').trim();
+            const cleanVid = String(ch.videoId || '').toLowerCase().trim();
+            const msgVid = String(msg.videoId || '').toLowerCase().trim();
+            const msgAuthorChan = String(msg.channelId || msg.authorChannelId || '').toLowerCase().trim();
+
+            if (!msgChan) return true;
+            return cleanChan === msgChan || 
+                   cleanId === msgChan || 
+                   cleanDisplay === msgChan ||
+                   (cleanHandle && cleanHandle === msgChan) ||
+                   cleanChan.includes(msgChan) || 
+                   msgChan.includes(cleanChan) ||
+                   (cleanHandle && (cleanHandle.includes(msgChan) || msgChan.includes(cleanHandle))) ||
+                   (cleanId && cleanId === msgAuthorChan) ||
+                   (msgVid && (cleanChan.includes(msgVid) || msgVid.includes(cleanChan))) ||
+                   (cleanVid && msgVid && cleanVid === msgVid);
+          });
+          if (!isChannelActive) {
+            return; // Ignore messages from disconnected/removed channels
+          }
+        } catch (filterErr) {
+          console.warn('[MultiChat] Warning in isChannelActive check:', filterErr.message);
         }
       }
 
@@ -1519,27 +1347,73 @@ export default function ChatDashboard({
       if (msg && msg.isSystemEvent && msg.eventType === 'moderation') {
         const target = (msg.eventDetails?.targetUser || '').replace(/^@+/, '').trim().toLowerCase();
 
-        // 1. Resolve duration from recentTimeoutsRef or moderation.timeoutDurationMap if missing on incoming msg
+        // 1. Resolve duration from recentTimeoutsRef only if triggered locally in UI within last 15s
         let msgDuration = msg.eventDetails?.duration || '';
         if (!msgDuration && target) {
           const cachedRef = recentTimeoutsRef.current.get(target);
-          if (cachedRef && (Date.now() - (cachedRef.timestamp || 0)) < 120000) {
+          if (cachedRef && (Date.now() - (cachedRef.timestamp || 0)) < 15000) {
             msgDuration = cachedRef.durationStr || formatDurationText(cachedRef.durationSeconds);
           }
-          if (!msgDuration && moderation?.timeoutDurationMap) {
-            msgDuration = moderation.timeoutDurationMap instanceof Map 
-              ? moderation.timeoutDurationMap.get(target) 
-              : moderation.timeoutDurationMap[target];
+        }
+
+        if (msgDuration) {
+          msg.eventDetails = { ...(msg.eventDetails || {}), duration: msgDuration };
+          if (msg.eventDetails.targetUser && msg.eventDetails.modUser) {
+            msg.text = `@${msg.eventDetails.targetUser} was timed out by @${msg.eventDetails.modUser} for ${msgDuration}.`;
+          } else if (msg.text && !msg.text.includes(' for ')) {
+            msg.text = msg.text.replace(/\s*\.?$/, ` for ${msgDuration}.`);
+          }
+        } else {
+          // No duration known (e.g. timeout performed externally on YouTube without public duration)
+          // Clean text so it doesn't show fake "for 5 minutes"
+          let cleanText = (msg.text || '').replace(/\s+for\s+[0-9]+\s*[a-zA-Z]+\.?/i, '.');
+          if (msg.eventDetails?.targetUser && msg.eventDetails?.modUser) {
+            cleanText = `@${msg.eventDetails.targetUser} was timed out by @${msg.eventDetails.modUser}.`;
+          } else if (msg.eventDetails?.targetUser) {
+            cleanText = `@${msg.eventDetails.targetUser} was timed out.`;
+          }
+          msg.text = cleanText;
+          if (msg.eventDetails) {
+            delete msg.eventDetails.duration;
           }
         }
-        if (!msgDuration) {
-          msgDuration = '5 minutes';
-        }
-        msg.eventDetails = { ...(msg.eventDetails || {}), duration: msgDuration };
-        if (msg.eventDetails.targetUser && msg.eventDetails.modUser) {
-          msg.text = `@${msg.eventDetails.targetUser} was timed out by @${msg.eventDetails.modUser} for ${msgDuration}.`;
-        } else if (msg.text && !msg.text.includes(' for ')) {
-          msg.text = msg.text.replace(/\s*\.?$/, ` for ${msgDuration}.`);
+
+        // Sync moderation state with the actual parsed timeout duration
+        if (target && (msg.eventDetails?.action === 'timeout' || (msg.text && /timed\s+out|timeout/i.test(msg.text)))) {
+          const durMs = msgDuration ? getDurationMs(msgDuration, 10) : 10000;
+          const expiryTime = (msg.rawTimestamp ? Number(msg.rawTimestamp) : Date.now()) + durMs;
+
+          setModeration(prev => {
+            const nextTimed = new Map(prev.timedOutUsers || []);
+            nextTimed.set(target, expiryTime);
+
+            const nextActors = new Map(prev.timeoutActorMap || []);
+            if (msg.eventDetails?.modUser) {
+              nextActors.set(target, msg.eventDetails.modUser);
+            }
+
+            const nextDurations = new Map(prev.timeoutDurationMap || []);
+            if (msgDuration) {
+              nextDurations.set(target, msgDuration);
+            }
+
+            return {
+              ...prev,
+              timedOutUsers: nextTimed,
+              timeoutActorMap: nextActors,
+              timeoutDurationMap: nextDurations
+            };
+          });
+
+          if (msgDuration) {
+            recentTimeoutsRef.current.set(target, {
+              target,
+              durationStr: msgDuration,
+              durationSeconds: Math.round(durMs / 1000),
+              modHandle: msg.eventDetails?.modUser || null,
+              timestamp: Date.now()
+            });
+          }
         }
 
         const existingModIdx = (messagesRef.current || []).findIndex(m =>
@@ -1558,10 +1432,10 @@ export default function ChatDashboard({
             if (idx === existingModIdx) {
               const bestMod = msg.eventDetails?.modUser || m.eventDetails?.modUser;
               const bestTarget = msg.eventDetails?.targetUser || m.eventDetails?.targetUser;
-              const bestDuration = m.eventDetails?.duration || msg.eventDetails?.duration || msgDuration;
+              const bestDuration = msg.eventDetails?.duration || m.eventDetails?.duration || msgDuration || '';
               const bestText = (bestTarget && bestMod)
-                ? `@${bestTarget} was timed out by @${bestMod} for ${bestDuration}.`
-                : (m.text && m.text.includes(' for ') ? m.text : msg.text);
+                ? (bestDuration ? `@${bestTarget} was timed out by @${bestMod} for ${bestDuration}.` : `@${bestTarget} was timed out by @${bestMod}.`)
+                : (bestDuration && m.text && !m.text.includes(' for ') ? m.text.replace(/\s*\.?$/, ` for ${bestDuration}.`) : (msg.text || m.text));
               return {
                 ...m,
                 ...msg,
@@ -1570,7 +1444,7 @@ export default function ChatDashboard({
                 eventDetails: {
                   ...(m.eventDetails || {}),
                   ...(msg.eventDetails || {}),
-                  duration: bestDuration,
+                  duration: bestDuration || undefined,
                   modUser: bestMod,
                   targetUser: bestTarget
                 }
@@ -1582,23 +1456,53 @@ export default function ChatDashboard({
         }
       }
 
-      // If a regular chat message arrives from YouTube, clear any expired or completed timeout for this user
-      if (msg && !msg.isSystemEvent && msg.platform === 'youtube') {
+      // If a regular chat message arrives, the user is chatting in the live stream,
+      // which proves their timeout has ended. Immediately clear any timeout for this user.
+      if (msg && !msg.isSystemEvent) {
         const u = (msg.username || '').replace(/^@+/, '').trim().toLowerCase();
         const d = (msg.displayName || '').replace(/^@+/, '').trim().toLowerCase();
-        const c = (msg.channelId || msg.authorChannelId || '').trim().toLowerCase();
+        const c = (msg.channelId || msg.authorChannelId || msg.authorExternalChannelId || '').trim().toLowerCase();
+        const keysToCheck = [u, d, c, `@${u}`, `@${d}`].filter(Boolean);
         setModeration(prev => {
           if (!prev?.timedOutUsers) return prev;
-          const timedMap = prev.timedOutUsers;
-          const exp = (timedMap instanceof Map) ? (timedMap.get(u) || timedMap.get(d) || timedMap.get(c)) : timedMap[u];
-          if (exp && Date.now() >= (exp - 1000)) {
-            const nextTimed = new Map(timedMap);
-            nextTimed.delete(u);
-            nextTimed.delete(d);
-            nextTimed.delete(c);
-            return { ...prev, timedOutUsers: nextTimed };
+          const timedMap = prev.timedOutUsers instanceof Map 
+            ? prev.timedOutUsers 
+            : new Map(Object.entries(prev.timedOutUsers || {}));
+          
+          let changed = false;
+          const nextTimed = new Map(timedMap);
+          for (const [k] of timedMap.entries()) {
+            const cleanK = String(k).replace(/^@+/, '').trim().toLowerCase();
+            if (keysToCheck.includes(cleanK) || keysToCheck.includes(k)) {
+              nextTimed.delete(k);
+              changed = true;
+            }
           }
-          return prev;
+
+          if (!changed) return prev;
+
+          const nextActors = prev.timeoutActorMap instanceof Map ? new Map(prev.timeoutActorMap) : new Map(Object.entries(prev.timeoutActorMap || {}));
+          for (const k of nextActors.keys()) {
+            const cleanK = String(k).replace(/^@+/, '').trim().toLowerCase();
+            if (keysToCheck.includes(cleanK) || keysToCheck.includes(k)) {
+              nextActors.delete(k);
+            }
+          }
+
+          const nextDurations = prev.timeoutDurationMap instanceof Map ? new Map(prev.timeoutDurationMap) : new Map(Object.entries(prev.timeoutDurationMap || {}));
+          for (const k of nextDurations.keys()) {
+            const cleanK = String(k).replace(/^@+/, '').trim().toLowerCase();
+            if (keysToCheck.includes(cleanK) || keysToCheck.includes(k)) {
+              nextDurations.delete(k);
+            }
+          }
+
+          return { 
+            ...prev, 
+            timedOutUsers: nextTimed,
+            timeoutActorMap: nextActors,
+            timeoutDurationMap: nextDurations
+          };
         });
       }
 
@@ -1981,7 +1885,12 @@ export default function ChatDashboard({
       if (youtubeChannels.length > 0) {
         if (youtubeClientRef.current.activePolls) {
           Array.from(youtubeClientRef.current.activePolls.keys()).forEach(ch => {
-            if (!youtubeChannels.some(yc => yc.name.toLowerCase().replace(/^@+/, '').trim() === ch)) {
+            if (!youtubeChannels.some(yc => {
+              const cleanYc = (yc.name || '').toLowerCase().replace(/^@+/, '').trim();
+              const cleanHandle = (yc.channelHandle || '').toLowerCase().replace(/^@+/, '').trim();
+              const cleanId = String(yc.id || '').toLowerCase().trim();
+              return cleanYc === ch || cleanHandle === ch || cleanId === ch;
+            })) {
               youtubeClientRef.current.leave(ch);
             }
           });
@@ -2402,7 +2311,7 @@ export default function ChatDashboard({
     return str;
   };
 
-  const getDurationMs = (durationStr, defaultSec = 300) => {
+  const getDurationMs = (durationStr, defaultSec = 10) => {
     if (!durationStr) return defaultSec * 1000;
     const m = String(durationStr).match(/([0-9]+)\s*([a-zA-Z]+)?/i);
     if (!m) return defaultSec * 1000;
@@ -2611,37 +2520,16 @@ export default function ChatDashboard({
         if (m.authorExternalChannelId) userIdentifiers.add(String(m.authorExternalChannelId).trim().toLowerCase());
       });
 
-      // 2. Resolve duration from recentTimeoutsRef or moderation.timeoutDurationMap if not in snippet
+      // 2. Resolve duration from recentTimeoutsRef only if triggered locally in UI within last 15s
       if (!durationStr) {
         for (const idKey of userIdentifiers) {
           if (!idKey) continue;
           const cachedRef = recentTimeoutsRef.current.get(idKey);
-          if (cachedRef && (Date.now() - (cachedRef.timestamp || 0)) < 120000) {
+          if (cachedRef && (Date.now() - (cachedRef.timestamp || 0)) < 15000) {
             durationStr = cachedRef.durationStr || formatDurationText(cachedRef.durationSeconds);
             break;
           }
-          const cachedMod = moderation?.timeoutDurationMap instanceof Map 
-            ? moderation.timeoutDurationMap.get(idKey) 
-            : moderation?.timeoutDurationMap?.[idKey];
-          if (cachedMod) {
-            durationStr = typeof cachedMod === 'string' ? cachedMod : formatDurationText(cachedMod);
-            break;
-          }
         }
-      }
-
-      if (!durationStr && typeof window !== 'undefined') {
-        try {
-          const stored = JSON.parse(localStorage.getItem('prochat_recent_timeouts') || '{}');
-          for (const idKey of userIdentifiers) {
-            if (!idKey) continue;
-            const found = stored[idKey];
-            if (found && (Date.now() - (found.timestamp || 0)) < 120000) {
-              durationStr = found.durationStr || formatDurationText(found.durationSeconds);
-              break;
-            }
-          }
-        } catch (e) {}
       }
 
       let actor = explicitDeletedBy ? explicitDeletedBy.replace(/^@+/, '').replace(/\.$/, '').trim() : null;
@@ -2737,59 +2625,60 @@ export default function ChatDashboard({
         }
       }
 
-      const durationMs = getDurationMs(durationStr, 300);
+      const durationMs = durationStr ? getDurationMs(durationStr, 10) : 10000;
       const expiryTime = Date.now() + durationMs;
       const cleanMod = actor;
 
-      if (targetIds.length > 0) {
-        setModeration(prev => {
-          const next = new Set(prev.deletedMessageIds);
-          const nextMap = new Map(prev.deletedByMap || []);
-          targetIds.forEach(id => {
-            next.add(id);
-            if (cleanMod) {
-              nextMap.set(id, cleanMod);
-            }
-          });
-          const nextTimed = new Map(prev.timedOutUsers || []);
-          userIdentifiers.forEach(idKey => {
-            if (idKey) nextTimed.set(idKey, expiryTime);
-          });
-
-          const nextTimeoutActors = new Map(prev.timeoutActorMap || []);
+      setModeration(prev => {
+        const next = new Set(prev.deletedMessageIds);
+        const nextMap = new Map(prev.deletedByMap || []);
+        targetIds.forEach(id => {
+          next.add(id);
           if (cleanMod) {
-            userIdentifiers.forEach(idKey => {
-              if (idKey) nextTimeoutActors.set(idKey, cleanMod);
-            });
+            nextMap.set(id, cleanMod);
           }
-
-          const nextTimeoutDurations = new Map(prev.timeoutDurationMap || []);
-          if (durationStr) {
-            userIdentifiers.forEach(idKey => {
-              if (idKey) nextTimeoutDurations.set(idKey, durationStr);
-            });
-          }
-
-          return { 
-            ...prev, 
-            deletedMessageIds: next, 
-            deletedByMap: nextMap, 
-            timedOutUsers: nextTimed,
-            timeoutActorMap: nextTimeoutActors,
-            timeoutDurationMap: nextTimeoutDurations
-          };
         });
-      }
+        const nextTimed = new Map(prev.timedOutUsers || []);
+        userIdentifiers.forEach(idKey => {
+          if (idKey) nextTimed.set(idKey, expiryTime);
+        });
+
+        const nextTimeoutActors = new Map(prev.timeoutActorMap || []);
+        if (cleanMod) {
+          userIdentifiers.forEach(idKey => {
+            if (idKey) nextTimeoutActors.set(idKey, cleanMod);
+          });
+        }
+
+        const nextTimeoutDurations = new Map(prev.timeoutDurationMap || []);
+        if (durationStr) {
+          userIdentifiers.forEach(idKey => {
+            if (idKey) nextTimeoutDurations.set(idKey, durationStr);
+          });
+        }
+
+        return { 
+          ...prev, 
+          deletedMessageIds: next, 
+          deletedByMap: nextMap, 
+          timedOutUsers: nextTimed,
+          timeoutActorMap: nextTimeoutActors,
+          timeoutDurationMap: nextTimeoutDurations
+        };
+      });
 
       // Inject a visible system notification when a timeout / mod action is detected,
       // deduplicated so we never show double notifications for the same event
       const channel = targetMsgs[0]?.channel || (channelName ? channelName.toLowerCase() : 'global');
       const platform = 'youtube';
 
-      const effectiveDuration = durationStr || '5 minutes';
-      const timeoutText = cleanMod 
-        ? `@${targetUser} was timed out by @${cleanMod} for ${effectiveDuration}.`
-        : `@${targetUser} was timed out for ${effectiveDuration}.`;
+      const timeoutText = durationStr
+        ? (cleanMod 
+            ? `@${targetUser} was timed out by @${cleanMod} for ${durationStr}.`
+            : `@${targetUser} was timed out for ${durationStr}.`)
+        : (cleanMod 
+            ? `@${targetUser} was timed out by @${cleanMod}.`
+            : `@${targetUser} was timed out.`);
 
       const alreadyExists = prevMessages.some(m => 
         m.isSystemEvent && 
@@ -2818,8 +2707,8 @@ export default function ChatDashboard({
               targetUser,
               targetChannelId: cleanAuthorParam,
               modUser: cleanMod,
-              duration: effectiveDuration,
-              durationSeconds: Math.round(durationMs / 1000),
+              duration: durationStr || undefined,
+              durationSeconds: durationStr ? Math.round(durationMs / 1000) : undefined,
               action: 'timeout'
             },
             rawTimestamp: Date.now(),
@@ -3482,9 +3371,8 @@ export default function ChatDashboard({
   const liveChannels = useMemo(() => enabledChannels.filter(ch => isChannelLive(ch)), [enabledChannels, isChannelLive]);
   const hasAnyLive = liveChannels.length > 0;
 
-  const { viewersByPlatform: activeViewersByPlatform, uptimesByPlatform, likesByPlatform: activeLikesByPlatform } = useMemo(() => {
+  const { viewersByPlatform: activeViewersByPlatform, likesByPlatform: activeLikesByPlatform } = useMemo(() => {
     const viewersByPlatform = {};
-    const uptimesByPlatform = {};
     const likesByPlatform = {};
 
     const targetChannelsForMetrics = hasAnyLive ? liveChannels : enabledChannels;
@@ -3516,35 +3404,10 @@ export default function ChatDashboard({
         }
         likesByPlatform[displayPlatform] += lCount;
       }
-
-      // 3. Calculate elapsed stream duration for this channel
-      const isStreamActive = ch.platform === 'youtube'
-        ? (status === 'connected' || realCount > 0)
-        : (status === 'connected' && (realCount > 0 || !!(streamStartTimes[`${ch.platform}_${cleanName}`] || streamStartTimes[`${ch.platform}_${rawClean}`])));
-
-      if (isStreamActive) {
-        const startTimeVal = streamStartTimes[`${ch.platform}_${cleanName}`] || 
-                             streamStartTimes[`${ch.platform}_${rawClean}`] || 
-                             streamStartTimes[`${ch.platform}_@${cleanName}`] || 
-                             streamStartTimes[`${ch.platform}_@${rawClean}`] || 
-                             streamStartTimes[`${ch.platform}_${ch.name}`] || 
-                             streamStartTimes[`${ch.platform}_${lowerName}`];
-        if (startTimeVal) {
-          const startMs = parseStartTimeMs(startTimeVal);
-          if (startMs && !isNaN(startMs)) {
-            const elapsedSecs = Math.floor((Date.now() - startMs) / 1000);
-            const currentEarliest = uptimesByPlatform[displayPlatform];
-            const secs = elapsedSecs >= 0 ? elapsedSecs : 0;
-            if (currentEarliest === undefined || secs > currentEarliest) {
-              uptimesByPlatform[displayPlatform] = secs;
-            }
-          }
-        }
-      }
     });
 
-    return { viewersByPlatform, uptimesByPlatform, likesByPlatform };
-  }, [hasAnyLive, liveChannels, enabledChannels, platformStatuses, youtubeShortsChannels, streamViewers, streamLikes, streamStartTimes]);
+    return { viewersByPlatform, likesByPlatform };
+  }, [hasAnyLive, liveChannels, enabledChannels, platformStatuses, youtubeShortsChannels, streamViewers, streamLikes]);
 
   const handleWatchersClick = () => {
     setViewerDisplayMode(prev => {
@@ -3782,29 +3645,16 @@ export default function ChatDashboard({
                   )}
                 </div>
                 <div className="metric-pill-divider" />
-                <div className="metric-pill-section" onClick={handleUptimeClick}>
-                  <Clock size={13} style={{ color: 'var(--text-muted)' }} />
-                  {uptimeDisplayMode === 'individual' && (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                      {Object.keys(uptimesByPlatform).length > 0 ? (
-                        Object.entries(uptimesByPlatform).map(([platform, secs]) => (
-                          <span key={platform} style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                            <PlatformLogo platform={platform} size={12} />
-                            <span>{formatUptime(secs)}</span>
-                          </span>
-                        ))
-                      ) : (
-                        <span>N/A</span>
-                      )}
-                    </span>
-                  )}
-                  {uptimeDisplayMode === 'combined' && (
-                    <span>{uptime !== null ? formatUptime(uptime) : 'N/A'}</span>
-                  )}
-                  {uptimeDisplayMode === 'hidden' && (
-                    <span>--</span>
-                  )}
-                </div>
+                <StreamUptimeBadge
+                  activeChannels={activeChannels}
+                  streamStartTimes={streamStartTimes}
+                  platformStatuses={platformStatuses}
+                  youtubeShortsChannels={youtubeShortsChannels}
+                  streamViewers={streamViewers}
+                  uptimeDisplayMode={uptimeDisplayMode}
+                  onClick={handleUptimeClick}
+                  PlatformLogo={PlatformLogo}
+                />
                 {hasYoutubeChannel && (
                   <>
                     <div className="metric-pill-divider" />
@@ -4140,7 +3990,8 @@ export default function ChatDashboard({
                 {activeChannels.filter(ch => ch.enabled).map(ch => {
                   const cleanName = ch.name.toLowerCase().replace('@', '').trim();
                   const rawClean = ch.name.toLowerCase().replace(/^@+/, '').trim();
-                  const isActive = activeTab === `${ch.platform}_${ch.name.toLowerCase()}` || activeTab === ch.name.toLowerCase();
+                  const tabId = `${ch.platform}_${rawClean}`;
+                  const isActive = activeTab === tabId || activeTab === `${ch.platform}_${ch.name.toLowerCase()}` || activeTab === rawClean || activeTab === ch.name.toLowerCase();
                   const isConnected = platformStatuses[`${ch.platform}_${cleanName}`] === 'connected' || 
                                       platformStatuses[`${ch.platform}_${rawClean}`] === 'connected' ||
                                       platformStatuses[`${ch.platform}_${ch.name}`] === 'connected' ||
@@ -4164,7 +4015,7 @@ export default function ChatDashboard({
                       <TooltipTrigger asChild>
                         <button 
                           className={`sidebar-nav-item channel-item ${isActive ? 'active' : ''} ${draggedIndex !== null && activeChannels[draggedIndex]?.id === ch.id ? 'dragging' : ''}`}
-                          onClick={() => setActiveTab(`${ch.platform}_${ch.name.toLowerCase()}`)}
+                          onClick={() => setActiveTab(tabId)}
                           draggable={true}
                           onDragStart={(e) => handleDragStart(e, ch.id)}
                           onDragOver={(e) => handleDragOver(e, ch.id)}

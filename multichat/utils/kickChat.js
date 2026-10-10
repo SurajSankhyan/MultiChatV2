@@ -1,5 +1,5 @@
 // Kick Live Chat Client using Pusher WebSocket and Proxy Fallbacks
-import { parseMessageContent } from './emotes';
+import { parseMessageContent } from './emotes.js';
 
 export class KickChatClient {
   constructor(onMessageCallback, onStatusCallback) {
@@ -147,33 +147,33 @@ export class KickChatClient {
 
   // Fetch with local proxy first, then fallback to public proxies
   async fetchWithProxyFallback(url) {
-    // 0. Try direct fetch first (takes advantage of client browser session/CORS if allowed)
-    try {
-      console.log(`Kick client: trying direct fetch to ${url}`);
-      const res = await fetch(url);
-      if (res.ok) {
-        const text = await res.text();
-        const parsed = JSON.parse(text);
-        if (parsed && !parsed.error && (parsed.chatroom || parsed.id)) return parsed;
-      }
-    } catch (err) {
-      console.warn('Kick client: direct fetch failed (likely CORS or Cloudflare), trying proxies:', err.message);
-    }
-
-    // 1. Try local proxy first (runs in local development environment via Next server proxy)
+    // 1. Try local proxy first (runs via Next server proxy with server-side fetch / curl fallback)
     if (url.startsWith('https://kick.com')) {
-      const localProxyUrl = url.replace('https://kick.com', '/api/kick');
+      const prefix = typeof window !== 'undefined' ? '' : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000');
+      const localProxyUrl = url.replace('https://kick.com', `${prefix}/api/kick`);
       try {
         console.log(`Kick client: trying local proxy: ${localProxyUrl}`);
         const res = await fetch(localProxyUrl);
         if (res.ok) {
           const text = await res.text();
           const parsed = JSON.parse(text);
-          if (parsed && !parsed.error && (parsed.chatroom || parsed.id)) return parsed;
+          if (parsed && !parsed.error && (parsed.chatroom || parsed.id || parsed.user || parsed.slug)) return parsed;
         }
       } catch (err) {
         console.warn('Local proxy fetch failed, falling back to public proxies:', err.message);
       }
+    }
+
+    // 2. Try direct fetch (takes advantage of client browser session/CORS if allowed)
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        const text = await res.text();
+        const parsed = JSON.parse(text);
+        if (parsed && !parsed.error && (parsed.chatroom || parsed.id || parsed.user || parsed.slug)) return parsed;
+      }
+    } catch (err) {
+      // ignore
     }
 
     // 2. Try rotating public proxies
@@ -408,11 +408,24 @@ export class KickChatClient {
     if (chatroomIdMatch) {
       const cid = parseInt(chatroomIdMatch[1]);
       for (const [ch, id] of this.channelsMap.entries()) {
-        if (Number(id) === Number(cid)) {
+        if (Number(id) === Number(cid) || String(id) === String(cid)) {
           channelName = ch;
           break;
         }
       }
+      if (!channelName && typeof window !== 'undefined') {
+        for (const [ch] of this.channelsMap.entries()) {
+          const cachedId = localStorage.getItem(`prochat_kick_chatroom_id_${ch}`);
+          if (cachedId && (Number(cachedId) === Number(cid) || String(cachedId) === String(cid))) {
+            channelName = ch;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!channelName && this.channelsMap.size > 0) {
+      channelName = this.channelsMap.keys().next().value;
     }
 
     try {
@@ -611,7 +624,7 @@ export class KickChatClient {
       const parsedMsg = {
         id: msg.id || 'kick_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
         platform: 'kick',
-        channel: channelName || 'kick',
+        channel: channelName || (this.channelsMap.size > 0 ? this.channelsMap.keys().next().value : 'kick'),
         username: senderSlug,
         displayName: senderDisplayName,
         userId: sender.id ? String(sender.id) : null,
