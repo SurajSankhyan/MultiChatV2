@@ -52,24 +52,24 @@ export default function LandingPage() {
       <div className="absolute bottom-[20%] right-[20%] w-[35vw] h-[35vw] rounded-full bg-[radial-gradient(circle,rgba(169,112,255,0.06)_0%,rgba(0,0,0,0)_70%)] pointer-events-none" />
 
       {/* Header */}
-      <header className="relative z-10 w-full max-w-7xl mx-auto px-6 py-6 flex items-center justify-between pointer-events-auto">
+      <header className="relative z-10 w-full max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6 flex items-center justify-between pointer-events-auto">
         <div className="flex items-center gap-2 select-none">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-[#00F0FF] to-[#a970ff] p-[1px] shadow-[0_0_20px_rgba(0,240,255,0.2)]">
+          <div className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-[#00F0FF] to-[#a970ff] p-[1px] shadow-[0_0_20px_rgba(0,240,255,0.2)]">
             <div className="flex h-full w-full items-center justify-center rounded-xl bg-[#0a0a0f]">
-              <MessageSquare className="w-5 h-5 text-[#00F0FF]" />
+              <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5 text-[#00F0FF]" />
             </div>
           </div>
-          <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+          <span className="text-lg sm:text-xl font-bold tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
             MultiChat
           </span>
         </div>
-        <div className="text-xs text-slate-500 uppercase tracking-widest font-semibold bg-white/5 border border-white/10 px-3 py-1.5 rounded-full backdrop-blur-md">
+        <div className="text-[11px] sm:text-xs text-slate-500 uppercase tracking-widest font-semibold bg-white/5 border border-white/10 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full backdrop-blur-md">
           v1.0.0 Stable
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 max-w-4xl mx-auto text-center pointer-events-auto my-12">
+      <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 sm:px-6 max-w-4xl mx-auto text-center pointer-events-auto my-8 sm:my-12">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
@@ -77,13 +77,13 @@ export default function LandingPage() {
           className="flex flex-col items-center"
         >
           {/* Badge indicator */}
-          <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-white/5 to-white/10 border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] text-slate-300 text-xs font-medium mb-6">
+          <div className="inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 rounded-full bg-gradient-to-r from-white/5 to-white/10 border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] text-slate-300 text-[11px] sm:text-xs font-medium mb-6">
             <Sparkles className="w-3.5 h-3.5 text-[#00F0FF]" />
             Your Ultimate Streaming Companion
           </div>
 
           {/* Heading */}
-          <h1 className="text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight text-white mb-6 leading-tight select-none">
+          <h1 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold tracking-tight text-white mb-4 sm:mb-6 leading-tight select-none">
             Consolidate Your Chats <br />
             <span className="bg-gradient-to-r from-[#00F0FF] via-[#53fc18] to-[#a970ff] bg-clip-text text-transparent filter drop-shadow-[0_2px_15px_rgba(0,240,255,0.15)]">
               Stream Seamlessly
@@ -91,16 +91,16 @@ export default function LandingPage() {
           </h1>
 
           {/* Subtitle */}
-          <p className="text-base sm:text-lg md:text-xl text-slate-400 max-w-2xl mb-10 leading-relaxed font-normal">
+          <p className="text-sm sm:text-lg md:text-xl text-slate-400 max-w-2xl mb-8 sm:mb-10 leading-relaxed font-normal">
             Connect your Twitch, YouTube, and Kick live chats in one unified dashboard. Complete with emotes, Level Badges, TTS queues, and custom overlay setups.
           </p>
 
           {/* Connect Button */}
           <Link href={isLoggedIn ? "/dashboard" : "/login"} className="group relative">
             <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-[#00F0FF] via-[#a970ff] to-[#53fc18] opacity-75 blur-md group-hover:opacity-100 transition duration-500 group-hover:duration-200" />
-            <button className="relative flex items-center gap-3 px-8 py-4 bg-black rounded-xl text-white font-semibold text-lg border border-white/10 transition-all duration-300 group-hover:bg-[#07070a] group-hover:border-white/20 select-none">
+            <button className="relative flex items-center gap-2.5 sm:gap-3 px-6 sm:px-8 py-3.5 sm:py-4 bg-black rounded-xl text-white font-semibold text-base sm:text-lg border border-white/10 transition-all duration-300 group-hover:bg-[#07070a] group-hover:border-white/20 select-none">
               <span>{isLoggedIn ? "Open Dashboard" : "Connect Channels"}</span>
-              <ArrowRight className="w-5 h-5 text-[#00F0FF] transition-transform duration-300 group-hover:translate-x-1" />
+              <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 text-[#00F0FF] transition-transform duration-300 group-hover:translate-x-1" />
             </button>
           </Link>
         </motion.div>
@@ -110,11 +110,11 @@ export default function LandingPage() {
           initial={{ opacity: 0, y: 40 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.2, ease: 'easeOut' }}
-          className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-16 max-w-3xl w-full"
+          className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mt-10 sm:mt-16 max-w-3xl w-full"
         >
-          <div className="flex flex-col items-center p-5 rounded-2xl bg-white/[0.02] border border-white/5 backdrop-blur-sm select-none">
-            <div className="h-10 w-10 flex items-center justify-center rounded-xl bg-gradient-to-tr from-[#a970ff]/20 to-[#a970ff]/5 border border-[#a970ff]/30 text-[#a970ff] mb-3">
-              <MessageSquare className="w-5 h-5" />
+          <div className="flex flex-col items-center p-4 sm:p-5 rounded-2xl bg-white/[0.02] border border-white/5 backdrop-blur-sm select-none">
+            <div className="h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl bg-gradient-to-tr from-[#a970ff]/20 to-[#a970ff]/5 border border-[#a970ff]/30 text-[#a970ff] mb-2.5 sm:mb-3">
+              <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             <h3 className="text-white font-semibold text-sm mb-1">Unified Feeds</h3>
             <p className="text-slate-400 text-xs text-center leading-normal">
@@ -122,9 +122,9 @@ export default function LandingPage() {
             </p>
           </div>
 
-          <div className="flex flex-col items-center p-5 rounded-2xl bg-white/[0.02] border border-white/5 backdrop-blur-sm select-none">
-            <div className="h-10 w-10 flex items-center justify-center rounded-xl bg-gradient-to-tr from-[#53fc18]/20 to-[#53fc18]/5 border border-[#53fc18]/30 text-[#53fc18] mb-3">
-              <Zap className="w-5 h-5" />
+          <div className="flex flex-col items-center p-4 sm:p-5 rounded-2xl bg-white/[0.02] border border-white/5 backdrop-blur-sm select-none">
+            <div className="h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl bg-gradient-to-tr from-[#53fc18]/20 to-[#53fc18]/5 border border-[#53fc18]/30 text-[#53fc18] mb-2.5 sm:mb-3">
+              <Zap className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             <h3 className="text-white font-semibold text-sm mb-1">Low Latency</h3>
             <p className="text-slate-400 text-xs text-center leading-normal">
@@ -132,9 +132,9 @@ export default function LandingPage() {
             </p>
           </div>
 
-          <div className="flex flex-col items-center p-5 rounded-2xl bg-white/[0.02] border border-white/5 backdrop-blur-sm select-none">
-            <div className="h-10 w-10 flex items-center justify-center rounded-xl bg-gradient-to-tr from-[#00F0FF]/20 to-[#00F0FF]/5 border border-[#00F0FF]/30 text-[#00F0FF] mb-3">
-              <Shield className="w-5 h-5" />
+          <div className="flex flex-col items-center p-4 sm:p-5 rounded-2xl bg-white/[0.02] border border-white/5 backdrop-blur-sm select-none">
+            <div className="h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl bg-gradient-to-tr from-[#00F0FF]/20 to-[#00F0FF]/5 border border-[#00F0FF]/30 text-[#00F0FF] mb-2.5 sm:mb-3">
+              <Shield className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             <h3 className="text-white font-semibold text-sm mb-1">Secure Auth</h3>
             <p className="text-slate-400 text-xs text-center leading-normal">

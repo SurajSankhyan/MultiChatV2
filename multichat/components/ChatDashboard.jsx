@@ -1069,6 +1069,22 @@ export default function ChatDashboard({
   const [activeTab, setActiveTab] = useState('all');
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [isSidebarHidden, setIsSidebarHidden] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
+  const handleToggleSidebar = React.useCallback(() => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+      setIsMobileSidebarOpen(prev => !prev);
+    } else {
+      setIsSidebarHidden(prev => !prev);
+    }
+  }, []);
+
+  const handleSelectTab = React.useCallback((tab) => {
+    setActiveTab(tab);
+    if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+      setIsMobileSidebarOpen(false);
+    }
+  }, []);
   const [streamStartTimes, setStreamStartTimes] = useState(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -3594,7 +3610,7 @@ export default function ChatDashboard({
               <button 
                 type="button"
                 className="header-sidebar-toggle-btn"
-                onClick={() => setIsSidebarHidden(!isSidebarHidden)}
+                onClick={handleToggleSidebar}
               >
                 <PanelLeft size={18} />
               </button>
@@ -3934,14 +3950,14 @@ export default function ChatDashboard({
       {/* Main Panel Workspace Grid */}
       <div id="chat-messages-and-sidebar-container">
         {/* Left Navigation Sidebar */}
-        <aside className={`left-sidebar ${isSidebarExpanded ? 'expanded' : ''} ${isSidebarHidden ? 'hidden' : ''}`}>
+        <aside className={`left-sidebar ${isSidebarExpanded ? 'expanded' : ''} ${isSidebarHidden ? 'hidden' : ''} ${isMobileSidebarOpen ? 'mobile-open' : ''}`}>
           <div className="sidebar-top-section">
             {/* 1. All Chat nav item */}
             <Tooltip delayDuration={150}>
               <TooltipTrigger asChild>
                 <button 
                   className={`sidebar-nav-item ${activeTab === 'all' ? 'active' : ''}`}
-                  onClick={() => setActiveTab('all')}
+                  onClick={() => handleSelectTab('all')}
                 >
                   <MessageSquare size={20} />
                   <span className="sidebar-nav-label">All Chat</span>
@@ -3955,7 +3971,7 @@ export default function ChatDashboard({
               <TooltipTrigger asChild>
                 <button 
                   className={`sidebar-nav-item ${activeTab === 'events' ? 'active' : ''}`}
-                  onClick={() => setActiveTab('events')}
+                  onClick={() => handleSelectTab('events')}
                 >
                   <Compass size={20} />
                   {hasUnreadEvents && <span className="sidebar-item-badge-dot" />}
@@ -3972,7 +3988,7 @@ export default function ChatDashboard({
               <TooltipTrigger asChild>
                 <button 
                   className={`sidebar-nav-item ${activeTab === 'mentions' ? 'active' : ''}`}
-                  onClick={() => setActiveTab('mentions')}
+                  onClick={() => handleSelectTab('mentions')}
                 >
                   <AtSign size={20} />
                   <span className="sidebar-nav-label">Mentions</span>
@@ -4015,7 +4031,7 @@ export default function ChatDashboard({
                       <TooltipTrigger asChild>
                         <button 
                           className={`sidebar-nav-item channel-item ${isActive ? 'active' : ''} ${draggedIndex !== null && activeChannels[draggedIndex]?.id === ch.id ? 'dragging' : ''}`}
-                          onClick={() => setActiveTab(tabId)}
+                          onClick={() => handleSelectTab(tabId)}
                           draggable={true}
                           onDragStart={(e) => handleDragStart(e, ch.id)}
                           onDragOver={(e) => handleDragOver(e, ch.id)}
@@ -4072,7 +4088,10 @@ export default function ChatDashboard({
               <TooltipTrigger asChild>
                 <button 
                   className="sidebar-add-btn"
-                  onClick={() => handleOpenSettings('channels')}
+                  onClick={() => {
+                    handleOpenSettings('channels');
+                    setIsMobileSidebarOpen(false);
+                  }}
                 >
                   <Plus size={20} />
                   <span className="sidebar-nav-label">Add Channel</span>
@@ -4098,6 +4117,15 @@ export default function ChatDashboard({
             </Tooltip>
           </div>
         </aside>
+
+        {/* Mobile sidebar backdrop overlay */}
+        {isMobileSidebarOpen && (
+          <div 
+            className="sidebar-mobile-backdrop"
+            onClick={() => setIsMobileSidebarOpen(false)}
+            aria-hidden="true"
+          />
+        )}
 
         {/* Unified Chat Feed & Input */}
         <section id="all-messages-container" className="full-width" style={{ position: 'relative' }}>
@@ -4341,6 +4369,13 @@ export default function ChatDashboard({
               ))}
             </div>
           </aside>
+        )}
+        {showParticipants && (
+          <div 
+            className="participants-mobile-backdrop"
+            onClick={handleCloseParticipants}
+            aria-hidden="true"
+          />
         )}
 
         {/* Center Panel Popup Modal: Chatter Insights */}

@@ -6418,3 +6418,465 @@ input[type="range"]::-moz-range-thumb:hover {
   color: #fef08a;
 }
 
+/* ==========================================================================
+   MOBILE & TABLET RESPONSIVE SYSTEM (Scoped exclusively for <= 768px & <= 480px)
+   PC and Large Viewports (> 768px) remain 100% UNCHANGED.
+   ========================================================================== */
+
+/* Backdrops for mobile drawers (hidden on PC) */
+.sidebar-mobile-backdrop,
+.participants-mobile-backdrop {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  /* Backdrops active on mobile */
+  .sidebar-mobile-backdrop,
+  .participants-mobile-backdrop {
+    display: block;
+    position: fixed;
+    top: 48px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    z-index: 1100;
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  /* -------------------------------------------------------------
+     1. Dashboard Top Header Responsive Styles
+     ------------------------------------------------------------- */
+  #top-bar-container {
+    height: 48px !important;
+    padding: 0 10px !important;
+    gap: 6px !important;
+  }
+
+  #top-bar-container-left-header {
+    gap: 6px !important;
+  }
+
+  .header-sidebar-toggle-btn {
+    width: 36px !important;
+    height: 36px !important;
+    border-radius: 8px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    color: #e4e4e7 !important;
+    flex-shrink: 0 !important;
+  }
+
+  #top-bar-container-project-name {
+    font-size: 1.1em !important;
+    margin-right: 0.2em !important;
+  }
+
+  /* Responsive Metrics Pill */
+  .header-center {
+    flex: 1 !important;
+    min-width: 0 !important;
+    justify-content: center !important;
+  }
+
+  .combined-metrics-pill {
+    padding: 4px 8px !important;
+    font-size: 11.5px !important;
+    gap: 6px !important;
+    max-width: 48vw !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  .combined-metrics-pill::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  .metric-pill-divider {
+    height: 10px !important;
+    margin: 0 1px !important;
+  }
+
+  .metric-pill-section {
+    gap: 4px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .header-right {
+    gap: 6px !important;
+  }
+
+  #chatter-list-button {
+    width: 36px !important;
+    height: 36px !important;
+    padding: 0 !important;
+    border-radius: 8px !important;
+  }
+
+  .burger {
+    width: 36px !important;
+    height: 36px !important;
+    border-radius: 8px !important;
+  }
+
+  /* User profile popup window */
+  .popup-window {
+    top: 48px !important;
+    right: 0 !important;
+    z-index: 2000 !important;
+  }
+
+  /* -------------------------------------------------------------
+     2. Offcanvas Left Navigation Drawer on Mobile
+     ------------------------------------------------------------- */
+  .left-sidebar {
+    position: fixed !important;
+    top: 48px !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    width: 250px !important;
+    max-width: 80vw !important;
+    padding: 16px 10px !important;
+    background-color: #0c0c0e !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.12) !important;
+    box-shadow: 12px 0 40px rgba(0, 0, 0, 0.95) !important;
+    transform: translateX(-100%) !important;
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    z-index: 1200 !important;
+    align-items: stretch !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .left-sidebar.mobile-open {
+    transform: translateX(0) !important;
+  }
+
+  .left-sidebar.mobile-open .sidebar-nav-item {
+    width: 100% !important;
+    height: 42px !important;
+    justify-content: flex-start !important;
+    padding: 0 14px !important;
+    gap: 12px !important;
+    border-radius: 10px !important;
+  }
+
+  .left-sidebar.mobile-open .sidebar-nav-label {
+    display: inline-block !important;
+    opacity: 1 !important;
+    color: #e4e4e7 !important;
+    font-size: 13.5px !important;
+    font-weight: 500 !important;
+    visibility: visible !important;
+  }
+
+  .left-sidebar.mobile-open .sidebar-toggle-btn {
+    display: none !important;
+  }
+
+  .left-sidebar.mobile-open .sidebar-add-btn {
+    width: 100% !important;
+    height: 42px !important;
+    justify-content: flex-start !important;
+    padding: 0 14px !important;
+    gap: 12px !important;
+    border-radius: 10px !important;
+  }
+
+  .left-sidebar.mobile-open .sidebar-add-btn .sidebar-nav-label {
+    display: inline-block !important;
+    opacity: 1 !important;
+    font-size: 13.5px !important;
+  }
+
+  .left-sidebar.mobile-open .sidebar-channels-scroll-container {
+    gap: 4px !important;
+  }
+
+  /* -------------------------------------------------------------
+     3. Offcanvas Right Participants Drawer on Mobile
+     ------------------------------------------------------------- */
+  .participants-panel {
+    position: fixed !important;
+    top: 48px !important;
+    bottom: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    max-width: 320px !important;
+    height: calc(100% - 48px) !important;
+    z-index: 1200 !important;
+    box-shadow: -12px 0 40px rgba(0, 0, 0, 0.95) !important;
+    border-left: 1px solid rgba(255, 255, 255, 0.12) !important;
+    background: #0c0c0e !important;
+  }
+
+  /* -------------------------------------------------------------
+     4. Chat Feed & Message Rows Responsive Layout
+     ------------------------------------------------------------- */
+  #chat-messages-and-sidebar-container {
+    position: relative !important;
+    width: 100% !important;
+    height: calc(100vh - 48px) !important;
+    min-height: 0 !important;
+  }
+
+  #all-messages-container {
+    width: 100% !important;
+    min-width: 0 !important;
+    flex: 1 !important;
+  }
+
+  .breadcrumb-container {
+    padding: 8px 12px !important;
+    font-size: 11.5px !important;
+    gap: 6px !important;
+  }
+
+  .held-tip-banner {
+    margin: 4px 8px !important;
+    padding: 6px 12px !important;
+    font-size: 11.5px !important;
+    border-radius: 8px !important;
+  }
+
+  .chat-feed-panel {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .feed-messages {
+    padding: 4px 0 !important;
+    width: 100% !important;
+  }
+
+  .chat-message-row {
+    padding: 5px 8px !important;
+    gap: 6px !important;
+  }
+
+  .chat-message-main-row {
+    padding-right: 32px !important;
+  }
+
+  .msg-avatar {
+    width: 24px !important;
+    height: 24px !important;
+    border-radius: 6px !important;
+  }
+
+  .msg-actions-wrapper {
+    right: 4px !important;
+    top: 4px !important;
+  }
+
+  .msg-hover-actions {
+    opacity: 0.65 !important;
+  }
+
+  .chat-message-row:hover .msg-hover-actions,
+  .chat-message-row:active .msg-hover-actions,
+  .chat-message-row:focus-within .msg-hover-actions,
+  .msg-actions-wrapper:has(.message-context-menu) .msg-hover-actions {
+    opacity: 1 !important;
+  }
+
+  .msg-hover-action-btn {
+    width: 22px !important;
+    height: 22px !important;
+    font-size: 14px !important;
+    padding: 0 !important;
+  }
+
+  .superchat-card {
+    max-width: 100% !important;
+    border-radius: 10px !important;
+  }
+
+  .superchat-header-container,
+  .superchat-body {
+    padding: 8px 10px !important;
+  }
+
+  .scroll-lock-banner {
+    bottom: 24px !important;
+    padding: 6px 14px !important;
+    font-size: 11.5px !important;
+  }
+
+  /* -------------------------------------------------------------
+     5. Bottom Chat Input Capsule Responsive Layout
+     ------------------------------------------------------------- */
+  .chat-input-container {
+    padding: 6px 8px 10px 8px !important;
+  }
+
+  .floating-input-capsule {
+    padding: 4px 8px !important;
+    gap: 6px !important;
+    border-radius: 12px !important;
+  }
+
+  .capsule-btn {
+    width: 32px !important;
+    height: 32px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .capsule-text-input {
+    padding: 8px 8px !important;
+    font-size: 16px !important; /* Preserves 16px to prevent iOS auto-zoom */
+    min-width: 0 !important;
+    border-radius: 8px !important;
+  }
+
+  .capsule-send-btn {
+    padding: 6px 12px !important;
+    font-size: 12px !important;
+    border-radius: 8px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .target-dropup-menu {
+    max-width: min(340px, calc(100vw - 16px)) !important;
+    left: 4px !important;
+    right: auto !important;
+    bottom: 48px !important;
+    z-index: 1500 !important;
+  }
+
+  .bottom-actions-dropdown {
+    max-width: min(320px, calc(100vw - 16px)) !important;
+    right: 4px !important;
+    left: auto !important;
+    bottom: 48px !important;
+    z-index: 1500 !important;
+  }
+
+  /* -------------------------------------------------------------
+     6. Settings Modal Responsive View
+     ------------------------------------------------------------- */
+  #settings-modal-content {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+    padding: 12px 12px 16px 12px !important;
+    grid-template-columns: 1fr !important;
+    grid-template-rows: auto minmax(0, 1fr) !important;
+    row-gap: 12px !important;
+    column-gap: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  #settings-tabs-container {
+    flex-direction: row !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    border-right: none !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    padding-right: 0 !important;
+    padding-bottom: 8px !important;
+    gap: 6px !important;
+    width: calc(100% - 32px) !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none !important;
+  }
+
+  #settings-tabs-container::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  .settings-tab {
+    padding: 6px 12px !important;
+    border-radius: 8px !important;
+    flex-shrink: 0 !important;
+    font-size: 12px !important;
+    gap: 6px !important;
+  }
+
+  .settings-tab-icon {
+    width: 14px !important;
+    height: 14px !important;
+  }
+
+  .settings-tab-label {
+    display: inline-block !important;
+  }
+
+  #settings-modal-close-button {
+    top: 8px !important;
+    right: 8px !important;
+    font-size: 1.5em !important;
+  }
+
+  .settings-section {
+    padding: 4px 0 !important;
+  }
+
+  .theme-selector {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+
+  /* -------------------------------------------------------------
+     7. Chatter Insights, Thread, Tip & Avatar Modals
+     ------------------------------------------------------------- */
+  .chatter-modal-container {
+    width: 95vw !important;
+    max-width: 95vw !important;
+    height: auto !important;
+    max-height: 88dvh !important;
+    border-radius: 16px !important;
+  }
+
+  .chatter-modal-header {
+    padding: 12px 14px !important;
+  }
+
+  .chatter-modal-body {
+    padding: 12px 14px !important;
+  }
+
+  .thread-modal-container {
+    width: 95vw !important;
+    max-width: 95vw !important;
+    max-height: 88dvh !important;
+    border-radius: 16px !important;
+  }
+
+  .custom-tip-modal-card {
+    max-width: 95vw !important;
+    max-height: 88dvh !important;
+    overflow-y: auto !important;
+  }
+
+  .avatar-modal-card {
+    max-width: 92vw !important;
+    padding: 24px 16px !important;
+  }
+}
+
+/* Extra Compact Screens (< 480px) */
+@media (max-width: 480px) {
+  .focus-mode-badge {
+    display: none !important;
+  }
+
+  .BugButton {
+    display: none !important;
+  }
+
+  .combined-metrics-pill {
+    max-width: 40vw !important;
+  }
+}
+

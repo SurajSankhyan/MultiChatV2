@@ -262,12 +262,12 @@ export default function ConnectYoutubePage() {
       <main className="w-full max-w-7xl relative z-10 my-auto space-y-10">
         
         {/* Hero Title Section */}
-        <div className="text-center max-w-3xl mx-auto space-y-4">
-          <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-tight">
+        <div className="text-center max-w-3xl mx-auto space-y-3 sm:space-y-4">
+          <h1 className="text-2xl sm:text-4xl md:text-5xl font-extrabold text-white tracking-tight leading-tight">
             Connect Your YouTube Channel
           </h1>
 
-          <p className="text-sm sm:text-base text-zinc-400 max-w-2xl mx-auto font-normal leading-relaxed">
+          <p className="text-xs sm:text-base text-zinc-400 max-w-2xl mx-auto font-normal leading-relaxed">
             Link your creator account seamlessly using our ultra-lightweight desktop companion application.
           </p>
 
@@ -415,7 +415,7 @@ export default function ConnectYoutubePage() {
               <div className="space-y-4">
                 {/* High-Tech Code Box */}
                 <div className="w-full py-4 px-4 bg-[#000000] border border-zinc-700 rounded-xl flex flex-col items-center justify-center gap-3 shadow-inner">
-                  <span className="font-mono text-2xl sm:text-3xl font-extrabold tracking-widest text-white select-all">
+                  <span className="font-mono text-xl sm:text-3xl font-extrabold tracking-widest text-white select-all break-all text-center">
                     {pairingCode}
                   </span>
                   

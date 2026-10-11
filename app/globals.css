@@ -42,6 +42,10 @@
   --text-faint: #2E3447;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   background-color: var(--bg-base);
   color: var(--text-primary);
