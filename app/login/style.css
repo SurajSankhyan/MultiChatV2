@@ -482,7 +482,7 @@
 /* ============================================================
    Mobile Responsive Styles
    ============================================================ */
-@media (max-width: 1024px) {
+@media (max-width: 768px) {
     .auth-page-container {
         height: auto !important;
         min-height: 100dvh !important;

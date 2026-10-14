@@ -978,6 +978,7 @@ body {
  display: inline-block;
  width: var(--button-width);
  height: var(--button-height);
+ flex-shrink: 0;
 }
 
 .slider {
@@ -4092,6 +4093,10 @@ html[data-appearance-theme="twitch"] .kick-reply-to-message {
   to { transform: scale(0.95); opacity: 0; }
 }
 
+.settings-mobile-header {
+  display: none !important;
+}
+
 #settings-modal-close-button {
   color: rgba(255, 255, 255, 0.4);
   cursor: pointer;
@@ -6536,13 +6541,15 @@ input[type="range"]::-moz-range-thumb:hover {
   /* -------------------------------------------------------------
      2. Offcanvas Left Navigation Drawer on Mobile
      ------------------------------------------------------------- */
-  .left-sidebar {
+  .left-sidebar,
+  .left-sidebar.hidden {
     position: fixed !important;
     top: 48px !important;
     bottom: 0 !important;
     left: 0 !important;
     width: 250px !important;
     max-width: 80vw !important;
+    display: flex !important;
     padding: 16px 10px !important;
     background-color: #0c0c0e !important;
     border-right: 1px solid rgba(255, 255, 255, 0.12) !important;
@@ -6762,31 +6769,83 @@ input[type="range"]::-moz-range-thumb:hover {
   /* -------------------------------------------------------------
      6. Settings Modal Responsive View
      ------------------------------------------------------------- */
+  #settings-modal {
+    padding: 0 !important;
+  }
+
   #settings-modal-content {
     width: 100vw !important;
     max-width: 100vw !important;
     height: 100dvh !important;
     max-height: 100dvh !important;
     border-radius: 0 !important;
-    padding: 12px 12px 16px 12px !important;
-    grid-template-columns: 1fr !important;
-    grid-template-rows: auto minmax(0, 1fr) !important;
-    row-gap: 12px !important;
-    column-gap: 0 !important;
+    padding: 10px 12px 14px 12px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
     border: none !important;
     box-shadow: none !important;
+    overflow: hidden !important;
+  }
+
+  .settings-mobile-header {
+    display: flex !important;
+    justify-content: space-between;
+    align-items: center;
+    width: 100% !important;
+    flex-shrink: 0 !important;
+    padding: 4px 2px 8px 2px !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+  }
+
+  .settings-mobile-header-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: 0.01em;
+  }
+
+  .settings-mobile-close-button {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 34px !important;
+    height: 34px !important;
+    border-radius: 8px !important;
+    background: rgba(255, 255, 255, 0.06) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    color: #ffffff !important;
+    font-size: 22px !important;
+    font-weight: 600 !important;
+    line-height: 1 !important;
+    cursor: pointer !important;
+    transition: background-color 0.15s ease !important;
+  }
+
+  .settings-mobile-close-button:hover,
+  .settings-mobile-close-button:active {
+    background: rgba(255, 255, 255, 0.14) !important;
+  }
+
+  #settings-modal-close-button {
+    display: none !important;
   }
 
   #settings-tabs-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex-shrink: 0 !important;
+    display: flex !important;
     flex-direction: row !important;
     overflow-x: auto !important;
     overflow-y: hidden !important;
     border-right: none !important;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
-    padding-right: 0 !important;
-    padding-bottom: 8px !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+    padding: 0 0 8px 0 !important;
     gap: 6px !important;
-    width: calc(100% - 32px) !important;
     -webkit-overflow-scrolling: touch !important;
     scrollbar-width: none !important;
   }
@@ -6796,10 +6855,11 @@ input[type="range"]::-moz-range-thumb:hover {
   }
 
   .settings-tab {
-    padding: 6px 12px !important;
-    border-radius: 8px !important;
     flex-shrink: 0 !important;
+    padding: 6px 11px !important;
+    border-radius: 8px !important;
     font-size: 12px !important;
+    white-space: nowrap !important;
     gap: 6px !important;
   }
 
@@ -6812,19 +6872,102 @@ input[type="range"]::-moz-range-thumb:hover {
     display: inline-block !important;
   }
 
-  #settings-modal-close-button {
-    top: 8px !important;
-    right: 8px !important;
-    font-size: 1.5em !important;
+  #settings-tab-content {
+    flex: 1 1 0% !important;
+    min-height: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
   }
 
   .settings-section {
-    padding: 4px 0 !important;
+    padding: 4px 2px 24px 2px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+  }
+
+  .settings-section-card {
+    padding: 12px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    overflow-x: hidden !important;
+  }
+
+  .settings-appearance-font-container {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+
+  .settings-appearance-font-control-group {
+    width: 100% !important;
+    max-width: 100% !important;
+    justify-self: stretch !important;
+  }
+
+  .settings-appearance-subtabs-container {
+    overflow-x: auto !important;
+    flex-wrap: nowrap !important;
+    padding-bottom: 4px !important;
+    scrollbar-width: none !important;
+  }
+
+  .settings-appearance-subtabs-container::-webkit-scrollbar {
+    display: none !important;
   }
 
   .theme-selector {
-    grid-template-columns: repeat(2, 1fr) !important;
+    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)) !important;
     gap: 8px !important;
+  }
+
+  .settings-account-row {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+
+  .settings-account-row > div:last-child {
+    flex-wrap: wrap !important;
+  }
+
+  .add-channel-input-row {
+    flex-direction: column !important;
+    width: 100% !important;
+  }
+
+  .add-channel-input-row button {
+    width: 100% !important;
+  }
+
+  .overlay-action-buttons-row {
+    flex-direction: column !important;
+    width: 100% !important;
+  }
+
+  .overlay-action-buttons-row button {
+    width: 100% !important;
+  }
+
+  .overlay-color-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .channel-item {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+
+  .channel-info {
+    min-width: 0 !important;
+    flex: 1 1 auto !important;
+  }
+
+  .channel-name {
+    word-break: break-word !important;
   }
 
   /* -------------------------------------------------------------

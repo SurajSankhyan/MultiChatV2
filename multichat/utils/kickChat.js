@@ -67,82 +67,21 @@ export class KickChatClient {
       (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
       (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
     ];
+    this.eventSources = new Map(); // channelName -> EventSource
   }
 
   connect() {
     this.isManuallyDisconnected = false;
-    if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
-      return;
-    }
-
-    this.onStatus('kick_all', 'connecting');
+    this.isConnected = true;
+    this.onStatus('kick_all', 'connected');
     
-    // Kick's public Pusher client connection
-    const pusherAppKey = '32cbd69e4b950bf97679';
-    this.socket = new WebSocket(`wss://ws-us2.pusher.com/app/${pusherAppKey}?protocol=7&client=js&version=8.4.0-rc2&flash=false`);
-
-    this.socket.onopen = () => {
-      this.isConnected = true;
-      this.onStatus('kick_all', 'connected');
-      
-      // Copy to array and clear BEFORE joining, to avoid guard clause blocking the join
-      const channelsToJoin = Array.from(this.pendingChannels);
-      this.pendingChannels.clear();
-      
-      channelsToJoin.forEach(channel => {
-        this.join(channel);
-      });
-    };
-
-    this.socket.onmessage = (event) => {
-      try {
-        const payload = JSON.parse(event.data);
-        
-        // Handle Pusher Ping
-        if (payload.event === 'pusher:ping') {
-          this.socket.send(JSON.stringify({ event: 'pusher:pong' }));
-          return;
-        }
-
-        // Handle Chat Message Event
-        if (payload.event === 'App\\Events\\ChatMessageEvent') {
-          const rawMsg = JSON.parse(payload.data);
-          this.parseChatMessage(payload.channel, rawMsg);
-        }
-      } catch (err) {
-        console.error('Error parsing Kick socket message:', err);
-      }
-    };
-
-    this.socket.onclose = () => {
-      this.isConnected = false;
-      this.onStatus('kick_all', 'disconnected');
-      
-      if (this.isManuallyDisconnected) {
-        console.log('KickChatClient: Manually disconnected. Reconnection suppressed.');
-        return;
-      }
-      
-      // Move active channels back to pending for reconnect
-      this.channelsMap.forEach((_, chName) => {
-        this.pendingChannels.add(chName);
-      });
-      this.channelsMap.clear();
-
-      setTimeout(() => {
-        if (this.isManuallyDisconnected) return;
-        this.connect();
-      }, this.reconnectInterval);
-    };
-
-    this.socket.onerror = (error) => {
-      console.warn('Kick Pusher WebSocket notice:', error?.message || 'reconnecting');
-      try {
-        if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
-          this.socket.close();
-        }
-      } catch (e) {}
-    };
+    // Copy to array and clear BEFORE joining, to avoid guard clause blocking the join
+    const channelsToJoin = Array.from(this.pendingChannels);
+    this.pendingChannels.clear();
+    
+    channelsToJoin.forEach(channel => {
+      this.join(channel);
+    });
   }
 
   // Fetch with local proxy first, then fallback to public proxies
@@ -273,14 +212,38 @@ export class KickChatClient {
 
       this.channelsMap.set(cleanName, chatroomId);
 
-      // Subscribe to the chatroom channel on Pusher
-      this.socket.send(JSON.stringify({
-        event: 'pusher:subscribe',
-        data: {
-          auth: '',
-          channel: `chatrooms.${chatroomId}.v2`
-        }
-      }));
+      // Close previous EventSource if exists for this channel
+      if (this.eventSources.has(cleanName)) {
+        try { this.eventSources.get(cleanName).close(); } catch (e) {}
+        this.eventSources.delete(cleanName);
+      }
+
+      // Subscribe to Kick chatroom via Next.js SSE relay
+      const channelId = String(data?.chatroom?.channel_id || data?.id || '');
+      const sseUrl = `/api/kick/stream?channel=${encodeURIComponent(cleanName)}&chatroomId=${encodeURIComponent(chatroomId)}&channelId=${encodeURIComponent(channelId)}`;
+      
+      try {
+        const es = new EventSource(sseUrl);
+        this.eventSources.set(cleanName, es);
+
+        es.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+            const rawMsg = typeof payload.data === 'string' ? JSON.parse(payload.data) : payload.data;
+            if (payload.event === 'App\\Events\\ChatMessageEvent' || payload.event?.includes('ChatMessage') || rawMsg?.content || rawMsg?.message || rawMsg?.sender) {
+              this.parseChatMessage(payload.channel || `chatrooms.${chatroomId}.v2`, rawMsg);
+            }
+          } catch (err) {
+            console.error('Error parsing Kick SSE message:', err);
+          }
+        };
+
+        es.onerror = (err) => {
+          console.warn(`Kick SSE notice for ${cleanName}:`, err);
+        };
+      } catch (sseErr) {
+        console.error('Failed to initialize Kick EventSource:', sseErr);
+      }
 
       let startTime = null;
       let viewers = null;
@@ -292,7 +255,7 @@ export class KickChatClient {
         this.onStatus(cleanName, 'offline', { startTime: null, viewers: 0 });
       }
 
-      console.log(`Subscribed to Kick chat: ${cleanName} (id: ${chatroomId})`);
+      console.log(`Subscribed to Kick chat via SSE: ${cleanName} (id: ${chatroomId})`);
 
       // Periodic viewer count update for Kick
       if (!this.viewerIntervals) {
@@ -327,19 +290,15 @@ export class KickChatClient {
 
   leave(channelName) {
     const cleanName = channelName.toLowerCase().replace('@', '').trim();
-    const chatroomId = this.channelsMap.get(cleanName);
-
-    if (chatroomId && this.isConnected) {
-      this.socket.send(JSON.stringify({
-        event: 'pusher:unsubscribe',
-        data: {
-          channel: `chatrooms.${chatroomId}.v2`
-        }
-      }));
-      this.channelsMap.delete(cleanName);
-      this.onStatus(cleanName, 'disconnected');
+    if (this.eventSources.has(cleanName)) {
+      try {
+        this.eventSources.get(cleanName).close();
+      } catch (e) {}
+      this.eventSources.delete(cleanName);
     }
-    
+
+    this.channelsMap.delete(cleanName);
+    this.onStatus(cleanName, 'disconnected');
     this.pendingChannels.delete(cleanName);
 
     if (this.viewerIntervals && this.viewerIntervals.has(cleanName)) {
@@ -356,8 +315,11 @@ export class KickChatClient {
       this.viewerIntervals.forEach(intervalId => clearInterval(intervalId));
       this.viewerIntervals.clear();
     }
-    if (this.socket) {
-      this.socket.close();
+    if (this.eventSources) {
+      this.eventSources.forEach(es => {
+        try { es.close(); } catch (e) {}
+      });
+      this.eventSources.clear();
     }
   }
 

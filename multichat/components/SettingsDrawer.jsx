@@ -629,7 +629,24 @@ export default function SettingsDrawer({
           animation: 'modalScaleOut 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards'
         } : undefined}
       >
-        <span id="settings-modal-close-button" onClick={handleClose}>&times;</span>
+        {/* Dedicated Mobile Header Bar: Only visible on mobile (<= 768px) */}
+        <div className="settings-mobile-header">
+          <div className="settings-mobile-header-title">
+            <Sliders size={18} style={{ color: 'var(--accent-color, #a855f7)' }} />
+            <span>Settings</span>
+          </div>
+          <button 
+            type="button" 
+            className="settings-mobile-close-button" 
+            onClick={handleClose}
+            aria-label="Close Settings"
+          >
+            &times;
+          </button>
+        </div>
+
+        {/* Desktop Close Button: Only visible on desktop (> 768px) */}
+        <span id="settings-modal-close-button" onClick={handleClose} role="button" tabIndex={0} aria-label="Close Settings">&times;</span>
         
         {/* Left Side: Tabs */}
         <div id="settings-tabs-container">
@@ -776,7 +793,7 @@ export default function SettingsDrawer({
                           <path d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"></path>
                         </svg>
                       </label>
-                      <div className="settings-appearance-font-control-group" style={{ width: '320px', maxWidth: '320px' }}>
+                      <div className="settings-appearance-font-control-group">
                         <input 
                           id="settings-appearance-message-font-select" 
                           type="text" 
@@ -1551,7 +1568,7 @@ export default function SettingsDrawer({
                     <span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
                       Channel Username / Handle
                     </span>
-                    <div style={{ display: 'flex', gap: '8px' }}>
+                    <div className="add-channel-input-row" style={{ display: 'flex', gap: '8px' }}>
                       <input 
                         type="text" 
                         placeholder={`Enter ${platform} handle (e.g. xqc)...`} 
@@ -1664,7 +1681,7 @@ export default function SettingsDrawer({
                 </div>
                 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 10 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: 'rgba(145, 70, 255, 0.1)', border: '1px solid rgba(145, 70, 255, 0.2)', borderRadius: '6px' }}>
+                  <div className="settings-account-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: 'rgba(145, 70, 255, 0.1)', border: '1px solid rgba(145, 70, 255, 0.2)', borderRadius: '6px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <PlatformLogo platform="twitch" size={18} />
                       <span style={{ fontWeight: 600 }}>Twitch Account</span>
@@ -1673,7 +1690,7 @@ export default function SettingsDrawer({
                   </div>
                   
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '12px', background: 'rgba(83, 252, 24, 0.06)', border: '1px solid rgba(83, 252, 24, 0.18)', borderRadius: '8px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div className="settings-account-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <PlatformLogo platform="kick" size={18} />
                         <span style={{ fontWeight: 600 }}>Kick Account</span>
@@ -1816,7 +1833,7 @@ export default function SettingsDrawer({
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '12px', background: 'rgba(230, 0, 0, 0.06)', border: '1px solid rgba(230, 0, 0, 0.18)', borderRadius: '8px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div className="settings-account-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <PlatformLogo platform="youtube" size={18} />
                         <span style={{ fontWeight: 600 }}>YouTube Account</span>
@@ -1886,7 +1903,7 @@ export default function SettingsDrawer({
                   <div className="obs-url-box" style={{ background: '#090a0f', padding: '10px', borderRadius: '4px', border: '1px solid rgba(56, 189, 248, 0.2)', fontFamily: 'monospace', fontSize: 12.5, wordBreak: 'break-all', color: '#bae6fd' }}>
                     {getHighlightOverlayUrl()}
                   </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
+                  <div className="overlay-action-buttons-row" style={{ display: 'flex', gap: '8px' }}>
                     <button 
                       className="add-channel-btn" 
                       style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '10px 0', background: '#0284c7' }}
@@ -1957,7 +1974,7 @@ export default function SettingsDrawer({
                     </div>
 
                     {/* Color Controls Grid */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div className="overlay-color-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                       {/* Author Tag Background */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         <label style={{ fontSize: 12, fontWeight: 600, color: '#d4d4d4' }}>Author Tag Background</label>

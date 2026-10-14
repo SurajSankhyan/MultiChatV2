@@ -2062,25 +2062,21 @@ export default function ChatDashboard({
 
       const validAvatarUrl = typeof rawAvatar === 'string' && rawAvatar.startsWith('http') ? rawAvatar : null;
 
-      let tempOptId = null;
-      // Skip local optimistic insertion for Kick so only official delivered messages from Kick WebSocket display in chat feed
-      if (target.platform !== 'kick') {
-        tempOptId = 'opt_' + Math.random().toString(36).substring(2, 11);
-        const streamerMsg = {
-          id: tempOptId,
-          platform: target.platform,
-          channel: target.name.toLowerCase(),
-          username: handleName,
-          displayName: realDisplayName,
-          avatarUrl: validAvatarUrl || undefined,
-          color: target.platform === 'twitch' ? '#9146ff' : '#ffc107',
-          text: text,
-          badges: ['broadcaster'],
-          rawTimestamp: Date.now(),
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
-        };
-        setMessages(prev => [...prev, streamerMsg].slice(-300));
-      }
+      let tempOptId = 'opt_' + Math.random().toString(36).substring(2, 11);
+      const streamerMsg = {
+        id: tempOptId,
+        platform: target.platform,
+        channel: target.name.toLowerCase(),
+        username: handleName,
+        displayName: realDisplayName,
+        avatarUrl: validAvatarUrl || undefined,
+        color: target.platform === 'twitch' ? '#9146ff' : target.platform === 'kick' ? '#53fc18' : '#ffc107',
+        text: text,
+        badges: ['broadcaster'],
+        rawTimestamp: Date.now(),
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+      };
+      setMessages(prev => [...prev, streamerMsg].slice(-300));
 
       // Direct YouTube Live Chat API Posting
       if (target.platform === 'youtube') {
