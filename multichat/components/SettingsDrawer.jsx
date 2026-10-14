@@ -776,21 +776,30 @@ export default function SettingsDrawer({
               <div className="settings-appearance-subtabs-container" role="tablist">
                 <button 
                   className={`settings-appearance-subtab ${appearanceSubtab === 'display' ? 'active' : ''}`} 
-                  onClick={() => setAppearanceSubtab('display')} 
+                  onClick={() => {
+                    setAppearanceSubtab('display');
+                    document.getElementById('appearance-sub-display')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }} 
                   type="button"
                 >
-                  Display
+                  Display & Layout
                 </button>
                 <button 
                   className={`settings-appearance-subtab ${appearanceSubtab === 'behavior' ? 'active' : ''}`} 
-                  onClick={() => setAppearanceSubtab('behavior')} 
+                  onClick={() => {
+                    setAppearanceSubtab('behavior');
+                    document.getElementById('appearance-sub-behavior')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }} 
                   type="button"
                 >
-                  Behavior
+                  Behavior & Badges
                 </button>
                 <button 
                   className={`settings-appearance-subtab ${appearanceSubtab === 'emotes' ? 'active' : ''}`} 
-                  onClick={() => setAppearanceSubtab('emotes')} 
+                  onClick={() => {
+                    setAppearanceSubtab('emotes');
+                    document.getElementById('appearance-sub-emotes')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }} 
                   type="button"
                 >
                   Emotes
@@ -798,8 +807,7 @@ export default function SettingsDrawer({
               </div>
 
               {/* Subtab Panel: Display */}
-              {appearanceSubtab === 'display' && (
-                <div className="settings-appearance-subtab-panel active">
+              <div id="appearance-sub-display" className="settings-appearance-subtab-panel active">
                   {renderLivePreview()}
                   
                   <div className="settings-section-card">
@@ -1007,11 +1015,9 @@ export default function SettingsDrawer({
 
                   </div>
                 </div>
-              )}
 
-              {/* Subtab Panel: Behavior */}
-              {appearanceSubtab === 'behavior' && (
-                <div className="settings-appearance-subtab-panel active">
+                {/* Subtab Panel: Behavior */}
+                <div id="appearance-sub-behavior" className="settings-appearance-subtab-panel active" style={{ marginTop: '16px' }}>
                   <div className="settings-section-card">
                     <div className="settings-header-secondary">Profile Pictures & Display Options</div>
                     
@@ -1138,11 +1144,9 @@ export default function SettingsDrawer({
                     </div>
                   </div>
                 </div>
-              )}
 
-              {/* Subtab Panel: Emotes */}
-              {appearanceSubtab === 'emotes' && (
-                <div className="settings-appearance-subtab-panel active">
+                {/* Subtab Panel: Emotes */}
+                <div id="appearance-sub-emotes" className="settings-appearance-subtab-panel active" style={{ marginTop: '16px' }}>
                   <div className="settings-section-card">
                     <div className="settings-header-secondary">Emote Preferences</div>
                     <div style={{ fontSize: 13.5, color: 'rgba(255,255,255,0.7)', lineHeight: 1.5 }}>
@@ -1173,9 +1177,8 @@ export default function SettingsDrawer({
                     </div>
                   </div>
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            )}
 
           {/* TAB 2: PREFERENCES */}
           {activeTab === 'preferences' && (
@@ -1615,7 +1618,7 @@ export default function SettingsDrawer({
                 )}
 
                 {/* Channels List */}
-                <div className="channel-list" style={{ maxHeight: 220, overflowY: 'auto' }}>
+                <div className="channel-list">
                   {activeChannels.map(ch => {
                     const cleanName = ch.name.toLowerCase().replace(/^@+/, '').trim();
                     const rawClean = ch.name.toLowerCase().replace('@', '').trim();

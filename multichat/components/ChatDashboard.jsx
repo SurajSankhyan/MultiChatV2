@@ -1067,7 +1067,16 @@ export default function ChatDashboard({
 
   // Uptime, Viewers, and Filter Tab state
   const [activeTab, setActiveTab] = useState('all');
-  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        return localStorage.getItem('multichat_sidebar_expanded') === 'true';
+      } catch (e) {
+        return false;
+      }
+    }
+    return false;
+  });
   const [isSidebarHidden, setIsSidebarHidden] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
@@ -4110,7 +4119,13 @@ export default function ChatDashboard({
               <TooltipTrigger asChild>
                 <button 
                   className="sidebar-toggle-btn"
-                  onClick={() => setIsSidebarExpanded(!isSidebarExpanded)}
+                  onClick={() => {
+                    setIsSidebarExpanded(prev => {
+                      const next = !prev;
+                      try { localStorage.setItem('multichat_sidebar_expanded', String(next)); } catch (e) {}
+                      return next;
+                    });
+                  }}
                 >
                   <ChevronRight size={18} />
                   <span className="sidebar-nav-label">Collapse</span>

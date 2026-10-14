@@ -996,7 +996,7 @@ const ChatMessageRow = React.memo(({
             `avatar-${msg.id}`
           )}
 
-          <div className="msg-content-wrapper" style={{ minWidth: 0, flex: 1, wordBreak: 'break-word' }}>
+          <div className="msg-content-wrapper" style={{ minWidth: 0, flex: 1, wordBreak: 'break-word', paddingRight: '6px' }}>
             {/* Pre-username badges (Kick, Twitch, and other platforms) */}
             {settings.showBadges && msg.platform !== 'youtube' && (
               <>
