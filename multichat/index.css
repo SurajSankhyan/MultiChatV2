@@ -1111,7 +1111,7 @@ body {
   flex-direction: row;
   align-items: flex-start;
   gap: 8px;
-  padding: 6px 88px 6px 12px;
+  padding: 6px 12px 6px 12px;
   position: relative;
   line-height: 1.6;
   border-left: 2px solid transparent;
@@ -1432,7 +1432,7 @@ body {
 .feed-messages.style-bubble .chat-message-row {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid var(--border-color);
-  padding: 10px 88px 10px 14px;
+  padding: 10px 14px;
   border-radius: 12px;
   max-width: 85%;
   align-self: flex-start;
@@ -1450,7 +1450,7 @@ body {
   flex-direction: row;
   align-items: flex-start;
   gap: 8px;
-  padding: 3px 88px 3px 10px;
+  padding: 3px 10px;
   font-size: 14px;
 }
 .feed-messages.style-compact .msg-text {
@@ -6632,7 +6632,39 @@ input[type="range"]::-moz-range-thumb:hover {
   }
 
   .left-sidebar.mobile-open .sidebar-toggle-btn {
-    display: none !important;
+    display: flex !important;
+    width: 100% !important;
+    height: 42px !important;
+    justify-content: flex-start !important;
+    padding: 0 14px !important;
+    gap: 12px !important;
+    border-radius: 10px !important;
+    background: transparent !important;
+    color: #a1a1aa !important;
+    border: none !important;
+    cursor: pointer !important;
+    align-items: center !important;
+    transition: background 0.15s ease, color 0.15s ease !important;
+  }
+
+  .left-sidebar.mobile-open .sidebar-toggle-btn:hover,
+  .left-sidebar.mobile-open .sidebar-toggle-btn:active {
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: #ffffff !important;
+  }
+
+  .left-sidebar.mobile-open .sidebar-toggle-btn svg {
+    transform: rotate(180deg) !important;
+    color: inherit !important;
+    flex-shrink: 0 !important;
+  }
+
+  .left-sidebar.mobile-open .sidebar-toggle-btn .sidebar-nav-label {
+    display: inline-block !important;
+    opacity: 1 !important;
+    font-size: 13.5px !important;
+    color: inherit !important;
+    font-weight: 500 !important;
   }
 
   .left-sidebar.mobile-open .sidebar-add-btn {
@@ -6652,6 +6684,28 @@ input[type="range"]::-moz-range-thumb:hover {
 
   .left-sidebar.mobile-open .sidebar-channels-scroll-container {
     gap: 4px !important;
+  }
+
+  /* Prevent channel item from wrapping inside sidebar */
+  .sidebar-nav-item.channel-item,
+  .left-sidebar .sidebar-nav-item.channel-item,
+  .left-sidebar.mobile-open .sidebar-nav-item.channel-item {
+    flex-wrap: nowrap !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    display: flex !important;
+    height: 42px !important;
+    width: 100% !important;
+    padding: 0 12px !important;
+    gap: 10px !important;
+    box-sizing: border-box !important;
+  }
+
+  .left-sidebar.mobile-open .sidebar-nav-item.channel-item .sidebar-nav-label {
+    display: inline-flex !important;
+    align-items: center !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
   }
 
   /* -------------------------------------------------------------
@@ -6711,12 +6765,12 @@ input[type="range"]::-moz-range-thumb:hover {
   }
 
   .chat-message-row {
-    padding: 5px 84px 5px 8px !important;
+    padding: 5px 8px !important;
     gap: 6px !important;
   }
 
   .chat-message-main-row {
-    padding-right: 84px !important;
+    padding-right: 54px !important;
   }
 
   .msg-avatar {
@@ -7050,7 +7104,8 @@ input[type="range"]::-moz-range-thumb:hover {
     grid-template-columns: 1fr !important;
   }
 
-  .channel-item {
+  .channel-list .channel-item,
+  .settings-section .channel-item {
     flex-wrap: wrap !important;
     gap: 8px !important;
   }

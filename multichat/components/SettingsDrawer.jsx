@@ -188,6 +188,8 @@ export default function SettingsDrawer({
 }) {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [appearanceSubtab, setAppearanceSubtab] = useState('display');
+  const [prefSubtab, setPrefSubtab] = useState('metadata');
+  const [overlaySubtab, setOverlaySubtab] = useState('highlight');
   const [copied, setCopied] = useState(false);
   const [youtubeConnected, setYoutubeConnected] = useState(false);
   const [isPairingModalOpen, setIsPairingModalOpen] = useState(false);
@@ -1183,7 +1185,50 @@ export default function SettingsDrawer({
           {/* TAB 2: PREFERENCES */}
           {activeTab === 'preferences' && (
             <div className="settings-section" id="preferences">
-              <div className="settings-section-card">
+              <div className="settings-appearance-subtabs-container" role="tablist">
+                <button 
+                  className={`settings-appearance-subtab ${prefSubtab === 'metadata' ? 'active' : ''}`} 
+                  onClick={() => {
+                    setPrefSubtab('metadata');
+                    document.getElementById('pref-sub-metadata')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }} 
+                  type="button"
+                >
+                  Metadata & Badges
+                </button>
+                <button 
+                  className={`settings-appearance-subtab ${prefSubtab === 'superchat' ? 'active' : ''}`} 
+                  onClick={() => {
+                    setPrefSubtab('superchat');
+                    document.getElementById('pref-sub-superchat')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }} 
+                  type="button"
+                >
+                  Super Chat
+                </button>
+                <button 
+                  className={`settings-appearance-subtab ${prefSubtab === 'tts' ? 'active' : ''}`} 
+                  onClick={() => {
+                    setPrefSubtab('tts');
+                    document.getElementById('pref-sub-tts')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }} 
+                  type="button"
+                >
+                  Text-to-Speech (TTS)
+                </button>
+                <button 
+                  className={`settings-appearance-subtab ${prefSubtab === 'audio' ? 'active' : ''}`} 
+                  onClick={() => {
+                    setPrefSubtab('audio');
+                    document.getElementById('pref-sub-audio')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }} 
+                  type="button"
+                >
+                  Audio Sounds
+                </button>
+              </div>
+
+              <div id="pref-sub-metadata" className="settings-section-card">
                 <div className="settings-header-secondary">Chat Metadata Options</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1248,7 +1293,7 @@ export default function SettingsDrawer({
                 </div>
               </div>
 
-              <div className="settings-section-card" style={{ marginTop: '12px' }}>
+              <div id="pref-sub-superchat" className="settings-section-card" style={{ marginTop: '12px' }}>
                 <div className="settings-header-secondary">Super Chat & Donations</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                   <div className="setting-section" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -1282,7 +1327,7 @@ export default function SettingsDrawer({
                 </div>
               </div>
 
-              <div className="settings-section-card" style={{ marginTop: '12px' }}>
+              <div id="pref-sub-tts" className="settings-section-card" style={{ marginTop: '12px' }}>
                 <div className="settings-header-secondary">Text-to-Speech (TTS)</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1425,7 +1470,7 @@ export default function SettingsDrawer({
                 </div>
               </div>
 
-              <div className="settings-section-card" style={{ marginTop: '12px' }}>
+              <div id="pref-sub-audio" className="settings-section-card" style={{ marginTop: '12px' }}>
                 <div className="settings-header-secondary">Audio Notifications</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1910,8 +1955,41 @@ export default function SettingsDrawer({
           {/* TAB 6: OVERLAY */}
           {activeTab === 'overlay' && (
             <div className="settings-section" id="overlay">
+              <div className="settings-appearance-subtabs-container" role="tablist">
+                <button 
+                  className={`settings-appearance-subtab ${overlaySubtab === 'highlight' ? 'active' : ''}`} 
+                  onClick={() => {
+                    setOverlaySubtab('highlight');
+                    document.getElementById('overlay-sub-highlight')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }} 
+                  type="button"
+                >
+                  Highlight Overlay (OBS)
+                </button>
+                <button 
+                  className={`settings-appearance-subtab ${overlaySubtab === 'rolling' ? 'active' : ''}`} 
+                  onClick={() => {
+                    setOverlaySubtab('rolling');
+                    document.getElementById('overlay-sub-rolling')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }} 
+                  type="button"
+                >
+                  Rolling Chat URL
+                </button>
+                <button 
+                  className={`settings-appearance-subtab ${overlaySubtab === 'custom' ? 'active' : ''}`} 
+                  onClick={() => {
+                    setOverlaySubtab('custom');
+                    document.getElementById('overlay-sub-custom')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }} 
+                  type="button"
+                >
+                  Timing & Style
+                </button>
+              </div>
+
               {/* Highlight Overlay Card */}
-              <div className="settings-section-card" style={{ border: '1px solid rgba(56, 189, 248, 0.3)', background: 'linear-gradient(180deg, rgba(56, 189, 248, 0.06), rgba(9, 10, 15, 0.6))' }}>
+              <div id="overlay-sub-highlight" className="settings-section-card" style={{ border: '1px solid rgba(56, 189, 248, 0.3)', background: 'linear-gradient(180deg, rgba(56, 189, 248, 0.06), rgba(9, 10, 15, 0.6))' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                   <div className="settings-header-secondary" style={{ color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
                     <Tv size={16} />
@@ -2083,7 +2161,7 @@ export default function SettingsDrawer({
               </div>
 
               {/* Standard Rolling Chat Overlay Card */}
-              <div className="settings-section-card" style={{ marginTop: '12px' }}>
+              <div id="overlay-sub-rolling" className="settings-section-card" style={{ marginTop: '12px' }}>
                 <div className="settings-header-secondary">Standard Rolling Chat Overlay URL</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
@@ -2104,7 +2182,7 @@ export default function SettingsDrawer({
                 </div>
               </div>
 
-              <div className="settings-section-card" style={{ marginTop: '12px' }}>
+              <div id="overlay-sub-custom" className="settings-section-card" style={{ marginTop: '12px' }}>
                 <div className="settings-header-secondary">Overlay Message Customization</div>
                 
                 <div className="setting-section" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

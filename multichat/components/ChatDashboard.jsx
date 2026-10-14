@@ -4052,7 +4052,11 @@ export default function ChatDashboard({
                           onDragEnd={handleDragEnd}
                           style={{
                             color: isActive ? '#0c0c0e' : (isOnline ? '#ffffff' : '#71717a'),
-                            position: 'relative'
+                            position: 'relative',
+                            display: 'flex',
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            flexWrap: 'nowrap'
                           }}
                         >
                           {isOnline && (
@@ -4120,19 +4124,24 @@ export default function ChatDashboard({
                 <button 
                   className="sidebar-toggle-btn"
                   onClick={() => {
-                    setIsSidebarExpanded(prev => {
-                      const next = !prev;
-                      try { localStorage.setItem('multichat_sidebar_expanded', String(next)); } catch (e) {}
-                      return next;
-                    });
+                    if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+                      setIsMobileSidebarOpen(false);
+                    } else {
+                      setIsSidebarExpanded(prev => {
+                        const next = !prev;
+                        try { localStorage.setItem('multichat_sidebar_expanded', String(next)); } catch (e) {}
+                        return next;
+                      });
+                    }
                   }}
+                  title={isMobileSidebarOpen ? "Close Sidebar" : (isSidebarExpanded ? "Collapse Sidebar" : "Expand Sidebar")}
                 >
                   <ChevronRight size={18} />
                   <span className="sidebar-nav-label">Collapse</span>
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">
-                {isSidebarExpanded ? "Collapse Sidebar" : "Expand Sidebar"}
+                {isMobileSidebarOpen ? "Close Sidebar" : (isSidebarExpanded ? "Collapse Sidebar" : "Expand Sidebar")}
               </TooltipContent>
             </Tooltip>
           </div>

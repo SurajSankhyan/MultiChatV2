@@ -962,7 +962,7 @@ const ChatMessageRow = React.memo(({
         )}
 
         {/* 4. Main message row */}
-        <div className="chat-message-main-row" style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: '4px', width: '100%', paddingRight: '68px', boxSizing: 'border-box' }}>
+        <div className="chat-message-main-row" style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: '4px', width: '100%', paddingRight: '58px', boxSizing: 'border-box' }}>
           {showAvatarForPlatform(msg.platform) && wrapWithTooltip(
             <img 
               className="msg-avatar" 
@@ -996,7 +996,7 @@ const ChatMessageRow = React.memo(({
             `avatar-${msg.id}`
           )}
 
-          <div className="msg-content-wrapper" style={{ minWidth: 0, flex: 1, wordBreak: 'break-word', paddingRight: '6px' }}>
+          <div className="msg-content-wrapper" style={{ minWidth: 0, flex: 1, wordBreak: 'break-word' }}>
             {/* Pre-username badges (Kick, Twitch, and other platforms) */}
             {settings.showBadges && msg.platform !== 'youtube' && (
               <>
