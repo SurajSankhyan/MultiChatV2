@@ -962,7 +962,7 @@ const ChatMessageRow = React.memo(({
         )}
 
         {/* 4. Main message row */}
-        <div className="chat-message-main-row" style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: '4px', width: '100%', paddingRight: '58px', boxSizing: 'border-box' }}>
+        <div className="chat-message-main-row" style={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: '4px', width: '100%', paddingRight: '100px', boxSizing: 'border-box' }}>
           {showAvatarForPlatform(msg.platform) && wrapWithTooltip(
             <img 
               className="msg-avatar" 

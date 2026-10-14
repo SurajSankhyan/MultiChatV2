@@ -4052,11 +4052,7 @@ export default function ChatDashboard({
                           onDragEnd={handleDragEnd}
                           style={{
                             color: isActive ? '#0c0c0e' : (isOnline ? '#ffffff' : '#71717a'),
-                            position: 'relative',
-                            display: 'flex',
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            flexWrap: 'nowrap'
+                            position: 'relative'
                           }}
                         >
                           {isOnline && (
@@ -4067,12 +4063,12 @@ export default function ChatDashboard({
                             isShorts={ch.platform === 'youtube' && (youtubeShortsChannels.has(cleanName) || youtubeShortsChannels.has(rawClean) || youtubeShortsChannels.has(ch.name))} 
                             size={20} 
                           />
-                          <span className="sidebar-nav-label" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', width: '100%', minWidth: 0, color: isActive ? '#0c0c0e' : undefined }}>
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, color: isActive ? '#0c0c0e' : undefined, fontWeight: isActive ? 700 : undefined }}>
+                          <span className="sidebar-nav-label" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', minWidth: 0, color: isActive ? '#0c0c0e' : undefined }}>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: isActive ? '#0c0c0e' : undefined, fontWeight: isActive ? 700 : undefined }}>
                               {getChannelDisplayName(ch)}
                             </span>
                             {isOnline && (
-                              <span style={{ fontSize: '10px', color: '#ef4444', fontWeight: 700, flexShrink: 0 }}>
+                              <span style={{ fontSize: '10px', color: '#ef4444', fontWeight: 700, flexShrink: 0, marginLeft: '6px' }}>
                                 {viewers}
                               </span>
                             )}
@@ -4124,24 +4120,20 @@ export default function ChatDashboard({
                 <button 
                   className="sidebar-toggle-btn"
                   onClick={() => {
-                    if (typeof window !== 'undefined' && window.innerWidth <= 768) {
-                      setIsMobileSidebarOpen(false);
-                    } else {
-                      setIsSidebarExpanded(prev => {
-                        const next = !prev;
-                        try { localStorage.setItem('multichat_sidebar_expanded', String(next)); } catch (e) {}
-                        return next;
-                      });
-                    }
+                    setIsSidebarExpanded(prev => {
+                      const next = !prev;
+                      try { localStorage.setItem('multichat_sidebar_expanded', String(next)); } catch (e) {}
+                      return next;
+                    });
                   }}
-                  title={isMobileSidebarOpen ? "Close Sidebar" : (isSidebarExpanded ? "Collapse Sidebar" : "Expand Sidebar")}
+                  title={isSidebarExpanded ? "Collapse Sidebar" : "Expand Sidebar"}
                 >
                   <ChevronRight size={18} />
-                  <span className="sidebar-nav-label">Collapse</span>
+                  <span className="sidebar-nav-label">{isSidebarExpanded ? "Collapse" : "Expand"}</span>
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">
-                {isMobileSidebarOpen ? "Close Sidebar" : (isSidebarExpanded ? "Collapse Sidebar" : "Expand Sidebar")}
+                {isSidebarExpanded ? "Collapse Sidebar" : "Expand Sidebar"}
               </TooltipContent>
             </Tooltip>
           </div>

@@ -914,7 +914,8 @@ body {
   gap: 10px;
 }
 
-.channel-item {
+.channel-list .channel-item,
+.settings-section .channel-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -925,7 +926,8 @@ body {
   transition: var(--transition-fast);
 }
 
-.channel-item:hover {
+.channel-list .channel-item:hover,
+.settings-section .channel-item:hover {
   background: rgba(255, 255, 255, 0.04);
 }
 
@@ -1381,6 +1383,11 @@ body {
   letter-spacing: 0.5px;
   user-select: none;
   line-height: 1.2;
+}
+
+.chat-message-main-row {
+  padding-right: 100px;
+  box-sizing: border-box;
 }
 
 .msg-actions-wrapper {
@@ -4246,6 +4253,11 @@ html[data-appearance-theme="twitch"] .kick-reply-to-message {
   flex-direction: column;
   gap: 1.2em;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  flex-shrink: 0 !important;
+  min-height: min-content !important;
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
 }
 
 .settings-header-secondary {
@@ -6570,15 +6582,15 @@ input[type="range"]::-moz-range-thumb:hover {
     top: 48px !important;
     bottom: 0 !important;
     left: 0 !important;
-    width: 250px !important;
+    width: 58px !important;
     max-width: 80vw !important;
     display: flex !important;
-    padding: 16px 10px !important;
+    padding: 16px 8px !important;
     background-color: #0c0c0e !important;
     border-right: 1px solid rgba(255, 255, 255, 0.12) !important;
     box-shadow: 12px 0 40px rgba(0, 0, 0, 0.95) !important;
     transform: translateX(-100%) !important;
-    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), width 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
     z-index: 1200 !important;
     align-items: stretch !important;
     overflow-y: auto !important;
@@ -6589,7 +6601,47 @@ input[type="range"]::-moz-range-thumb:hover {
     transform: translateX(0) !important;
   }
 
-  .left-sidebar.mobile-open .sidebar-nav-item {
+  /* When mobile drawer is expanded */
+  .left-sidebar.mobile-open.expanded {
+    width: 220px !important;
+    padding: 16px 10px !important;
+  }
+
+  /* When mobile drawer is collapsed (just like desktop collapsed mode) */
+  .left-sidebar.mobile-open:not(.expanded) {
+    width: 58px !important;
+    min-width: 58px !important;
+    max-width: 58px !important;
+    padding: 16px 8px !important;
+    align-items: center !important;
+  }
+
+  .left-sidebar.mobile-open:not(.expanded) .sidebar-nav-item,
+  .left-sidebar.mobile-open:not(.expanded) .sidebar-add-btn,
+  .left-sidebar.mobile-open:not(.expanded) .sidebar-toggle-btn {
+    width: 38px !important;
+    height: 38px !important;
+    padding: 0 !important;
+    justify-content: center !important;
+    gap: 0 !important;
+    border-radius: 10px !important;
+  }
+
+  .left-sidebar.mobile-open:not(.expanded) .sidebar-nav-label {
+    display: none !important;
+    opacity: 0 !important;
+    max-width: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .left-sidebar.mobile-open:not(.expanded) .sidebar-toggle-btn svg {
+    transform: rotate(0deg) !important;
+  }
+
+  /* When mobile drawer is expanded */
+  .left-sidebar.mobile-open.expanded .sidebar-nav-item,
+  .left-sidebar.mobile-open.expanded .sidebar-add-btn,
+  .left-sidebar.mobile-open.expanded .sidebar-toggle-btn {
     width: 100% !important;
     height: 42px !important;
     justify-content: flex-start !important;
@@ -6598,15 +6650,20 @@ input[type="range"]::-moz-range-thumb:hover {
     border-radius: 10px !important;
   }
 
-  .left-sidebar.mobile-open .sidebar-nav-label,
-  .left-sidebar.mobile-open .sidebar-nav-item .sidebar-nav-label,
-  .left-sidebar.mobile-open .sidebar-add-btn .sidebar-nav-label {
+  .left-sidebar.mobile-open.expanded .sidebar-nav-label,
+  .left-sidebar.mobile-open.expanded .sidebar-nav-item .sidebar-nav-label,
+  .left-sidebar.mobile-open.expanded .sidebar-add-btn .sidebar-nav-label,
+  .left-sidebar.mobile-open.expanded .sidebar-toggle-btn .sidebar-nav-label {
     display: inline-block !important;
     opacity: 1 !important;
-    max-width: 180px !important;
+    max-width: 150px !important;
     overflow: visible !important;
     visibility: visible !important;
     white-space: nowrap !important;
+  }
+
+  .left-sidebar.mobile-open.expanded .sidebar-toggle-btn svg {
+    transform: rotate(180deg) !important;
   }
 
   .left-sidebar.mobile-open .sidebar-nav-item:not(.active) .sidebar-nav-label {
@@ -6633,12 +6690,6 @@ input[type="range"]::-moz-range-thumb:hover {
 
   .left-sidebar.mobile-open .sidebar-toggle-btn {
     display: flex !important;
-    width: 100% !important;
-    height: 42px !important;
-    justify-content: flex-start !important;
-    padding: 0 14px !important;
-    gap: 12px !important;
-    border-radius: 10px !important;
     background: transparent !important;
     color: #a1a1aa !important;
     border: none !important;
@@ -6653,40 +6704,11 @@ input[type="range"]::-moz-range-thumb:hover {
     color: #ffffff !important;
   }
 
-  .left-sidebar.mobile-open .sidebar-toggle-btn svg {
-    transform: rotate(180deg) !important;
-    color: inherit !important;
-    flex-shrink: 0 !important;
-  }
-
-  .left-sidebar.mobile-open .sidebar-toggle-btn .sidebar-nav-label {
-    display: inline-block !important;
-    opacity: 1 !important;
-    font-size: 13.5px !important;
-    color: inherit !important;
-    font-weight: 500 !important;
-  }
-
-  .left-sidebar.mobile-open .sidebar-add-btn {
-    width: 100% !important;
-    height: 42px !important;
-    justify-content: flex-start !important;
-    padding: 0 14px !important;
-    gap: 12px !important;
-    border-radius: 10px !important;
-  }
-
-  .left-sidebar.mobile-open .sidebar-add-btn .sidebar-nav-label {
-    display: inline-block !important;
-    opacity: 1 !important;
-    font-size: 13.5px !important;
-  }
-
   .left-sidebar.mobile-open .sidebar-channels-scroll-container {
     gap: 4px !important;
   }
 
-  /* Prevent channel item from wrapping inside sidebar */
+  /* Channel items inside sidebar: ensure exact same spacing as All Chat & Events */
   .sidebar-nav-item.channel-item,
   .left-sidebar .sidebar-nav-item.channel-item,
   .left-sidebar.mobile-open .sidebar-nav-item.channel-item {
@@ -6696,16 +6718,26 @@ input[type="range"]::-moz-range-thumb:hover {
     display: flex !important;
     height: 42px !important;
     width: 100% !important;
-    padding: 0 12px !important;
-    gap: 10px !important;
+    padding: 0 14px !important;
+    gap: 12px !important;
+    justify-content: flex-start !important;
     box-sizing: border-box !important;
+  }
+
+  .left-sidebar.mobile-open:not(.expanded) .sidebar-nav-item.channel-item {
+    width: 38px !important;
+    height: 38px !important;
+    padding: 0 !important;
+    justify-content: center !important;
+    gap: 0 !important;
   }
 
   .left-sidebar.mobile-open .sidebar-nav-item.channel-item .sidebar-nav-label {
     display: inline-flex !important;
     align-items: center !important;
-    flex: 1 1 auto !important;
+    flex: 0 1 auto !important;
     min-width: 0 !important;
+    width: auto !important;
   }
 
   /* -------------------------------------------------------------
@@ -6770,7 +6802,7 @@ input[type="range"]::-moz-range-thumb:hover {
   }
 
   .chat-message-main-row {
-    padding-right: 54px !important;
+    padding-right: 90px !important;
   }
 
   .msg-avatar {
@@ -7024,11 +7056,11 @@ input[type="range"]::-moz-range-thumb:hover {
   }
 
   .settings-section {
-    flex: 1 1 0% !important;
+    flex: 1 1 auto !important;
     min-height: 0 !important;
     width: 100% !important;
-    height: auto !important;
-    max-height: 100% !important;
+    height: 100% !important;
+    max-height: none !important;
     padding: 4px 4px 28px 2px !important;
     box-sizing: border-box !important;
     overflow-y: auto !important;
@@ -7044,7 +7076,11 @@ input[type="range"]::-moz-range-thumb:hover {
     padding: 12px !important;
     width: 100% !important;
     box-sizing: border-box !important;
-    overflow-x: hidden !important;
+    flex-shrink: 0 !important;
+    min-height: min-content !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
   }
 
   .settings-appearance-font-container {
