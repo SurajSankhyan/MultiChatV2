@@ -3954,9 +3954,12 @@ export default function ChatDashboard({
                 <button 
                   className={`sidebar-nav-item ${activeTab === 'all' ? 'active' : ''}`}
                   onClick={() => handleSelectTab('all')}
+                  style={{
+                    color: activeTab === 'all' ? '#0c0c0e' : undefined
+                  }}
                 >
-                  <MessageSquare size={20} />
-                  <span className="sidebar-nav-label">All Chat</span>
+                  <MessageSquare size={20} color={activeTab === 'all' ? '#0c0c0e' : undefined} />
+                  <span className="sidebar-nav-label" style={{ color: activeTab === 'all' ? '#0c0c0e' : undefined }}>All Chat</span>
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">All Chat</TooltipContent>
@@ -3968,10 +3971,13 @@ export default function ChatDashboard({
                 <button 
                   className={`sidebar-nav-item ${activeTab === 'events' ? 'active' : ''}`}
                   onClick={() => handleSelectTab('events')}
+                  style={{
+                    color: activeTab === 'events' ? '#0c0c0e' : undefined
+                  }}
                 >
-                  <Compass size={20} />
+                  <Compass size={20} color={activeTab === 'events' ? '#0c0c0e' : undefined} />
                   {hasUnreadEvents && <span className="sidebar-item-badge-dot" />}
-                  <span className="sidebar-nav-label">Events</span>
+                  <span className="sidebar-nav-label" style={{ color: activeTab === 'events' ? '#0c0c0e' : undefined }}>Events</span>
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">Events</TooltipContent>
@@ -3985,9 +3991,12 @@ export default function ChatDashboard({
                 <button 
                   className={`sidebar-nav-item ${activeTab === 'mentions' ? 'active' : ''}`}
                   onClick={() => handleSelectTab('mentions')}
+                  style={{
+                    color: activeTab === 'mentions' ? '#0c0c0e' : undefined
+                  }}
                 >
-                  <AtSign size={20} />
-                  <span className="sidebar-nav-label">Mentions</span>
+                  <AtSign size={20} color={activeTab === 'mentions' ? '#0c0c0e' : undefined} />
+                  <span className="sidebar-nav-label" style={{ color: activeTab === 'mentions' ? '#0c0c0e' : undefined }}>Mentions</span>
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">Mentions</TooltipContent>
@@ -4033,7 +4042,7 @@ export default function ChatDashboard({
                           onDragOver={(e) => handleDragOver(e, ch.id)}
                           onDragEnd={handleDragEnd}
                           style={{
-                            color: isActive ? '#0f0f11' : (isOnline ? '#ffffff' : '#71717a'),
+                            color: isActive ? '#0c0c0e' : (isOnline ? '#ffffff' : '#71717a'),
                             position: 'relative'
                           }}
                         >
@@ -4045,8 +4054,8 @@ export default function ChatDashboard({
                             isShorts={ch.platform === 'youtube' && (youtubeShortsChannels.has(cleanName) || youtubeShortsChannels.has(rawClean) || youtubeShortsChannels.has(ch.name))} 
                             size={20} 
                           />
-                          <span className="sidebar-nav-label" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', width: '100%', minWidth: 0 }}>
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                          <span className="sidebar-nav-label" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', width: '100%', minWidth: 0, color: isActive ? '#0c0c0e' : undefined }}>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, color: isActive ? '#0c0c0e' : undefined, fontWeight: isActive ? 700 : undefined }}>
                               {getChannelDisplayName(ch)}
                             </span>
                             {isOnline && (

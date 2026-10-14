@@ -199,6 +199,26 @@ export default function SettingsDrawer({
   const currentUserEmail = user?.email || (typeof window !== 'undefined' ? localStorage.getItem('prochat_user_email') : '');
 
   const [linkedChannel, setLinkedChannel] = useState(null);
+  const tabsContainerRef = useRef(null);
+
+  useEffect(() => {
+    if (tabsContainerRef.current) {
+      const activeEl = tabsContainerRef.current.querySelector('.settings-tab.active');
+      if (activeEl && typeof activeEl.scrollIntoView === 'function') {
+        activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+      }
+    }
+  }, [activeTab, isOpen]);
+
+  const handleTabsWheel = (e) => {
+    if (e.deltaY !== 0 && tabsContainerRef.current) {
+      const container = tabsContainerRef.current;
+      if (container.scrollWidth > container.clientWidth) {
+        container.scrollLeft += e.deltaY;
+        e.preventDefault();
+      }
+    }
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -649,7 +669,7 @@ export default function SettingsDrawer({
         <span id="settings-modal-close-button" onClick={handleClose} role="button" tabIndex={0} aria-label="Close Settings">&times;</span>
         
         {/* Left Side: Tabs */}
-        <div id="settings-tabs-container">
+        <div id="settings-tabs-container" ref={tabsContainerRef} onWheel={handleTabsWheel}>
           <button 
             className={`settings-tab ${activeTab === 'appearance' ? 'active' : ''}`} 
             onClick={() => setActiveTab('appearance')} 
