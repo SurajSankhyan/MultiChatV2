@@ -56,10 +56,8 @@ export default function AuthCodeErrorPage() {
         const { data: { session } } = await supabase.auth.getSession();
 
         const providerToken = hashParams.get('provider_token') || session?.provider_token || hashParams.get('access_token');
-        const providerRefreshToken = hashParams.get('provider_refresh_token') || 
-                                     session?.provider_refresh_token || 
-                                     hashParams.get('refresh_token') ||
-                                     session?.refresh_token;
+        const rawProviderRefreshToken = hashParams.get('provider_refresh_token') || session?.provider_refresh_token;
+        const providerRefreshToken = (rawProviderRefreshToken && rawProviderRefreshToken.startsWith('1//')) ? rawProviderRefreshToken : null;
 
         const user = session?.user;
 

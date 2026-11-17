@@ -66,8 +66,12 @@ function parsePlayerJson(json: any) {
   
   const { startTime, isExact } = parseCandidateTimestamp(candidateTime);
 
-  const isLive = !!json.videoDetails?.isLive || !!json.videoDetails?.isLiveContent || liveDetails?.isLiveNow !== false;
-  const viewers = parseInt(liveDetails?.viewerCount || liveDetails?.concurrentViewers, 10) || 0;
+  const isLive = Boolean(
+    (json.videoDetails?.isLive === true || liveDetails?.isLiveNow === true) &&
+    !liveDetails?.actualEndTime &&
+    !json.playabilityStatus?.errorScreen
+  );
+  const viewers = isLive ? (parseInt(liveDetails?.concurrentViewers || liveDetails?.viewerCount, 10) || 0) : 0;
   const title = json.videoDetails?.title || '';
   const author = json.videoDetails?.author || '';
 
@@ -82,14 +86,14 @@ function parsePlayerJson(json: any) {
     }
   }
 
-  const uptimeSeconds = startTime ? Math.max(0, Math.floor((Date.now() - startTime) / 1000)) : null;
+  const uptimeSeconds = (isLive && startTime) ? Math.max(0, Math.floor((Date.now() - startTime) / 1000)) : null;
 
   return {
     success: true,
     isLive,
-    startTime,
+    startTime: isLive ? startTime : null,
     isExact,
-    startTimestamp: candidateTime || (startTime ? new Date(startTime).toISOString() : null),
+    startTimestamp: isLive ? (candidateTime || (startTime ? new Date(startTime).toISOString() : null)) : null,
     uptimeSeconds,
     viewers,
     likes: parseInt(json.videoDetails?.likeCount, 10) || 0,
@@ -101,23 +105,33 @@ function parsePlayerJson(json: any) {
 
 function parseHtmlMetadata(html: string) {
   if (!html || typeof html !== 'string') return null;
-  
+
+  const isExplicitOffline = 
+    html.includes('"status":"LIVE_STREAM_OFFLINE"') ||
+    html.includes('"reason":"This live stream has ended."') ||
+    html.includes('This live stream has ended') ||
+    html.includes('liveChatReplayRenderer') ||
+    html.includes('"isLiveNow":false') ||
+    html.includes('"isLive":false');
+
+  const isLive = !isExplicitOffline && (
+    html.includes('"isLive":true') || 
+    html.includes('"isLiveNow":true') ||
+    html.includes('BADGE_STYLE_TYPE_LIVE_NOW') ||
+    html.includes('"label":"LIVE"') ||
+    (html.includes('liveChatRenderer') && !html.includes('liveChatReplayRenderer'))
+  );
+
   const startDateMatch = html.match(/itemprop="startDate"\s+content="([^"]+)"/i) || 
                          html.match(/<meta\s+itemprop="startDate"\s+content="([^"]+)"/i) ||
                          html.match(/"actualStartTime"\s*:\s*"([^"]+)"/i) ||
-                         html.match(/"startTimestamp"\s*:\s*"([^"]+)"/i) ||
-                         html.match(/"startDate"\s*:\s*"([^"]+)"/i);
+                         html.match(/"startTimestamp"\s*:\s*"([^"]+)"/i);
   
   let candidateTime = startDateMatch ? startDateMatch[1] : null;
   let { startTime, isExact } = parseCandidateTimestamp(candidateTime);
 
   let viewers = 0;
-  const origMatch = html.match(/"originalViewCount"\s*:\s*"([^"]+)"/);
-  if (origMatch && origMatch[1]) {
-    const val = parseInt(origMatch[1].replace(/[^0-9]/g, ''), 10);
-    if (!isNaN(val)) viewers = val;
-  }
-  if (!viewers) {
+  if (isLive) {
     const watchingMatch = html.match(/([0-9.,KMBkmb]+)\s+watching/i);
     if (watchingMatch && watchingMatch[1]) {
       const text = watchingMatch[1].toLowerCase().replace(/,/g, '');
@@ -125,17 +139,17 @@ function parseHtmlMetadata(html: string) {
       else if (text.includes('m')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
       else viewers = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
     }
-  }
-  if (!viewers) {
-    const shortIdx = html.indexOf('"shortViewCountText"');
-    if (shortIdx !== -1) {
-      const sub = html.substring(shortIdx, shortIdx + 300);
-      const runTextMatch = sub.match(/"text"\s*:\s*"([^"]+)"/);
-      if (runTextMatch && runTextMatch[1] && sub.includes('watching')) {
-        const text = runTextMatch[1].toLowerCase().replace(/,/g, '');
-        if (text.includes('k')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
-        else if (text.includes('m')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
-        else viewers = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
+    if (!viewers) {
+      const shortIdx = html.indexOf('"shortViewCountText"');
+      if (shortIdx !== -1) {
+        const sub = html.substring(shortIdx, shortIdx + 300);
+        const runTextMatch = sub.match(/"text"\s*:\s*"([^"]+)"/);
+        if (runTextMatch && runTextMatch[1] && sub.includes('watching')) {
+          const text = runTextMatch[1].toLowerCase().replace(/,/g, '');
+          if (text.includes('k')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000);
+          else if (text.includes('m')) viewers = Math.round(parseFloat(text.replace(/[^0-9.]/g, '')) * 1000000);
+          else viewers = parseInt(text.replace(/[^0-9]/g, ''), 10) || 0;
+        }
       }
     }
   }
@@ -157,8 +171,6 @@ function parseHtmlMetadata(html: string) {
     title = titleMatch[1].replace(' - YouTube', '').trim();
   }
 
-  const isLive = html.includes('"isLive":true') || html.includes('"isLiveNow":true') || html.includes('liveChatRenderer') || html.includes('itemprop="startDate"');
-
   let isShorts = html.includes('"isShortsEligible":true');
   if (!isShorts) {
     const formatMatches = [...html.matchAll(/"width"\s*:\s*(\d+)\s*,\s*"height"\s*:\s*(\d+)[^}]*?(?:"qualityLabel"|"fps")/g)];
@@ -172,40 +184,21 @@ function parseHtmlMetadata(html: string) {
     }
   }
 
-  if (startTime) {
-    const uptimeSeconds = Math.max(0, Math.floor((Date.now() - startTime) / 1000));
-    return {
-      success: true,
-      isLive: true,
-      startTime,
-      isExact: isExact || true,
-      startTimestamp: candidateTime || new Date(startTime).toISOString(),
-      uptimeSeconds,
-      viewers,
-      likes,
-      title,
-      author: '',
-      isShorts
-    };
-  }
+  const uptimeSeconds = (isLive && startTime) ? Math.max(0, Math.floor((Date.now() - startTime) / 1000)) : null;
 
-  if (isLive || viewers > 0 || title) {
-    return {
-      success: true,
-      isLive: isLive || true,
-      startTime: null,
-      isExact: false,
-      startTimestamp: null,
-      uptimeSeconds: null,
-      viewers,
-      likes,
-      title,
-      author: '',
-      isShorts
-    };
-  }
-
-  return null;
+  return {
+    success: true,
+    isLive,
+    startTime: isLive ? startTime : null,
+    isExact: isLive ? (isExact || true) : false,
+    startTimestamp: isLive ? (candidateTime || (startTime ? new Date(startTime).toISOString() : null)) : null,
+    uptimeSeconds,
+    viewers: isLive ? viewers : 0,
+    likes,
+    title,
+    author: '',
+    isShorts
+  };
 }
 
 async function fetchUserCookieFromDB(channel: string | null): Promise<string | undefined> {
@@ -248,17 +241,50 @@ async function resolveLiveVideoId(channelOrHandle: string, cookie?: string): Pro
     ? `https://www.youtube.com/channel/${clean}/live`
     : `https://www.youtube.com/@${clean}/live`;
 
-  // 1. Direct fetch
+  // 1. Direct fetch with explicit live status verification
   try {
     const res = await fetch(url, {
       cache: 'no-store',
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36' }
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36' },
+      redirect: 'follow'
     });
     if (res.ok) {
       const html = await res.text();
-      const match = html.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/) ||
-                    html.match(/watch\?v=([a-zA-Z0-9_-]{11})/);
-      if (match?.[1]) return match[1];
+
+      const isExplicitOffline = 
+        html.includes('"status":"LIVE_STREAM_OFFLINE"') ||
+        html.includes('"reason":"This live stream has ended."') ||
+        html.includes('This live stream has ended') ||
+        html.includes('liveChatReplayRenderer') ||
+        html.includes('"isLiveNow":false') ||
+        html.includes('"isLive":false');
+
+      const isLiveBroadcast = 
+        !isExplicitOffline && (
+          html.includes('"isLive":true') || 
+          html.includes('"isLiveNow":true') ||
+          html.includes('BADGE_STYLE_TYPE_LIVE_NOW') ||
+          html.includes('THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE') ||
+          html.includes('"label":"LIVE"') ||
+          (html.includes('liveChatRenderer') && !html.includes('liveChatReplayRenderer'))
+        );
+
+      if (isLiveBroadcast) {
+        // Canonical watch page when live
+        const canonicalMatch = html.match(/<link\s+rel="canonical"\s+href="[^"]*(?:watch\?v=|\/shorts\/)([a-zA-Z0-9_-]{11})"/i);
+        if (canonicalMatch && canonicalMatch[1]) return canonicalMatch[1];
+
+        // liveStreamabilityRenderer
+        const liveStreamMatch = html.match(/"liveStreamabilityRenderer"\s*:\s*\{\s*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
+        if (liveStreamMatch && liveStreamMatch[1]) return liveStreamMatch[1];
+
+        // watchEndpoint
+        const endpointMatch = html.match(/"watchEndpoint"\s*:\s*\{\s*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
+        if (endpointMatch && endpointMatch[1]) return endpointMatch[1];
+
+        const match = html.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/);
+        if (match?.[1]) return match[1];
+      }
     }
   } catch (e) {}
 
@@ -307,22 +333,22 @@ export async function fetchLiveStreamInfo(videoId: string, cookie?: string) {
       const candidateTime = bi.start_timestamp;
       const { startTime, isExact } = parseCandidateTimestamp(candidateTime);
 
-      const viewers = typeof bi.view_count === 'number' ? bi.view_count : (parseInt(bi.view_count, 10) || 0);
+      const isLive = Boolean(bi.is_live === true && !bi.is_ended && !bi.actual_end_time);
+      const viewers = isLive ? (typeof bi.concurrent_viewers === 'number' ? bi.concurrent_viewers : (parseInt(bi.concurrent_viewers, 10) || 0)) : 0;
       const likes = typeof bi.like_count === 'number' ? bi.like_count : (parseInt(bi.like_count, 10) || 0);
-      const isLive = bi.is_live !== false || bi.is_live_content || !bi.duration;
       const title = bi.title || '';
       const author = bi.author || bi.channel?.name || '';
       const isShorts = !!(bi.is_shorts || (bi.embed?.width && bi.embed?.height && bi.embed.height > bi.embed.width));
 
-      const uptimeSeconds = startTime ? Math.max(0, Math.floor((Date.now() - startTime) / 1000)) : null;
+      const uptimeSeconds = (isLive && startTime) ? Math.max(0, Math.floor((Date.now() - startTime) / 1000)) : null;
 
       if (startTime || isLive) {
         return {
           success: true,
           isLive,
-          startTime,
-          isExact: isExact || !!bi.start_timestamp,
-          startTimestamp: candidateTime ? new Date(startTime || candidateTime).toISOString() : (startTime ? new Date(startTime).toISOString() : null),
+          startTime: isLive ? startTime : null,
+          isExact: isLive ? (isExact || !!bi.start_timestamp) : false,
+          startTimestamp: isLive ? (candidateTime ? new Date(startTime || candidateTime).toISOString() : (startTime ? new Date(startTime).toISOString() : null)) : null,
           uptimeSeconds,
           viewers,
           likes,

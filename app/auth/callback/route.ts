@@ -147,7 +147,8 @@ export async function GET(request: Request) {
     const { data: { user, session }, error } = await supabase.auth.exchangeCodeForSession(code)
 
     if (!error && user) {
-      const googleRefreshToken = session?.provider_refresh_token || session?.refresh_token || null;
+      const rawProviderToken = session?.provider_refresh_token;
+      const googleRefreshToken = (rawProviderToken && rawProviderToken.startsWith('1//')) ? rawProviderToken : null;
 
       // 1. Fetch existing YouTube row for this user to check for filled YouTube channel details
       const { data: existingYtRow } = await supabase

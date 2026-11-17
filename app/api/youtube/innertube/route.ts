@@ -26,15 +26,43 @@ const fetchActiveLiveVideoId = async (channelIdOrHandle: string): Promise<string
 
   try {
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36' }
+      cache: 'no-store',
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36' },
+      redirect: 'follow'
     });
     if (res.ok) {
       const html = await res.text();
-      const isLiveStream = html.includes('"isLive":true') || html.includes('"isLiveNow":true') || html.includes('liveChatRenderer');
+      const isExplicitOffline = 
+        html.includes('"status":"LIVE_STREAM_OFFLINE"') ||
+        html.includes('"reason":"This live stream has ended."') ||
+        html.includes('This live stream has ended') ||
+        html.includes('liveChatReplayRenderer') ||
+        html.includes('"isLiveNow":false') ||
+        html.includes('"isLive":false');
+
+      const isLiveStream = 
+        !isExplicitOffline && (
+          html.includes('"isLive":true') || 
+          html.includes('"isLiveNow":true') || 
+          html.includes('BADGE_STYLE_TYPE_LIVE_NOW') ||
+          html.includes('THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE') ||
+          html.includes('"label":"LIVE"') ||
+          (html.includes('liveChatRenderer') && !html.includes('liveChatReplayRenderer'))
+        );
+
       if (!isLiveStream) {
         console.log(`[InnerTube Route] Channel ${clean} /live check: Channel is currently offline (no active live broadcast).`);
         return null;
       }
+
+      const canonicalMatch = html.match(/<link\s+rel="canonical"\s+href="[^"]*(?:watch\?v=|\/shorts\/)([a-zA-Z0-9_-]{11})"/i);
+      if (canonicalMatch && canonicalMatch[1]) return canonicalMatch[1];
+
+      const liveStreamMatch = html.match(/"liveStreamabilityRenderer"\s*:\s*\{\s*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
+      if (liveStreamMatch && liveStreamMatch[1]) return liveStreamMatch[1];
+
+      const endpointMatch = html.match(/"watchEndpoint"\s*:\s*\{\s*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
+      if (endpointMatch && endpointMatch[1]) return endpointMatch[1];
 
       const match = html.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/) ||
                     html.match(/watch\?v=([a-zA-Z0-9_-]{11})/);
@@ -70,24 +98,18 @@ const resolveChannelId = async (channelIdOrHandle: string): Promise<string | nul
   return null;
 };
 
-
-
 const fetchActiveLiveVideoWithInnerTube = async (ytInstance: any, channelIdOrHandle: string): Promise<string | null> => {
   if (!channelIdOrHandle) return null;
   const clean = channelIdOrHandle.replace(/^@+/, '').trim();
   try {
-    console.log(`[InnerTube Route] Attempting youtubei.js getChannel live tab lookup for: ${clean}...`);
-    const channel = await ytInstance.getChannel(clean);
-    if (typeof channel?.getLive === 'function') {
-      const liveTab = await channel.getLive().catch(() => null);
-      const activeVideo = liveTab?.videos?.[0];
-      if (activeVideo?.id) {
-        console.log(`[InnerTube Route] Detected active live video via youtubei.js getLive(): ${activeVideo.id}`);
-        return activeVideo.id;
-      }
+    const searchRes = await ytInstance.search(clean, { type: 'video' }).catch(() => null);
+    const liveVideo: any = searchRes?.videos?.find((v: any) => v.is_live);
+    if (liveVideo?.id) {
+      console.log(`[InnerTube Route] Detected active live video via search: ${liveVideo.id}`);
+      return liveVideo.id;
     }
   } catch (err: any) {
-    console.warn('[InnerTube Route] youtubei.js getChannel live tab lookup notice:', err.message);
+    console.warn('[InnerTube Route] search live lookup notice:', err.message);
   }
   return null;
 };
@@ -332,20 +354,20 @@ export async function POST(request: Request) {
             }
           }
 
-          const viewers = typeof bi.view_count === 'number' ? bi.view_count : (parseInt(bi.view_count, 10) || 0);
+          const isLive = Boolean(bi.is_live === true && !bi.is_ended && !bi.actual_end_time);
+          const viewers = isLive ? (typeof bi.concurrent_viewers === 'number' ? bi.concurrent_viewers : (parseInt(bi.concurrent_viewers, 10) || 0)) : 0;
           const likes = typeof bi.like_count === 'number' ? bi.like_count : (parseInt(bi.like_count, 10) || 0);
-          const isLive = bi.is_live !== false || bi.is_live_content || !bi.duration;
           const title = bi.title || '';
           const author = bi.author || bi.channel?.name || '';
           const isShorts = !!(bi.is_shorts || (bi.embed?.width && bi.embed?.height && bi.embed.height > bi.embed.width));
-          const uptimeSeconds = startTime ? Math.max(0, Math.floor((Date.now() - startTime) / 1000)) : null;
+          const uptimeSeconds = (isLive && startTime) ? Math.max(0, Math.floor((Date.now() - startTime) / 1000)) : null;
 
           return NextResponse.json({
             success: true,
             isLive,
-            startTime,
-            isExact,
-            startTimestamp: candidateTime ? new Date(startTime || candidateTime).toISOString() : (startTime ? new Date(startTime).toISOString() : null),
+            startTime: isLive ? startTime : null,
+            isExact: isLive ? (isExact || !!bi.start_timestamp) : false,
+            startTimestamp: isLive ? (candidateTime ? new Date(startTime || candidateTime).toISOString() : (startTime ? new Date(startTime).toISOString() : null)) : null,
             uptimeSeconds,
             viewers,
             likes,
