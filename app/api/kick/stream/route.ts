@@ -152,22 +152,35 @@ export async function GET(req: NextRequest) {
             try {
               const parsed = JSON.parse(line);
 
-              // Step 2: On successful connection, subscribe to chatroom channel
+              // Step 2: On successful connection, subscribe to chatroom AND channel topics (for KICKs gifts, gifted subs, subs)
               if (parsed.connect) {
                 if (ws && ws.readyState === WebSocket.OPEN) {
-                  ws.send(JSON.stringify({
-                    id: subId++,
-                    subscribe: { channel: `chatrooms.${chatroomId}.v2` }
-                  }));
+                  const topics = [`chatrooms.${chatroomId}.v2`, `chatroom_${chatroomId}`];
+                  if (channelId) {
+                    topics.push(`channel.${channelId}`, `channel_${channelId}`);
+                  }
+                  for (const topic of topics) {
+                    ws.send(JSON.stringify({
+                      id: subId++,
+                      subscribe: { channel: topic }
+                    }));
+                  }
                 }
               } else {
                 const pub = parsed.push?.pub || parsed.pub;
                 if (pub?.data) {
-                  // Step 3: Stream chat messages to the frontend client
+                  // Step 3: Stream chat messages, KICKs gifts, and subscription events to the frontend client
                   const pubData = pub.data;
+                  const detectedEvent =
+                    pubData.event ||
+                    pubData.name ||
+                    pubData.type ||
+                    (pubData.gift ? 'KicksGifted' : null) ||
+                    (pubData.gifted_usernames ? 'App\\Events\\GiftedSubscriptionsEvent' : null) ||
+                    'App\\Events\\ChatMessageEvent';
                   const ssePayload = {
                     channel: parsed.push?.channel || parsed.channel || `chatrooms.${chatroomId}.v2`,
-                    event: pubData.event || 'App\\Events\\ChatMessageEvent',
+                    event: detectedEvent,
                     data: pubData.data || pubData
                   };
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify(ssePayload)}\n\n`));

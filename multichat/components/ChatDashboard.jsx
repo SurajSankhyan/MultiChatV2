@@ -1329,11 +1329,8 @@ export default function ChatDashboard({
                    cleanId === msgChan || 
                    cleanDisplay === msgChan ||
                    (cleanHandle && cleanHandle === msgChan) ||
-                   cleanChan.includes(msgChan) || 
-                   msgChan.includes(cleanChan) ||
-                   (cleanHandle && (cleanHandle.includes(msgChan) || msgChan.includes(cleanHandle))) ||
                    (cleanId && cleanId === msgAuthorChan) ||
-                   (msgVid && (cleanChan.includes(msgVid) || msgVid.includes(cleanChan))) ||
+                   (msgVid && (cleanChan === msgVid || cleanId === msgVid)) ||
                    (cleanVid && msgVid && cleanVid === msgVid);
           });
           if (!isChannelActive) {
@@ -2713,10 +2710,35 @@ export default function ChatDashboard({
       );
 
       if (!alreadyExists && targetUser) {
+        const sysMsgId = 'sys-mod-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
+
+        // If targetUser fell back to a raw YouTube Channel ID (e.g. UCjerlCIbLPQwSnYlClkjDXg),
+        // resolve the real handle/name asynchronously and update the timeout message in-place
+        if (/^UC[a-zA-Z0-9_-]{22}$/i.test(targetUser) && youtubeClientRef.current?.resolveChannelName) {
+          const rawChannelId = targetUser;
+          youtubeClientRef.current.resolveChannelName(rawChannelId).then(resolvedName => {
+            if (!resolvedName || resolvedName.toLowerCase().includes('404') || resolvedName.toLowerCase().includes('not found') || resolvedName.toLowerCase() === 'youtube') return;
+            const cleanResolved = resolvedName.replace(/^@+/, '').trim();
+            if (!cleanResolved) return;
+            const updatedText = durationStr
+              ? (cleanMod
+                  ? `@${cleanResolved} was timed out by @${cleanMod} for ${durationStr}.`
+                  : `@${cleanResolved} was timed out for ${durationStr}.`)
+              : (cleanMod
+                  ? `@${cleanResolved} was timed out by @${cleanMod}.`
+                  : `@${cleanResolved} was timed out.`);
+            setMessages(curr => curr.map(m =>
+              m.id === sysMsgId
+                ? { ...m, text: updatedText, eventDetails: { ...(m.eventDetails || {}), targetUser: cleanResolved } }
+                : m
+            ));
+          }).catch(() => {});
+        }
+
         return [
           ...prevMessages,
           {
-            id: 'sys-mod-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
+            id: sysMsgId,
             platform,
             channel,
             username: 'System',

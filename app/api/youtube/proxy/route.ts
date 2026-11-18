@@ -92,14 +92,21 @@ export async function GET(request: Request) {
   headers.set('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8');
   headers.set('Accept-Language', 'en-US,en;q=0.9');
   headers.set('Referer', isMobile ? 'https://m.youtube.com/' : 'https://www.youtube.com/');
-  const channel = extractChannelFromUrl(targetUrl);
-  const dbCookie = await fetchUserCookieFromDB(channel);
-  if (dbCookie) {
-    headers.set('Cookie', dbCookie);
-    const auth = generateSapisidHash(dbCookie);
-    if (auth) headers.set('Authorization', auth);
-  } else {
+  // Do NOT inject personal cookies into public channel discovery pages (/@.../live, /streams, /channel/.../live)
+  // so YouTube does not pollute the HTML with personalized live subscriptions or sidebar recommendations.
+  const isChannelDiscoveryUrl = /youtube\.com\/(@[^/?]+|channel\/UC[^/?]+)(\/(live|streams|videos|shorts))?(\?|$)/i.test(targetUrl);
+  if (isChannelDiscoveryUrl) {
     headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
+  } else {
+    const channel = extractChannelFromUrl(targetUrl);
+    const dbCookie = await fetchUserCookieFromDB(channel);
+    if (dbCookie) {
+      headers.set('Cookie', dbCookie);
+      const auth = generateSapisidHash(dbCookie);
+      if (auth) headers.set('Authorization', auth);
+    } else {
+      headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
+    }
   }
 
   try {
@@ -140,25 +147,35 @@ export async function POST(request: Request) {
   headers.set('X-Origin', 'https://www.youtube.com');
   headers.set('Sec-Fetch-Mode', 'cors');
   headers.set('Sec-Fetch-Site', 'same-origin');
-  const channel = extractChannelFromUrl(targetUrl);
-  const dbCookie = await fetchUserCookieFromDB(channel);
-  if (dbCookie) {
-    headers.set('Cookie', dbCookie);
-    const auth = generateSapisidHash(dbCookie);
-    if (auth) headers.set('Authorization', auth);
-  } else {
+  // Do NOT inject personal cookies into public channel discovery pages (/@.../live, /streams, /channel/.../live)
+  // so YouTube does not pollute the HTML with personalized live subscriptions or sidebar recommendations.
+  const isChannelDiscoveryUrl = /youtube\.com\/(@[^/?]+|channel\/UC[^/?]+)(\/(live|streams|videos|shorts))?(\?|$)/i.test(targetUrl);
+  if (isChannelDiscoveryUrl) {
     headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
+  } else {
+    const channel = extractChannelFromUrl(targetUrl);
+    const dbCookie = await fetchUserCookieFromDB(channel);
+    if (dbCookie) {
+      headers.set('Cookie', dbCookie);
+      const auth = generateSapisidHash(dbCookie);
+      if (auth) headers.set('Authorization', auth);
+    } else {
+      headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
+    }
   }
 
   try {
     const incomingBody = await request.json().catch(() => ({}));
+    const resolvedClientVersion = incomingBody.context?.client?.clientVersion || '2.20260301.01.00';
+    headers.set('X-YouTube-Client-Version', resolvedClientVersion);
+
     const body = {
       ...incomingBody,
       context: {
         ...(incomingBody.context || {}),
         client: {
           clientName: 'WEB',
-          clientVersion: '2.20250201.01.00',
+          clientVersion: resolvedClientVersion,
           hl: 'en',
           gl: 'US',
           ...(incomingBody.context?.client || {})
@@ -170,12 +187,33 @@ export async function POST(request: Request) {
     let data = await res.json();
     
     // --- DELTA FILTERING OPTIMIZATION ---
-    // Strip massive unnecessary YouTube tracking/framework data to save bandwidth (~90% reduction)
+    // Strip massive unnecessary tracking data while PRESERVING Jewels/Gift entity mutations
     if (targetUrl.includes('get_live_chat')) {
-      if (data.frameworkUpdates) delete data.frameworkUpdates;
       if (data.responseContext) delete data.responseContext;
       if (data.trackingParams) delete data.trackingParams;
-      if (data.mutations) delete data.mutations;
+
+      // Filter frameworkUpdates to keep only gift / jewel / liveChat entity mutations
+      if (data.frameworkUpdates?.entityBatchUpdate?.mutations && Array.isArray(data.frameworkUpdates.entityBatchUpdate.mutations)) {
+        const relevantMutations = data.frameworkUpdates.entityBatchUpdate.mutations.filter((m: any) => {
+          const str = JSON.stringify(m || '');
+          return /gift|jewel|pdg|superchat|paid|ticker|virtualitem|combo/i.test(str);
+        });
+        if (relevantMutations.length > 0) {
+          data.frameworkUpdates = { entityBatchUpdate: { mutations: relevantMutations } };
+        } else {
+          delete data.frameworkUpdates;
+        }
+      } else if (data.frameworkUpdates) {
+        delete data.frameworkUpdates;
+      }
+
+      if (data.mutations && Array.isArray(data.mutations)) {
+        const relevant = data.mutations.filter((m: any) => /gift|jewel|pdg|paid|virtualitem/i.test(JSON.stringify(m || '')));
+        if (relevant.length > 0) data.mutations = relevant;
+        else delete data.mutations;
+      } else if (data.mutations) {
+        delete data.mutations;
+      }
       
       const actions = data.continuationContents?.liveChatContinuation?.actions;
       if (actions) {

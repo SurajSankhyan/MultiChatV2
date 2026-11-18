@@ -20,55 +20,89 @@ function generateSapisidHash(cookieString?: string): string | null {
 const fetchActiveLiveVideoId = async (channelIdOrHandle: string): Promise<string | null> => {
   if (!channelIdOrHandle) return null;
   const clean = channelIdOrHandle.replace(/^@+/, '').trim();
-  const url = clean.toLowerCase().startsWith('uc')
+  const isUcId = /^uc[a-zA-Z0-9_-]{22}$/i.test(clean);
+  const url = isUcId
     ? `https://www.youtube.com/channel/${clean}/live`
     : `https://www.youtube.com/@${clean}/live`;
 
   try {
     const res = await fetch(url, {
       cache: 'no-store',
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36' },
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cookie': 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en'
+      },
       redirect: 'follow'
     });
     if (res.ok) {
       const html = await res.text();
-      const isExplicitOffline = 
-        html.includes('"status":"LIVE_STREAM_OFFLINE"') ||
-        html.includes('"reason":"This live stream has ended."') ||
-        html.includes('This live stream has ended') ||
-        html.includes('liveChatReplayRenderer') ||
-        html.includes('"isLiveNow":false') ||
-        html.includes('"isLive":false');
+      const expectedChannelId = isUcId
+        ? clean
+        : (html.match(/<link\s+rel="canonical"\s+href="https:\/\/www\.youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{22})"/i)?.[1] ||
+           html.match(/"externalId"\s*:\s*"(UC[a-zA-Z0-9_-]{22})"/i)?.[1] || null);
 
-      const isLiveStream = 
-        !isExplicitOffline && (
-          html.includes('"isLive":true') || 
-          html.includes('"isLiveNow":true') || 
-          html.includes('BADGE_STYLE_TYPE_LIVE_NOW') ||
-          html.includes('THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE') ||
-          html.includes('"label":"LIVE"') ||
-          (html.includes('liveChatRenderer') && !html.includes('liveChatReplayRenderer'))
-        );
+      // 1. Parse ytInitialPlayerResponse directly (active watch page)
+      try {
+        const playerMatch = html.match(/ytInitialPlayerResponse\s*=\s*(\{.*?\});\s*(?:var\s+meta|<\/script>)/s) ||
+                            html.match(/ytInitialPlayerResponse\s*=\s*(\{.*?\});/);
+        if (playerMatch && playerMatch[1]) {
+          const playerJson = JSON.parse(playerMatch[1]);
+          const vd = playerJson?.videoDetails;
+          const liveDetails = playerJson?.microformat?.playerMicroformatRenderer?.liveBroadcastDetails;
+          const playStatus = playerJson?.playabilityStatus?.status;
+          if (vd?.videoId && playStatus !== 'LIVE_STREAM_OFFLINE') {
+            const isActuallyLive = Boolean(
+              (vd.isLive === true || liveDetails?.isLiveNow === true) &&
+              liveDetails?.isLiveNow !== false &&
+              !liveDetails?.actualEndTime
+            );
+            if (isActuallyLive) {
+              if (expectedChannelId && vd.channelId && vd.channelId.toLowerCase() !== expectedChannelId.toLowerCase()) {
+                console.warn(`[InnerTube Route] Rejected mismatched channelId: expected ${expectedChannelId}, got ${vd.channelId}`);
+                return null;
+              }
+              return vd.videoId;
+            }
+          }
+        }
+      } catch (e) {}
 
-      if (!isLiveStream) {
-        console.log(`[InnerTube Route] Channel ${clean} /live check: Channel is currently offline (no active live broadcast).`);
-        return null;
-      }
+      // 2. Fallback: inspect ONLY the channel's own Live tab items in ytInitialData
+      try {
+        const dataMatch = html.match(/ytInitialData\s*=\s*(\{.*?\});\s*(?:var\s+meta|<\/script>)/s) ||
+                          html.match(/ytInitialData\s*=\s*(\{.*?\});/);
+        if (dataMatch && dataMatch[1]) {
+          const ytData = JSON.parse(dataMatch[1]);
+          const tabs = ytData?.contents?.twoColumnBrowseResultsRenderer?.tabs || [];
+          const liveTab = tabs.find((t: any) => t.tabRenderer?.title?.toLowerCase() === 'live' || t.tabRenderer?.selected);
+          const items = liveTab?.tabRenderer?.content?.richGridRenderer?.contents || [];
+          for (const item of items) {
+            const lockup = item.richItemRenderer?.content?.lockupViewModel;
+            if (lockup) {
+              const overlays = lockup.contentImage?.thumbnailViewModel?.overlays || [];
+              for (const o of overlays) {
+                const badges = o.thumbnailBottomOverlayViewModel?.badges || [];
+                for (const b of badges) {
+                  const tvm = b.thumbnailBadgeViewModel;
+                  if (tvm?.badgeStyle === 'THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE' || tvm?.text === 'LIVE') {
+                    const vid = tvm.animationActivationTargetId || lockup.contentId || lockup.metadata?.lockupMetadataViewModel?.videoId;
+                    if (vid && /^[a-zA-Z0-9_-]{11}$/.test(vid)) return vid;
+                  }
+                }
+              }
+            }
+            const video = item.richItemRenderer?.content?.videoRenderer;
+            if (video?.videoId) {
+              const isLiveBadge = video.thumbnailOverlays?.some((o: any) => o.thumbnailOverlayTimeStatusRenderer?.style === 'LIVE') ||
+                                  video.badges?.some((b: any) => b.metadataBadgeRenderer?.style === 'BADGE_STYLE_TYPE_LIVE_NOW');
+              if (isLiveBadge) return video.videoId;
+            }
+          }
+        }
+      } catch (e) {}
 
-      const canonicalMatch = html.match(/<link\s+rel="canonical"\s+href="[^"]*(?:watch\?v=|\/shorts\/)([a-zA-Z0-9_-]{11})"/i);
-      if (canonicalMatch && canonicalMatch[1]) return canonicalMatch[1];
-
-      const liveStreamMatch = html.match(/"liveStreamabilityRenderer"\s*:\s*\{\s*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
-      if (liveStreamMatch && liveStreamMatch[1]) return liveStreamMatch[1];
-
-      const endpointMatch = html.match(/"watchEndpoint"\s*:\s*\{\s*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
-      if (endpointMatch && endpointMatch[1]) return endpointMatch[1];
-
-      const match = html.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/) ||
-                    html.match(/watch\?v=([a-zA-Z0-9_-]{11})/);
-      if (match?.[1]) {
-        return match[1];
-      }
+      console.log(`[InnerTube Route] Channel ${clean} /live check: Channel is currently offline (no active live broadcast).`);
     }
   } catch (e) {}
   return null;
@@ -102,10 +136,21 @@ const fetchActiveLiveVideoWithInnerTube = async (ytInstance: any, channelIdOrHan
   if (!channelIdOrHandle) return null;
   const clean = channelIdOrHandle.replace(/^@+/, '').trim();
   try {
+    const expectedChannelId = await resolveChannelId(clean);
     const searchRes = await ytInstance.search(clean, { type: 'video' }).catch(() => null);
-    const liveVideo: any = searchRes?.videos?.find((v: any) => v.is_live);
+    const normClean = clean.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const liveVideo: any = searchRes?.videos?.find((v: any) => {
+      if (!v.is_live) return false;
+      const authorId = (v.author?.id || '').toLowerCase();
+      const authorName = (v.author?.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const authorUrl = (v.author?.url || '').toLowerCase();
+      if (expectedChannelId && authorId) {
+        return authorId === expectedChannelId.toLowerCase();
+      }
+      return (normClean && authorName === normClean) || (normClean && authorUrl.includes(`/@${clean.toLowerCase()}`));
+    });
     if (liveVideo?.id) {
-      console.log(`[InnerTube Route] Detected active live video via search: ${liveVideo.id}`);
+      console.log(`[InnerTube Route] Detected verified active live video via search: ${liveVideo.id}`);
       return liveVideo.id;
     }
   } catch (err: any) {

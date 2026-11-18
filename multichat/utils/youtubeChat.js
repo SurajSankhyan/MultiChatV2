@@ -854,7 +854,7 @@ export class YoutubeChatClient {
     return meta ? meta.startTime : null;
   }
 
-  extractLiveVideoId(html) {
+  extractLiveVideoId(html, expectedChannelOrHandle = null) {
     if (!html) return null;
     
     // Explicit offline / ended markers
@@ -863,53 +863,87 @@ export class YoutubeChatClient {
       html.includes('"reason":"This live stream has ended."') ||
       html.includes('This live stream has ended') ||
       html.includes('liveChatReplayRenderer') ||
-      html.includes('"liveChatReplayContinuationData"') ||
-      html.includes('"isLiveNow":false') ||
-      html.includes('"isLive":false');
+      html.includes('"liveChatReplayContinuationData"');
 
     if (isExplicitOffline) {
       return null;
     }
 
-    const meta = this.parseMetadataFromHtml(html);
-    const isLiveMatch = (meta && meta.isLive) ||
-                   /"isLive"\s*:\s*true/i.test(html) ||
-                   /"isLiveNow"\s*:\s*true/i.test(html) ||
-                   /BADGE_STYLE_TYPE_LIVE_NOW/i.test(html) ||
-                   /THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE/i.test(html) ||
-                   /"label"\s*:\s*"LIVE"/i.test(html) ||
-                   /\bwatching now\b/i.test(html) ||
-                   (html.includes('liveChatRenderer') && !html.includes('liveChatReplayRenderer'));
+    const cleanExpected = expectedChannelOrHandle ? String(expectedChannelOrHandle).replace(/^@+/, '').trim() : '';
+    const expectedUcId = /^uc[a-zA-Z0-9_-]{22}$/i.test(cleanExpected) ? cleanExpected.toLowerCase() : null;
 
-    if (isLiveMatch) {
-      // 1. Try canonical URL watch?v= or /shorts/ (definitive watch page when live)
+    // 1. Primary: Parse ytInitialPlayerResponse JSON directly (exact watch page when /live redirects to active broadcast)
+    try {
+      const playerMatch = html.match(/ytInitialPlayerResponse\s*=\s*(\{.*?\});\s*(?:var\s+meta|<\/script>)/s) ||
+                          html.match(/ytInitialPlayerResponse\s*=\s*(\{.*?\});/);
+      if (playerMatch && playerMatch[1]) {
+        const playerJson = JSON.parse(playerMatch[1]);
+        const vd = playerJson?.videoDetails;
+        const liveDetails = playerJson?.microformat?.playerMicroformatRenderer?.liveBroadcastDetails;
+        const playStatus = playerJson?.playabilityStatus?.status;
+
+        if (vd?.videoId && playStatus !== 'LIVE_STREAM_OFFLINE') {
+          const isActuallyLive = Boolean(
+            (vd.isLive === true || liveDetails?.isLiveNow === true) &&
+            liveDetails?.isLiveNow !== false &&
+            !liveDetails?.actualEndTime
+          );
+          if (isActuallyLive) {
+            if (expectedUcId && vd.channelId && vd.channelId.toLowerCase() !== expectedUcId) {
+              console.warn(`YouTube client: rejected mismatched live stream channelId (expected ${expectedUcId}, got ${vd.channelId})`);
+              return null;
+            }
+            return vd.videoId;
+          }
+          // Watch page is explicitly NOT live (ended VOD / upcoming) — do not fall through to sidebar videos!
+          return null;
+        }
+      }
+    } catch (e) {}
+
+    // 2. Secondary: If YouTube rendered the channel page (Live tab grid), inspect ONLY the channel's own Live tab items
+    try {
+      const dataMatch = html.match(/ytInitialData\s*=\s*(\{.*?\});\s*(?:var\s+meta|<\/script>)/s) ||
+                        html.match(/ytInitialData\s*=\s*(\{.*?\});/);
+      if (dataMatch && dataMatch[1]) {
+        const ytData = JSON.parse(dataMatch[1]);
+        const tabs = ytData?.contents?.twoColumnBrowseResultsRenderer?.tabs || [];
+        const liveTab = tabs.find(t => t.tabRenderer?.title?.toLowerCase() === 'live' || t.tabRenderer?.selected);
+        const items = liveTab?.tabRenderer?.content?.richGridRenderer?.contents || [];
+        for (const item of items) {
+          const lockup = item.richItemRenderer?.content?.lockupViewModel;
+          if (lockup) {
+            const overlays = lockup.contentImage?.thumbnailViewModel?.overlays || [];
+            for (const o of overlays) {
+              const badges = o.thumbnailBottomOverlayViewModel?.badges || [];
+              for (const b of badges) {
+                const tvm = b.thumbnailBadgeViewModel;
+                if (tvm?.badgeStyle === 'THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE' || tvm?.text === 'LIVE') {
+                  const vid = tvm.animationActivationTargetId || lockup.contentId || lockup.metadata?.lockupMetadataViewModel?.videoId;
+                  if (vid && /^[a-zA-Z0-9_-]{11}$/.test(vid)) return vid;
+                }
+              }
+            }
+          }
+          const video = item.richItemRenderer?.content?.videoRenderer;
+          if (video?.videoId) {
+            const isLiveBadge = video.thumbnailOverlays?.some(o => o.thumbnailOverlayTimeStatusRenderer?.style === 'LIVE') ||
+                                video.badges?.some(b => b.metadataBadgeRenderer?.style === 'BADGE_STYLE_TYPE_LIVE_NOW');
+            if (isLiveBadge) return video.videoId;
+          }
+        }
+      }
+    } catch (e) {}
+
+    // 3. Final fallback ONLY if canonical URL is a watch page AND explicitly confirmed live via liveStreamabilityRenderer
+    if (/"isLive"\s*:\s*true/i.test(html) || /"isLiveNow"\s*:\s*true/i.test(html)) {
       const canonicalMatch = html.match(/<link\s+rel="canonical"\s+href="[^"]*(?:watch\?v=|\/shorts\/)([a-zA-Z0-9_-]{11})"/i);
       if (canonicalMatch && canonicalMatch[1]) {
         return canonicalMatch[1];
       }
-      
-      // 2. Try liveStreamabilityRenderer videoId
       const liveStreamMatch = html.match(/"liveStreamabilityRenderer"\s*:\s*\{\s*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
       if (liveStreamMatch && liveStreamMatch[1]) {
         return liveStreamMatch[1];
-      }
-
-      // 3. Try watchEndpoint / currentVideoEndpoint videoId
-      const endpointMatch = html.match(/"watchEndpoint"\s*:\s*\{\s*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
-      if (endpointMatch && endpointMatch[1]) {
-        return endpointMatch[1];
-      }
-      
-      // 4. Try videoDetails videoId
-      const vidDetailsMatch = html.match(/"videoDetails"\s*:\s*\{[^}]*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
-      if (vidDetailsMatch && vidDetailsMatch[1]) {
-        return vidDetailsMatch[1];
-      }
-
-      // 5. Fallback to general videoId
-      const videoIdMatch = html.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
-      if (videoIdMatch && videoIdMatch[1]) {
-        return videoIdMatch[1];
       }
     }
     
@@ -945,7 +979,7 @@ export class YoutubeChatClient {
         const liveUrl = this.getLiveUrl(trimmedName);
         const html = await this.fetchWithProxyFallback(liveUrl);
         
-        const videoId = this.extractLiveVideoId(html);
+        const videoId = this.extractLiveVideoId(html, trimmedName);
         if (videoId) {
           console.log(`YouTube client: channel ${pollKey} went live! Re-joining...`);
           if (pollInstance.viewerIntervalId) clearInterval(pollInstance.viewerIntervalId);
@@ -1207,7 +1241,7 @@ export class YoutubeChatClient {
           if (channelId) YOUTUBE_NAME_CACHE.set(channelId, extractedChannelName);
         }
 
-        videoId = this.extractLiveVideoId(pageHtml);
+        videoId = this.extractLiveVideoId(pageHtml, trimmedName);
 
         if (!videoId) {
           console.log(`YouTube client: channel ${pollKey} is offline.`);
@@ -1509,7 +1543,7 @@ export class YoutubeChatClient {
             const liveUrl = this.getLiveUrl(trimmedName);
             const html = await this.fetchWithProxyFallback(liveUrl);
             if (html) {
-              const currentVideoId = this.extractLiveVideoId(html);
+              const currentVideoId = this.extractLiveVideoId(html, trimmedName);
               if (!currentVideoId) {
                 console.log(`YouTube client: channel ${pollKey} went offline during 30s poll.`);
                 this.onStatus(pollKey, 'offline', { startTime: null, viewers: 0, likes: 0, displayName: pollInstance.displayName });
@@ -1606,7 +1640,7 @@ export class YoutubeChatClient {
         context: {
           client: {
             clientName: 'WEB',
-            clientVersion: poll.clientVersion || '2.20250201.01.00'
+            clientVersion: poll.clientVersion || '2.20260301.01.00'
           }
         },
         continuation: poll.continuationToken
@@ -1685,6 +1719,11 @@ export class YoutubeChatClient {
           });
         }
 
+        // Parse YouTube Jewels / Vertical Gift entity mutations delivered via frameworkUpdates
+        if (data.frameworkUpdates?.entityBatchUpdate?.mutations && Array.isArray(data.frameworkUpdates.entityBatchUpdate.mutations)) {
+          this.parseFrameworkGiftMutations(channelName, data.frameworkUpdates.entityBatchUpdate.mutations, poll);
+        }
+
         if (liveChatCont.actions) {
           liveChatCont.actions.forEach(action => {
             // 1. Process normal chat item or moderation item
@@ -1702,6 +1741,7 @@ export class YoutubeChatClient {
                                      tickerItem.liveChatTickerSponsorItemRenderer ||
                                      tickerItem.liveChatTickerPaidGiftItemRenderer ||
                                      tickerItem.liveChatTickerJewelsGiftItemRenderer ||
+                                     tickerItem.elementRenderer ||
                                      Object.values(tickerItem)[0];
               if (tickerRenderer?.showItemEndpoint?.showLiveChatItemEndpoint?.renderer) {
                 item = tickerRenderer.showItemEndpoint.showLiveChatItemEndpoint.renderer;
@@ -1728,10 +1768,16 @@ export class YoutubeChatClient {
             // 5. Process direct jewel / gift action wrappers or action panels
             if (!item) {
               const actionKeys = Object.keys(action);
-              const matchedKey = actionKeys.find(k => /jewel|gift|panel|paid/i.test(k));
+              const matchedKey = actionKeys.find(k => /jewel|gift|panel|paid|element/i.test(k));
               if (matchedKey) {
                 item = action[matchedKey]?.item || action[matchedKey]?.contents || action[matchedKey]?.renderer || action[matchedKey];
               }
+            }
+
+            // 5b. Handle modern YouTube Elements Jewels Gift (elementRenderer) directly
+            if (item && (item.elementRenderer || item.newElement)) {
+              const handled = this.parseElementRendererGift(channelName, item.elementRenderer || item, poll);
+              if (handled) return;
             }
 
             if (item) {
@@ -1907,6 +1953,143 @@ export class YoutubeChatClient {
     const g = parseInt(hex.substring(4, 6), 16);
     const b = parseInt(hex.substring(6, 8), 16);
     return `rgba(${r}, ${g}, ${b}, ${a})`;
+  }
+
+  parseElementRendererGift(channelName, elemObj, poll) {
+    try {
+      if (!elemObj || typeof elemObj !== 'object') return false;
+      const jsonStr = JSON.stringify(elemObj);
+      if (!/gift|jewel|virtualitem|pdg|sent\s+/i.test(jsonStr)) return false;
+
+      // Recursively extract author, giftName, jewels, imageUrl, and avatar from YouTube Elements model
+      let author = '';
+      let giftName = '';
+      let jewels = null;
+      let giftImg = null;
+      let avatarUrl = null;
+      let rawText = '';
+      let entityId = null;
+
+      const visit = (node, depth = 0) => {
+        if (!node || typeof node !== 'object' || depth > 14) return;
+        if (Array.isArray(node)) {
+          node.forEach(n => visit(n, depth + 1));
+          return;
+        }
+
+        if (!entityId && typeof node.id === 'string' && node.id.length > 4) entityId = node.id;
+        if (!entityId && typeof node.entityKey === 'string' && node.entityKey.length > 4) entityId = node.entityKey;
+
+        if (!author) {
+          const candAuthor = node.authorName?.content || node.authorName?.simpleText || node.senderName?.content || node.senderName?.simpleText || (typeof node.authorName === 'string' ? node.authorName : null) || (typeof node.senderName === 'string' ? node.senderName : null);
+          if (candAuthor && String(candAuthor).trim()) author = String(candAuthor).trim();
+        }
+        if (!giftName) {
+          const candGift = node.giftName?.content || node.giftName?.simpleText || node.itemName?.content || (typeof node.giftName === 'string' ? node.giftName : null);
+          if (candGift && String(candGift).trim()) giftName = String(candGift).trim();
+        }
+        if (!jewels) {
+          const candJewels = node.jewelsAmount || node.jewelAmount || node.jewels || node.costInJewels || node.priceInJewels || node.comboCount;
+          if (candJewels && !isNaN(Number(candJewels))) jewels = String(candJewels);
+        }
+        if (!rawText) {
+          const candContent = node.message?.content || node.headerText?.content || node.text?.content || node.primaryText?.content;
+          if (candContent && /(?:sent|gifted|jewel)/i.test(String(candContent))) {
+            rawText = String(candContent).trim();
+          }
+        }
+        if (Array.isArray(node.sources)) {
+          for (const s of node.sources) {
+            if (s?.url && typeof s.url === 'string') {
+              const u = normalizeUrl(s.url);
+              if (u && (u.includes('yt3.ggpht.com') || u.includes('googleusercontent.com'))) {
+                if (!avatarUrl && (u.includes('=s') || u.includes('photo'))) avatarUrl = u;
+                else if (!giftImg) giftImg = u;
+              } else if (u && !giftImg && (u.includes('gstatic.com') || u.includes('ytimg.com') || u.includes('gift') || u.includes('jewel'))) {
+                giftImg = u;
+              }
+            }
+          }
+        }
+        for (const k of Object.keys(node)) {
+          visit(node[k], depth + 1);
+        }
+      };
+
+      visit(elemObj);
+
+      if (!giftName && rawText) {
+        const detected = detectGiftFromText(rawText, []);
+        if (detected) {
+          if (!author && detected.authorFromText) author = detected.authorFromText;
+          giftName = detected.giftName;
+          if (!jewels) jewels = detected.jewels;
+        }
+      }
+
+      if (!giftName && !jewels && !rawText) return false;
+      if (!giftName) giftName = 'Gift';
+      if (!jewels) {
+        const cleanKey = giftName.toLowerCase().replace(/\.+$/, '').trim();
+        jewels = String(YOUTUBE_GIFT_JEWELS_MAP[cleanKey] || 10);
+      }
+
+      const cleanAuthor = (author || 'Viewer').replace(/^@+/, '').trim();
+      const dedupId = entityId || `yt-elem-gift-${cleanAuthor.toLowerCase()}-${giftName.toLowerCase()}-${jewels}-${Math.floor(Date.now() / 5000)}`;
+      if (poll?.seenIds) {
+        if (poll.seenIds.has(dedupId)) return true;
+        poll.seenIds.add(dedupId);
+      }
+
+      const displayText = rawText || `sent ${giftName}`;
+      const parts = [{ type: 'text', content: displayText }];
+      if (giftImg) parts.push({ type: 'emote', name: giftName, url: giftImg });
+
+      this.onMessage({
+        id: dedupId,
+        platform: 'youtube',
+        channel: channelName ? channelName.toLowerCase().replace(/^@+/, '') : 'youtube',
+        username: cleanAuthor,
+        displayName: cleanAuthor,
+        avatar: avatarUrl || null,
+        color: '#f472b6',
+        text: displayText,
+        parts,
+        isSystemEvent: true,
+        isGift: true,
+        eventType: 'gift',
+        giftDetails: {
+          name: giftName,
+          jewels: String(jewels),
+          imageUrl: giftImg
+        },
+        eventDetails: {
+          subType: 'gift',
+          giftName,
+          jewels: String(jewels),
+          imageUrl: giftImg
+        },
+        rawTimestamp: Date.now(),
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+      });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  parseFrameworkGiftMutations(channelName, mutations, poll) {
+    if (!Array.isArray(mutations)) return;
+    for (const m of mutations) {
+      const payload = m?.payload;
+      if (!payload || typeof payload !== 'object') continue;
+      const key = m.entityKey || '';
+      const payloadStr = JSON.stringify(payload);
+      if (!/gift|jewel|virtualitem/i.test(key + ' ' + payloadStr)) continue;
+      // Ignore pure config/catalog/balance entities that have no sender/message
+      if (!/author|sender|sent|gifted|combo|user/i.test(payloadStr)) continue;
+      this.parseElementRendererGift(channelName, { entityKey: key, ...payload }, poll);
+    }
   }
 
   parseChatAction(channelName, action, passedItem = null) {

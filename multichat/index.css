@@ -6337,6 +6337,11 @@ input[type="range"]::-moz-range-thumb:hover {
   color: #115a14;
 }
 
+.donation.tier-blue {
+  background: linear-gradient(to right, #1e88e5, #1565c0);
+  color: #fff;
+}
+
 .donation.tier-cyan {
   background: linear-gradient(to right, #00e5ff, #00b4db);
   color: #111;

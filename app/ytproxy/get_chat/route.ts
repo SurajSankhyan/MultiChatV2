@@ -26,13 +26,14 @@ export async function POST(request: Request) {
   
   try {
     const incomingBody = await request.json().catch(() => ({}));
+    const resolvedClientVersion = incomingBody.context?.client?.clientVersion || '2.20260301.01.00';
     const body = {
       ...incomingBody,
       context: {
         ...(incomingBody.context || {}),
         client: {
           clientName: 'WEB',
-          clientVersion: '2.20240404.01.00',
+          clientVersion: resolvedClientVersion,
           hl: 'en',
           gl: 'US',
           ...(incomingBody.context?.client || {})
@@ -47,7 +48,7 @@ export async function POST(request: Request) {
     headers.set('Referer', 'https://www.youtube.com/');
     headers.set('Origin', 'https://www.youtube.com');
     headers.set('X-YouTube-Client-Name', '1');
-    headers.set('X-YouTube-Client-Version', '2.20240404.01.00');
+    headers.set('X-YouTube-Client-Version', resolvedClientVersion);
     headers.set('X-Origin', 'https://www.youtube.com');
     headers.set('Sec-Fetch-Mode', 'cors');
     headers.set('Sec-Fetch-Site', 'same-origin');
@@ -63,10 +64,29 @@ export async function POST(request: Request) {
     
     // --- DELTA FILTERING OPTIMIZATION ---
     if (targetUrl.includes('get_live_chat')) {
-      if (data.frameworkUpdates) delete data.frameworkUpdates;
       if (data.responseContext) delete data.responseContext;
       if (data.trackingParams) delete data.trackingParams;
-      if (data.mutations) delete data.mutations;
+
+      if (data.frameworkUpdates?.entityBatchUpdate?.mutations && Array.isArray(data.frameworkUpdates.entityBatchUpdate.mutations)) {
+        const relevantMutations = data.frameworkUpdates.entityBatchUpdate.mutations.filter((m: any) =>
+          /gift|jewel|pdg|superchat|paid|ticker|virtualitem|combo/i.test(JSON.stringify(m || ''))
+        );
+        if (relevantMutations.length > 0) {
+          data.frameworkUpdates = { entityBatchUpdate: { mutations: relevantMutations } };
+        } else {
+          delete data.frameworkUpdates;
+        }
+      } else if (data.frameworkUpdates) {
+        delete data.frameworkUpdates;
+      }
+
+      if (data.mutations && Array.isArray(data.mutations)) {
+        const relevant = data.mutations.filter((m: any) => /gift|jewel|pdg|paid|virtualitem/i.test(JSON.stringify(m || '')));
+        if (relevant.length > 0) data.mutations = relevant;
+        else delete data.mutations;
+      } else if (data.mutations) {
+        delete data.mutations;
+      }
       
       const actions = data.continuationContents?.liveChatContinuation?.actions;
       if (actions) {

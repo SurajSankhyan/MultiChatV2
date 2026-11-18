@@ -234,65 +234,122 @@ async function fetchUserCookieFromDB(channel: string | null): Promise<string | u
   return userCookie || process.env.YOUTUBE_COOKIE;
 }
 
-async function resolveLiveVideoId(channelOrHandle: string, cookie?: string): Promise<string | null> {
-  if (!channelOrHandle) return null;
-  const clean = channelOrHandle.replace(/^@+/, '').trim();
-  const url = clean.toLowerCase().startsWith('uc')
-    ? `https://www.youtube.com/channel/${clean}/live`
-    : `https://www.youtube.com/@${clean}/live`;
+function extractLiveVideoFromChannelHtml(html: string, expectedChannelId?: string | null): string | null {
+  if (!html) return null;
 
-  // 1. Direct fetch with explicit live status verification
+  // 1. Parse ytInitialPlayerResponse directly (present when /live resolves to an active watch page)
   try {
-    const res = await fetch(url, {
-      cache: 'no-store',
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36' },
-      redirect: 'follow'
-    });
-    if (res.ok) {
-      const html = await res.text();
+    const playerMatch = html.match(/ytInitialPlayerResponse\s*=\s*(\{.*?\});\s*(?:var\s+meta|<\/script>)/s) ||
+                        html.match(/ytInitialPlayerResponse\s*=\s*(\{.*?\});/);
+    if (playerMatch && playerMatch[1]) {
+      const playerJson = JSON.parse(playerMatch[1]);
+      const vd = playerJson?.videoDetails;
+      const mf = playerJson?.microformat?.playerMicroformatRenderer;
+      const liveDetails = mf?.liveBroadcastDetails;
+      const playStatus = playerJson?.playabilityStatus?.status;
 
-      const isExplicitOffline = 
-        html.includes('"status":"LIVE_STREAM_OFFLINE"') ||
-        html.includes('"reason":"This live stream has ended."') ||
-        html.includes('This live stream has ended') ||
-        html.includes('liveChatReplayRenderer') ||
-        html.includes('"isLiveNow":false') ||
-        html.includes('"isLive":false');
-
-      const isLiveBroadcast = 
-        !isExplicitOffline && (
-          html.includes('"isLive":true') || 
-          html.includes('"isLiveNow":true') ||
-          html.includes('BADGE_STYLE_TYPE_LIVE_NOW') ||
-          html.includes('THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE') ||
-          html.includes('"label":"LIVE"') ||
-          (html.includes('liveChatRenderer') && !html.includes('liveChatReplayRenderer'))
+      if (vd?.videoId && playStatus !== 'LIVE_STREAM_OFFLINE') {
+        const isActuallyLive = Boolean(
+          (vd.isLive === true || liveDetails?.isLiveNow === true) &&
+          liveDetails?.isLiveNow !== false &&
+          !liveDetails?.actualEndTime
         );
-
-      if (isLiveBroadcast) {
-        // Canonical watch page when live
-        const canonicalMatch = html.match(/<link\s+rel="canonical"\s+href="[^"]*(?:watch\?v=|\/shorts\/)([a-zA-Z0-9_-]{11})"/i);
-        if (canonicalMatch && canonicalMatch[1]) return canonicalMatch[1];
-
-        // liveStreamabilityRenderer
-        const liveStreamMatch = html.match(/"liveStreamabilityRenderer"\s*:\s*\{\s*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
-        if (liveStreamMatch && liveStreamMatch[1]) return liveStreamMatch[1];
-
-        // watchEndpoint
-        const endpointMatch = html.match(/"watchEndpoint"\s*:\s*\{\s*"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/i);
-        if (endpointMatch && endpointMatch[1]) return endpointMatch[1];
-
-        const match = html.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/);
-        if (match?.[1]) return match[1];
+        if (isActuallyLive) {
+          if (expectedChannelId && vd.channelId && vd.channelId.toLowerCase() !== expectedChannelId.toLowerCase()) {
+            console.warn(`[Live-Info API] Rejected mismatched channelId: expected ${expectedChannelId}, got ${vd.channelId}`);
+            return null;
+          }
+          return vd.videoId;
+        }
       }
     }
   } catch (e) {}
 
-  // 2. InnerTube youtubei.js search / channel lookup
+  // 2. If YouTube rendered the channel page (e.g., Live tab grid), inspect ONLY the channel's own Live tab items
+  try {
+    const dataMatch = html.match(/ytInitialData\s*=\s*(\{.*?\});\s*(?:var\s+meta|<\/script>)/s) ||
+                      html.match(/ytInitialData\s*=\s*(\{.*?\});/);
+    if (dataMatch && dataMatch[1]) {
+      const ytData = JSON.parse(dataMatch[1]);
+      const tabs = ytData?.contents?.twoColumnBrowseResultsRenderer?.tabs || [];
+      const liveTab = tabs.find((t: any) => t.tabRenderer?.title?.toLowerCase() === 'live' || t.tabRenderer?.selected);
+      const items = liveTab?.tabRenderer?.content?.richGridRenderer?.contents || [];
+      for (const item of items) {
+        const lockup = item.richItemRenderer?.content?.lockupViewModel;
+        if (lockup) {
+          const overlays = lockup.contentImage?.thumbnailViewModel?.overlays || [];
+          for (const o of overlays) {
+            const badges = o.thumbnailBottomOverlayViewModel?.badges || [];
+            for (const b of badges) {
+              const tvm = b.thumbnailBadgeViewModel;
+              if (tvm?.badgeStyle === 'THUMBNAIL_OVERLAY_BADGE_STYLE_LIVE' || tvm?.text === 'LIVE') {
+                const vid = tvm.animationActivationTargetId || lockup.contentId || lockup.metadata?.lockupMetadataViewModel?.videoId;
+                if (vid && /^[a-zA-Z0-9_-]{11}$/.test(vid)) return vid;
+              }
+            }
+          }
+        }
+        const video = item.richItemRenderer?.content?.videoRenderer;
+        if (video?.videoId) {
+          const isLiveBadge = video.thumbnailOverlays?.some((o: any) => o.thumbnailOverlayTimeStatusRenderer?.style === 'LIVE') ||
+                              video.badges?.some((b: any) => b.metadataBadgeRenderer?.style === 'BADGE_STYLE_TYPE_LIVE_NOW');
+          if (isLiveBadge) return video.videoId;
+        }
+      }
+    }
+  } catch (e) {}
+
+  return null;
+}
+
+async function resolveLiveVideoId(channelOrHandle: string, cookie?: string): Promise<string | null> {
+  if (!channelOrHandle) return null;
+  const clean = channelOrHandle.replace(/^@+/, '').trim();
+  const isUcId = /^uc[a-zA-Z0-9_-]{22}$/i.test(clean);
+  const url = isUcId
+    ? `https://www.youtube.com/channel/${clean}/live`
+    : `https://www.youtube.com/@${clean}/live`;
+
+  let resolvedChannelId: string | null = isUcId ? clean : null;
+
+  // 1. Direct anonymous fetch of /live with strict ytInitialPlayerResponse + channel Live tab parsing
+  try {
+    const res = await fetch(url, {
+      cache: 'no-store',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cookie': 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en'
+      },
+      redirect: 'follow'
+    });
+    if (res.ok) {
+      const html = await res.text();
+      if (!resolvedChannelId) {
+        const chanMatch = html.match(/<link\s+rel="canonical"\s+href="https:\/\/www\.youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{22})"/i) ||
+                          html.match(/"externalId"\s*:\s*"(UC[a-zA-Z0-9_-]{22})"/i);
+        if (chanMatch && chanMatch[1]) resolvedChannelId = chanMatch[1];
+      }
+      const vid = extractLiveVideoFromChannelHtml(html, resolvedChannelId);
+      if (vid) return vid;
+    }
+  } catch (e) {}
+
+  // 2. InnerTube search fallback — STRICTLY verify author matches the target channel
   try {
     const yt = await getInnertubeInstance(undefined, cookie);
     const searchRes = await yt.search(clean, { type: 'video' });
-    const liveVideo: any = searchRes.videos?.find((v: any) => v.is_live);
+    const normClean = clean.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const liveVideo: any = searchRes.videos?.find((v: any) => {
+      if (!v.is_live) return false;
+      const authorId = (v.author?.id || '').toLowerCase();
+      const authorName = (v.author?.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const authorUrl = (v.author?.url || '').toLowerCase();
+      if (resolvedChannelId && authorId) {
+        return authorId === resolvedChannelId.toLowerCase();
+      }
+      return (normClean && authorName === normClean) || (normClean && authorUrl.includes(`/@${clean.toLowerCase()}`));
+    });
     if (liveVideo?.id) {
       return liveVideo.id;
     }

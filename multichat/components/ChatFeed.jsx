@@ -254,20 +254,22 @@ const ChatMessageRow = React.memo(({
     const giftInfo = msg.giftDetails || {};
     const giftName = giftInfo.name || msg.eventDetails?.giftName || 'Gift';
     const jewelsAmount = giftInfo.jewels || msg.eventDetails?.jewels || null;
+    const kicksAmount = giftInfo.kicks || msg.eventDetails?.kicks || null;
+    const isKickGift = msg.platform === 'kick' || Boolean(kicksAmount);
     const giftImg = giftInfo.imageUrl || msg.eventDetails?.imageUrl || null;
     
     element = (
       <div 
         key={msg.id} 
-        className={`gift-event-row youtube-gift-card ${isHighlighted ? 'active-highlight' : ''}`}
+        className={`gift-event-row ${isKickGift ? 'kick-gift-card' : 'youtube-gift-card'} ${isHighlighted ? 'active-highlight' : ''}`}
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: '10px',
           padding: '8px 14px',
           margin: '4px 0',
-          backgroundColor: 'rgba(255, 116, 200, 0.08)',
-          border: '1px solid rgba(255, 116, 200, 0.28)',
+          backgroundColor: isKickGift ? 'rgba(83, 252, 24, 0.08)' : 'rgba(255, 116, 200, 0.08)',
+          border: isKickGift ? '1px solid rgba(83, 252, 24, 0.32)' : '1px solid rgba(255, 116, 200, 0.28)',
           borderRadius: '10px',
           fontSize: '14px',
           position: 'relative',
@@ -290,7 +292,7 @@ const ChatMessageRow = React.memo(({
         )}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, flexWrap: 'wrap', minWidth: 0 }}>
-          {renderUsernameWithTooltip(msg, '', { fontWeight: 700, color: '#f472b6' })}
+          {renderUsernameWithTooltip(msg, '', { fontWeight: 700, color: isKickGift ? '#53fc18' : '#f472b6' })}
           
           {msg.badges && msg.badges.map(badge => {
             const badgeImageUrl = msg.badgeImages && msg.badgeImages[badge];
@@ -327,6 +329,27 @@ const ChatMessageRow = React.memo(({
                 <path d="M2 10h20M12 22L7.5 10M12 22l4.5-12M6 3l1.5 7M18 3l-1.5 7M12 3v7" stroke="#ffffff" strokeOpacity="0.5" strokeWidth="0.8"/>
               </svg>
               <span>{jewelsAmount}</span>
+            </span>
+          )}
+
+          {kicksAmount && (
+            <span
+              className="kick-kicks-badge"
+              title={`${kicksAmount} KICKs`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '2px 8px',
+                borderRadius: '999px',
+                backgroundColor: 'rgba(83, 252, 24, 0.16)',
+                border: '1px solid rgba(83, 252, 24, 0.45)',
+                color: '#53fc18',
+                fontSize: '12px',
+                fontWeight: 700
+              }}
+            >
+              <span>{kicksAmount} KICKs</span>
             </span>
           )}
         </div>

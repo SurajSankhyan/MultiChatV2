@@ -2,31 +2,34 @@ import React, { useEffect, useState, useRef } from 'react';
 import PlatformLogo, { DefaultSubscriberBadge, KickGiftedSubsBadge, TwitchDefaultSubscriberBadge } from './PlatformLogo';
 import { getLiveTwitchBadgeUrl } from '../utils/twitchChat';
 
-// Color mapping matching youtube.js exactly
+// Color mapping for Super Chat / Donation amount tiers
 export const colorForManualAmount = (amount) => {
   if (amount === null || typeof amount === 'undefined') return null;
   const a = Number(amount);
   if (isNaN(a) || a <= 10) return null;
-  if (a >= 11 && a <= 40) return { bg: '#00e5ff', text: '#111111', tier: 'cyan' };
-  if (a >= 41 && a <= 100) return { bg: '#1de9b6', text: '#111111', tier: 'teal' };
-  if (a >= 101 && a <= 500) return { bg: '#ffca28', text: '#111111', tier: 'yellow' };
-  if (a >= 501 && a <= 999) return { bg: '#f57c00', text: '#ffffff', tier: 'orange' };
-  if (a >= 1000 && a <= 2000) return { bg: '#e91e63', text: '#ffffff', tier: 'pink' };
-  if (a > 2000) return { bg: '#e62117', text: '#ffffff', tier: 'red' };
+  if (a > 10 && a < 40) return { bg: '#1E88E5', text: '#ffffff', tier: 'blue' };
+  if (a >= 40 && a < 100) return { bg: '#00E5FF', text: '#111111', tier: 'cyan' };
+  if (a >= 100 && a < 200) return { bg: '#1DE9B6', text: '#111111', tier: 'teal' };
+  if (a >= 200 && a < 400) return { bg: '#FFCA28', text: '#111111', tier: 'yellow' };
+  if (a >= 400 && a < 1000) return { bg: '#F57C00', text: '#ffffff', tier: 'orange' };
+  if (a >= 1000 && a < 2000) return { bg: '#E91E63', text: '#ffffff', tier: 'pink' };
+  if (a >= 2000) return { bg: '#E62117', text: '#ffffff', tier: 'red' };
   return null;
 };
 
-// Duration mapping (seconds) matching youtube.js line 160-173 exactly
+// Duration mapping (seconds) for Super Chat / Donation amount tiers
 export const getDurationForAmount = (amount) => {
   if (amount === null || typeof amount === 'undefined' || isNaN(amount)) return null;
   const a = Number(amount);
-  if (a <= 10) return 5 * 60;
-  if (a >= 11 && a <= 40) return 7 * 60;
-  if (a >= 41 && a <= 100) return 10 * 60;
-  if (a >= 101 && a <= 500) return 15 * 60;
-  if (a >= 501 && a <= 999) return 20 * 60;
-  if (a >= 1000 && a <= 2000) return 25 * 60;
-  if (a > 2000) return 30 * 60;
+  if (a <= 10) return 1 * 60;          // 1 min
+  if (a > 10 && a < 40) return 2 * 60; // 2 min
+  if (a >= 40 && a < 100) return 3 * 60;   // 3 min
+  if (a >= 100 && a < 200) return 5 * 60;  // 5 min
+  if (a >= 200 && a < 400) return 10 * 60; // 10 min
+  if (a >= 400 && a < 1000) return 20 * 60;  // 20 min
+  if (a >= 1000 && a < 2000) return 30 * 60; // 30 min
+  if (a >= 2000 && a < 3000) return 2 * 60 * 60; // 2 hr
+  if (a >= 3000) return 3 * 60 * 60;             // 3 hr
   return null;
 };
 

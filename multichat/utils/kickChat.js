@@ -12,6 +12,7 @@ export class KickChatClient {
     this.isManuallyDisconnected = false;
     this.reconnectInterval = 5000;
     this.subscriberBadgesMap = new Map(); // channelName -> subscriber_badges array
+    this.seenEventIds = new Set(); // Deduplicate events across chatroom + channel topics
 
     // Reload badges dynamically and auto-join if updated in preferences
     if (typeof window !== 'undefined') {
@@ -230,7 +231,40 @@ export class KickChatClient {
           try {
             const payload = JSON.parse(event.data);
             const rawMsg = typeof payload.data === 'string' ? JSON.parse(payload.data) : payload.data;
-            if (payload.event === 'App\\Events\\ChatMessageEvent' || payload.event?.includes('ChatMessage') || rawMsg?.content || rawMsg?.message || rawMsg?.sender) {
+            if (!rawMsg) return;
+
+            const evtName = String(payload.event || rawMsg.event || rawMsg.type || '').toLowerCase();
+
+            // 1. Kick KICKs Virtual Gifts (KicksGifted / kicks_gifted / gift payload)
+            if (
+              evtName.includes('kicksgifted') ||
+              evtName.includes('kicks_gifted') ||
+              evtName.includes('kicks.gifted') ||
+              Boolean(rawMsg.gift) ||
+              Boolean(rawMsg.metadata?.gift)
+            ) {
+              this.parseKickGiftEvent(cleanName, rawMsg);
+              return;
+            }
+
+            // 2. Kick Gifted Subscriptions
+            if (
+              evtName.includes('giftedsubscriptions') ||
+              evtName.includes('luckyuserswhogotgiftsubscriptions') ||
+              Array.isArray(rawMsg.gifted_usernames)
+            ) {
+              this.parseKickGiftedSubsEvent(cleanName, rawMsg);
+              return;
+            }
+
+            // 3. Kick New / Resubscription
+            if (evtName.includes('subscriptionevent') && !evtName.includes('gifted')) {
+              this.parseKickSubscriptionEvent(cleanName, rawMsg);
+              return;
+            }
+
+            // 4. Standard Kick Chat Message
+            if (evtName.includes('chatmessage') || rawMsg.content || rawMsg.message || rawMsg.sender) {
               this.parseChatMessage(payload.channel || `chatrooms.${chatroomId}.v2`, rawMsg);
             }
           } catch (err) {
@@ -362,11 +396,170 @@ export class KickChatClient {
     return parts.length > 0 ? parts : null;
   }
 
+  trackSeenEventId(eventId) {
+    if (!eventId) return false;
+    const key = String(eventId);
+    if (this.seenEventIds.has(key)) return true;
+    this.seenEventIds.add(key);
+    if (this.seenEventIds.size > 600) {
+      const iter = this.seenEventIds.values();
+      for (let i = 0; i < 200; i++) iter.next();
+      const remaining = new Set();
+      for (const val of iter) remaining.add(val);
+      this.seenEventIds = remaining;
+    }
+    return false;
+  }
+
+  parseKickGiftEvent(channelName, raw) {
+    try {
+      const sender = raw.sender || raw.user || {};
+      const gift = raw.gift || raw.metadata?.gift || {};
+      const senderName = sender.username || sender.slug || raw.sender_username || raw.username || 'Kick Viewer';
+      const senderSlug = sender.slug || senderName.toLowerCase();
+      const giftName = gift.name || gift.gift_name || raw.gift_name || 'KICKs Gift';
+      const kicksAmount = gift.amount ?? raw.amount ?? raw.kicks ?? raw.kicks_amount ?? 0;
+      const giftImg = gift.image_url || gift.icon_url || gift.thumbnail_url || gift.media_url || null;
+      const viewerMsg = typeof raw.message === 'string' ? raw.message.trim() : (raw.content ? String(raw.content).trim() : '');
+
+      const eventId = raw.id || raw.gift_transaction_id || `kick-gift-${senderSlug}-${giftName}-${kicksAmount}-${Math.floor(Date.now() / 5000)}`;
+      if (this.trackSeenEventId(eventId)) return;
+
+      const rawAvatar = sender.profile_picture || sender.profile_pic || sender.profilepic || sender.avatar || null;
+      let defaultKickIdx = 1;
+      const numId = parseInt(sender.id || '');
+      if (numId && !isNaN(numId)) defaultKickIdx = (numId % 6) + 1;
+      const avatar = rawAvatar ? normalizeUrl(rawAvatar) : `/kick-default-avatars/default-avatar-${defaultKickIdx}.webp`;
+
+      const text = viewerMsg
+        ? `sent ${giftName} — ${viewerMsg}`
+        : `sent ${giftName}`;
+
+      const parts = [{ type: 'text', content: text }];
+      if (giftImg) parts.push({ type: 'emote', name: giftName, url: normalizeUrl(giftImg) });
+
+      this.onMessage({
+        id: String(eventId),
+        platform: 'kick',
+        channel: channelName,
+        username: senderSlug,
+        displayName: senderName,
+        userId: sender.id ? String(sender.id) : null,
+        color: sender.identity?.color || '#53fc18',
+        text,
+        parts,
+        avatar,
+        badges: [],
+        badgeImages: {},
+        isSystemEvent: true,
+        isGift: true,
+        eventType: 'gift',
+        giftDetails: {
+          name: giftName,
+          kicks: String(kicksAmount || ''),
+          currency: 'KICKs',
+          imageUrl: giftImg ? normalizeUrl(giftImg) : null,
+          message: viewerMsg || null
+        },
+        eventDetails: {
+          subType: 'gift',
+          giftName,
+          kicks: String(kicksAmount || ''),
+          amount: kicksAmount ? `${kicksAmount} KICKs` : giftName,
+          imageUrl: giftImg ? normalizeUrl(giftImg) : null
+        },
+        rawTimestamp: Date.now(),
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+      });
+    } catch (err) {
+      console.error('Error parsing Kick KICKs gift event:', err, raw);
+    }
+  }
+
+  parseKickGiftedSubsEvent(channelName, raw) {
+    try {
+      const gifter = raw.gifter_username || raw.sender?.username || raw.username || 'Anonymous';
+      const recipients = Array.isArray(raw.gifted_usernames) ? raw.gifted_usernames : [];
+      const count = recipients.length || Number(raw.quantity || raw.count || 1);
+      const eventId = raw.id || `kick-gsubs-${gifter.toLowerCase()}-${count}-${Math.floor(Date.now() / 5000)}`;
+      if (this.trackSeenEventId(eventId)) return;
+
+      const text = count === 1
+        ? `gifted a subscription${recipients[0] ? ` to ${recipients[0]}` : ''}!`
+        : `gifted ${count} subscriptions to the community!`;
+
+      this.onMessage({
+        id: String(eventId),
+        platform: 'kick',
+        channel: channelName,
+        username: gifter.toLowerCase(),
+        displayName: gifter,
+        color: '#53fc18',
+        text,
+        parts: [{ type: 'text', content: text }],
+        avatar: `/kick-default-avatars/default-avatar-1.webp`,
+        badges: ['sub_gifter'],
+        badgeImages: {},
+        isSystemEvent: true,
+        eventType: 'subscription',
+        eventDetails: {
+          subType: 'gift_purchase',
+          isGift: true,
+          count,
+          tier: `Gifted ${count} Sub${count === 1 ? '' : 's'}`
+        },
+        rawTimestamp: Date.now(),
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+      });
+    } catch (err) {
+      console.error('Error parsing Kick gifted subs event:', err, raw);
+    }
+  }
+
+  parseKickSubscriptionEvent(channelName, raw) {
+    try {
+      const subscriber = raw.username || raw.sender?.username || 'Kick Viewer';
+      const months = Number(raw.months || 1);
+      const eventId = raw.id || `kick-sub-${subscriber.toLowerCase()}-${months}-${Math.floor(Date.now() / 5000)}`;
+      if (this.trackSeenEventId(eventId)) return;
+
+      const text = months > 1
+        ? `subscribed for ${months} months!`
+        : `subscribed to the channel!`;
+
+      this.onMessage({
+        id: String(eventId),
+        platform: 'kick',
+        channel: channelName,
+        username: subscriber.toLowerCase(),
+        displayName: subscriber,
+        color: '#53fc18',
+        text,
+        parts: [{ type: 'text', content: text }],
+        avatar: `/kick-default-avatars/default-avatar-2.webp`,
+        badges: ['subscriber'],
+        badgeImages: {},
+        isSystemEvent: true,
+        eventType: 'subscription',
+        eventDetails: {
+          subType: months > 1 ? 'milestone' : 'new_member',
+          months: `${months} month${months === 1 ? '' : 's'}`,
+          tier: months > 1 ? `Subscribed for ${months} months` : 'New Subscriber'
+        },
+        rawTimestamp: Date.now(),
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+      });
+    } catch (err) {
+      console.error('Error parsing Kick subscription event:', err, raw);
+    }
+  }
+
   parseChatMessage(pusherChannel, msg) {
+    if (msg?.id && this.trackSeenEventId(`kick-chat-${msg.id}`)) return;
     console.log("KICK_RAW_MSG", msg);
     // Locate channel name from chatroomId
     let channelName = '';
-    const chatroomIdMatch = pusherChannel.match(/chatrooms\.(\d+)\.v2/);
+    const chatroomIdMatch = pusherChannel.match(/chatrooms?[\._](\d+)/);
     if (chatroomIdMatch) {
       const cid = parseInt(chatroomIdMatch[1]);
       for (const [ch, id] of this.channelsMap.entries()) {

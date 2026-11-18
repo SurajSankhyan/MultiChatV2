@@ -296,7 +296,7 @@ export default function CustomTipModal({
                     cursor: 'pointer'
                   }}
                 >
-                  Amount Tier ({Math.floor(tierDurationSec / 60)} min)
+                  Amount Tier ({tierDurationSec >= 3600 ? `${tierDurationSec / 3600} hr` : `${Math.floor(tierDurationSec / 60)} min`})
                 </button>
                 <button
                   type="button"
