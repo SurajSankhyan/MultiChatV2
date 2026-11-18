@@ -4018,7 +4018,10 @@ html[data-appearance-theme="twitch"] .kick-reply-to-message {
 
 [data-slot="tooltip-content"] [data-slot="tooltip-arrow"] {
   fill: rgba(15, 15, 15, 0.95) !important;
-  stroke: rgba(255, 255, 255, 0.12) !important;
+  stroke: none !important;
+  display: block !important;
+  transform: translateY(-1px) !important;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.12)) !important;
 }
 
 /* Animations for Tooltip content entry */
