@@ -884,7 +884,7 @@ export class YoutubeChatClient {
 
         if (vd?.videoId && playStatus !== 'LIVE_STREAM_OFFLINE') {
           const isActuallyLive = Boolean(
-            (vd.isLive === true || liveDetails?.isLiveNow === true) &&
+            (vd.isLive === true || liveDetails?.isLiveNow === true || (playStatus === 'LOGIN_REQUIRED' && html.includes('liveChatRenderer'))) &&
             liveDetails?.isLiveNow !== false &&
             !liveDetails?.actualEndTime
           );
@@ -979,7 +979,13 @@ export class YoutubeChatClient {
         const liveUrl = this.getLiveUrl(trimmedName);
         const html = await this.fetchWithProxyFallback(liveUrl);
         
-        const videoId = this.extractLiveVideoId(html, trimmedName);
+        let videoId = this.extractLiveVideoId(html, trimmedName);
+        if (!videoId && liveUrl.endsWith('/live')) {
+          try {
+            const streamsHtml = await this.fetchWithProxyFallback(liveUrl.replace(/\/live$/, '/streams'));
+            videoId = this.extractLiveVideoId(streamsHtml, trimmedName);
+          } catch (e) {}
+        }
         if (videoId) {
           console.log(`YouTube client: channel ${pollKey} went live! Re-joining...`);
           if (pollInstance.viewerIntervalId) clearInterval(pollInstance.viewerIntervalId);
@@ -1242,6 +1248,19 @@ export class YoutubeChatClient {
         }
 
         videoId = this.extractLiveVideoId(pageHtml, trimmedName);
+
+        // Cloud IP fallback: if /live returned a bot-gated page, check /streams Live tab
+        if (!videoId && liveUrl.endsWith('/live')) {
+          try {
+            const streamsUrl = liveUrl.replace(/\/live$/, '/streams');
+            const streamsHtml = await this.fetchWithProxyFallback(streamsUrl);
+            const streamVid = this.extractLiveVideoId(streamsHtml, trimmedName);
+            if (streamVid) {
+              videoId = streamVid;
+              pageHtml = streamsHtml;
+            }
+          } catch (e) {}
+        }
 
         if (!videoId) {
           console.log(`YouTube client: channel ${pollKey} is offline.`);

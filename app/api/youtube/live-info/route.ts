@@ -299,6 +299,25 @@ function extractLiveVideoFromChannelHtml(html: string, expectedChannelId?: strin
     }
   } catch (e) {}
 
+  // 3. Cloud IP LOGIN_REQUIRED fallback: if /live redirected to a watch?v= canonical URL and liveStreamabilityRenderer or isLiveNow confirms live
+  if (
+    !html.includes('"status":"LIVE_STREAM_OFFLINE"') &&
+    !html.includes('liveChatReplayRenderer') &&
+    !html.includes('"isLiveNow":false')
+  ) {
+    const canonicalMatch = html.match(/<link\s+rel="canonical"\s+href="[^"]*(?:watch\?v=|\/shorts\/)([a-zA-Z0-9_-]{11})"/i);
+    if (canonicalMatch && canonicalMatch[1]) {
+      if (
+        html.includes('"isLive":true') ||
+        html.includes('"isLiveNow":true') ||
+        html.includes(`"liveStreamabilityRenderer":{"videoId":"${canonicalMatch[1]}"`) ||
+        html.includes('liveChatRenderer')
+      ) {
+        return canonicalMatch[1];
+      }
+    }
+  }
+
   return null;
 }
 
@@ -306,21 +325,44 @@ async function resolveLiveVideoId(channelOrHandle: string, cookie?: string): Pro
   if (!channelOrHandle) return null;
   const clean = channelOrHandle.replace(/^@+/, '').trim();
   const isUcId = /^uc[a-zA-Z0-9_-]{22}$/i.test(clean);
-  const url = isUcId
+  const liveUrl = isUcId
     ? `https://www.youtube.com/channel/${clean}/live`
     : `https://www.youtube.com/@${clean}/live`;
+  const streamsUrl = isUcId
+    ? `https://www.youtube.com/channel/${clean}/streams`
+    : `https://www.youtube.com/@${clean}/streams`;
 
   let resolvedChannelId: string | null = isUcId ? clean : null;
+  const fetchHeaders: Record<string, string> = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Cookie': cookie || 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en'
+  };
 
-  // 1. Direct anonymous fetch of /live with strict ytInitialPlayerResponse + channel Live tab parsing
+  // 1a. Direct authenticated fetch of /live with strict ytInitialPlayerResponse + channel Live tab parsing
   try {
-    const res = await fetch(url, {
+    const res = await fetch(liveUrl, {
       cache: 'no-store',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Cookie': 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en'
-      },
+      headers: fetchHeaders,
+      redirect: 'follow'
+    });
+    if (res.ok) {
+      const html = await res.text();
+      if (!resolvedChannelId) {
+        const chanMatch = html.match(/<link\s+rel="canonical"\s+href="https:\/\/www\.youtube\.com\/channel\/(UC[a-zA-Z0-9_-]{22})"/i) ||
+                          html.match(/"externalId"\s*:\s*"(UC[a-zA-Z0-9_-]{22})"/i);
+        if (chanMatch && chanMatch[1]) resolvedChannelId = chanMatch[1];
+      }
+      const vid = extractLiveVideoFromChannelHtml(html, resolvedChannelId);
+      if (vid) return vid;
+    }
+  } catch (e) {}
+
+  // 1b. Direct fetch of /streams Live tab (immune to watch-page LOGIN_REQUIRED bot blocks on cloud IPs)
+  try {
+    const res = await fetch(streamsUrl, {
+      cache: 'no-store',
+      headers: fetchHeaders,
       redirect: 'follow'
     });
     if (res.ok) {

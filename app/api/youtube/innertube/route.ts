@@ -17,25 +17,28 @@ function generateSapisidHash(cookieString?: string): string | null {
   const sha1 = crypto.createHash('sha1').update(input).digest('hex');
   return `SAPISIDHASH ${timestamp}_${sha1}`;
 }
-const fetchActiveLiveVideoId = async (channelIdOrHandle: string): Promise<string | null> => {
+const fetchActiveLiveVideoId = async (channelIdOrHandle: string, cookie?: string): Promise<string | null> => {
   if (!channelIdOrHandle) return null;
   const clean = channelIdOrHandle.replace(/^@+/, '').trim();
   const isUcId = /^uc[a-zA-Z0-9_-]{22}$/i.test(clean);
-  const url = isUcId
-    ? `https://www.youtube.com/channel/${clean}/live`
-    : `https://www.youtube.com/@${clean}/live`;
+  const urlsToTry = isUcId
+    ? [`https://www.youtube.com/channel/${clean}/live`, `https://www.youtube.com/channel/${clean}/streams`]
+    : [`https://www.youtube.com/@${clean}/live`, `https://www.youtube.com/@${clean}/streams`];
 
-  try {
-    const res = await fetch(url, {
-      cache: 'no-store',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Cookie': 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en'
-      },
-      redirect: 'follow'
-    });
-    if (res.ok) {
+  const headers: Record<string, string> = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Cookie': cookie || 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en'
+  };
+
+  for (const url of urlsToTry) {
+    try {
+      const res = await fetch(url, {
+        cache: 'no-store',
+        headers,
+        redirect: 'follow'
+      });
+      if (!res.ok) continue;
       const html = await res.text();
       const expectedChannelId = isUcId
         ? clean
@@ -101,10 +104,10 @@ const fetchActiveLiveVideoId = async (channelIdOrHandle: string): Promise<string
           }
         }
       } catch (e) {}
+    } catch (e) {}
+  }
 
-      console.log(`[InnerTube Route] Channel ${clean} /live check: Channel is currently offline (no active live broadcast).`);
-    }
-  } catch (e) {}
+  console.log(`[InnerTube Route] Channel ${clean} /live & /streams check: Channel is currently offline (no active live broadcast).`);
   return null;
 };
 

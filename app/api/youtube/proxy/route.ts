@@ -92,21 +92,14 @@ export async function GET(request: Request) {
   headers.set('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8');
   headers.set('Accept-Language', 'en-US,en;q=0.9');
   headers.set('Referer', isMobile ? 'https://m.youtube.com/' : 'https://www.youtube.com/');
-  // Do NOT inject personal cookies into public channel discovery pages (/@.../live, /streams, /channel/.../live)
-  // so YouTube does not pollute the HTML with personalized live subscriptions or sidebar recommendations.
-  const isChannelDiscoveryUrl = /youtube\.com\/(@[^/?]+|channel\/UC[^/?]+)(\/(live|streams|videos|shorts))?(\?|$)/i.test(targetUrl);
-  if (isChannelDiscoveryUrl) {
-    headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
+  const channel = extractChannelFromUrl(targetUrl);
+  const dbCookie = await fetchUserCookieFromDB(channel);
+  if (dbCookie) {
+    headers.set('Cookie', dbCookie);
+    const auth = generateSapisidHash(dbCookie);
+    if (auth) headers.set('Authorization', auth);
   } else {
-    const channel = extractChannelFromUrl(targetUrl);
-    const dbCookie = await fetchUserCookieFromDB(channel);
-    if (dbCookie) {
-      headers.set('Cookie', dbCookie);
-      const auth = generateSapisidHash(dbCookie);
-      if (auth) headers.set('Authorization', auth);
-    } else {
-      headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
-    }
+    headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
   }
 
   try {
@@ -147,21 +140,14 @@ export async function POST(request: Request) {
   headers.set('X-Origin', 'https://www.youtube.com');
   headers.set('Sec-Fetch-Mode', 'cors');
   headers.set('Sec-Fetch-Site', 'same-origin');
-  // Do NOT inject personal cookies into public channel discovery pages (/@.../live, /streams, /channel/.../live)
-  // so YouTube does not pollute the HTML with personalized live subscriptions or sidebar recommendations.
-  const isChannelDiscoveryUrl = /youtube\.com\/(@[^/?]+|channel\/UC[^/?]+)(\/(live|streams|videos|shorts))?(\?|$)/i.test(targetUrl);
-  if (isChannelDiscoveryUrl) {
-    headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
+  const channel = extractChannelFromUrl(targetUrl);
+  const dbCookie = await fetchUserCookieFromDB(channel);
+  if (dbCookie) {
+    headers.set('Cookie', dbCookie);
+    const auth = generateSapisidHash(dbCookie);
+    if (auth) headers.set('Authorization', auth);
   } else {
-    const channel = extractChannelFromUrl(targetUrl);
-    const dbCookie = await fetchUserCookieFromDB(channel);
-    if (dbCookie) {
-      headers.set('Cookie', dbCookie);
-      const auth = generateSapisidHash(dbCookie);
-      if (auth) headers.set('Authorization', auth);
-    } else {
-      headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
-    }
+    headers.set('Cookie', 'SOCS=CAESEwgDEgk2OTM5NjU2OTIaAmVuIAEaBgiA_LyaBg; PREF=tz=UTC&f6=40000000&hl=en');
   }
 
   try {
