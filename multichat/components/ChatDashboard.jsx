@@ -1533,7 +1533,7 @@ export default function ChatDashboard({
     };
 
     // Callback for connection status updates
-    const handleStatusUpdate = (ch, status, metadata) => {
+    const handleStatusUpdate = (ch, status, metadata, platform = 'youtube') => {
       if (metadata && metadata.displayName) {
         const rawClean = ch.replace(/^@+/, '').trim();
         const atClean = `@${rawClean}`;
@@ -1555,7 +1555,7 @@ export default function ChatDashboard({
       } else if (ch === 'youtube_all') {
         setPlatformStatuses(prev => ({ ...prev, youtube: status }));
       } else {
-        // Individual channel status - map across all handle / casing variants
+        // Individual channel status - map across platform-prefixed AND plain variants
         const rawClean = ch.replace(/^@+/, '').trim();
         const atClean = `@${rawClean}`;
         const justClean = ch.replace('@', '').trim();
@@ -1571,7 +1571,14 @@ export default function ChatDashboard({
           [justClean]: status,
           [lowerCh]: status,
           [lowerRaw]: status,
-          [lowerAt]: status
+          [lowerAt]: status,
+          [`${platform}_${ch}`]: status,
+          [`${platform}_${rawClean}`]: status,
+          [`${platform}_${atClean}`]: status,
+          [`${platform}_${justClean}`]: status,
+          [`${platform}_${lowerCh}`]: status,
+          [`${platform}_${lowerRaw}`]: status,
+          [`${platform}_${lowerAt}`]: status
         }));
       }
 
@@ -1589,7 +1596,7 @@ export default function ChatDashboard({
           const parsedMs = parseStartTimeMs(startTimeVal);
           if (parsedMs && parsedMs > 0 && parsedMs <= Date.now() + 60000) {
             setStreamStartTimes(prev => {
-              const existingMs = parseStartTimeMs(prev[ch] || prev[rawClean]);
+              const existingMs = parseStartTimeMs(prev[`${platform}_${rawClean}`] || prev[ch] || prev[rawClean]);
               // Protect from stale VOD dates (older by > 24 hours than already established live start time)
               if (existingMs && (existingMs - parsedMs > 24 * 3600 * 1000)) {
                 return prev;
@@ -1602,39 +1609,50 @@ export default function ChatDashboard({
                 [justClean]: startTimeVal,
                 [lowerCh]: startTimeVal,
                 [lowerRaw]: startTimeVal,
-                [lowerAt]: startTimeVal
+                [lowerAt]: startTimeVal,
+                [`${platform}_${ch}`]: startTimeVal,
+                [`${platform}_${rawClean}`]: startTimeVal,
+                [`${platform}_${atClean}`]: startTimeVal,
+                [`${platform}_${justClean}`]: startTimeVal,
+                [`${platform}_${lowerCh}`]: startTimeVal,
+                [`${platform}_${lowerRaw}`]: startTimeVal,
+                [`${platform}_${lowerAt}`]: startTimeVal
               };
               try { localStorage.setItem('multichat_stream_start_times_v2', JSON.stringify(next)); } catch (e) {}
               return next;
             });
           }
-        } else {
+        } else if (platform === 'youtube') {
           // If startTimeVal was not provided in this payload, restore from existing cache if available
           try {
             const stored = localStorage.getItem('multichat_stream_start_times_v2');
             if (stored) {
               const parsed = JSON.parse(stored);
-              const cached = parsed[ch] || parsed[rawClean] || parsed[atClean] || parsed[justClean] || parsed[lowerCh] || parsed[lowerRaw] || parsed[lowerAt];
+              const cached = parsed[`${platform}_${rawClean}`] || parsed[ch] || parsed[rawClean] || parsed[atClean] || parsed[justClean] || parsed[lowerCh] || parsed[lowerRaw] || parsed[lowerAt];
               if (cached) {
                 setStreamStartTimes(prev => {
-                  if (prev[ch] || prev[rawClean]) return prev;
-                  return { ...prev, [ch]: cached, [rawClean]: cached, [atClean]: cached, [justClean]: cached, [lowerCh]: cached, [lowerRaw]: cached, [lowerAt]: cached };
+                  if (prev[`${platform}_${rawClean}`] || prev[ch] || prev[rawClean]) return prev;
+                  return {
+                    ...prev,
+                    [ch]: cached, [rawClean]: cached, [atClean]: cached, [justClean]: cached, [lowerCh]: cached, [lowerRaw]: cached, [lowerAt]: cached,
+                    [`${platform}_${ch}`]: cached, [`${platform}_${rawClean}`]: cached, [`${platform}_${atClean}`]: cached, [`${platform}_${justClean}`]: cached, [`${platform}_${lowerCh}`]: cached, [`${platform}_${lowerRaw}`]: cached, [`${platform}_${lowerAt}`]: cached
+                  };
                 });
               }
             }
           } catch (e) {}
         }
-        if (metadata && metadata.viewers !== undefined && metadata.viewers !== null && metadata.viewers > 0) {
+        if (metadata && metadata.viewers !== undefined && metadata.viewers !== null && metadata.viewers >= 0) {
           setStreamViewers(prev => {
             const next = { 
               ...prev, 
-              [`youtube_${ch}`]: metadata.viewers, 
-              [`youtube_${rawClean}`]: metadata.viewers, 
-              [`youtube_${atClean}`]: metadata.viewers, 
-              [`youtube_${justClean}`]: metadata.viewers,
-              [`youtube_${lowerCh}`]: metadata.viewers,
-              [`youtube_${lowerRaw}`]: metadata.viewers,
-              [`youtube_${lowerAt}`]: metadata.viewers
+              [`${platform}_${ch}`]: metadata.viewers, 
+              [`${platform}_${rawClean}`]: metadata.viewers, 
+              [`${platform}_${atClean}`]: metadata.viewers, 
+              [`${platform}_${justClean}`]: metadata.viewers,
+              [`${platform}_${lowerCh}`]: metadata.viewers,
+              [`${platform}_${lowerRaw}`]: metadata.viewers,
+              [`${platform}_${lowerAt}`]: metadata.viewers
             };
             try { localStorage.setItem('prochat_cached_stream_viewers', JSON.stringify(next)); } catch (e) {}
             return next;
@@ -1644,13 +1662,13 @@ export default function ChatDashboard({
           setStreamLikes(prev => {
             const next = { 
               ...prev, 
-              [`youtube_${ch}`]: metadata.likes, 
-              [`youtube_${rawClean}`]: metadata.likes, 
-              [`youtube_${atClean}`]: metadata.likes, 
-              [`youtube_${justClean}`]: metadata.likes,
-              [`youtube_${lowerCh}`]: metadata.likes,
-              [`youtube_${lowerRaw}`]: metadata.likes,
-              [`youtube_${lowerAt}`]: metadata.likes
+              [`${platform}_${ch}`]: metadata.likes, 
+              [`${platform}_${rawClean}`]: metadata.likes, 
+              [`${platform}_${atClean}`]: metadata.likes, 
+              [`${platform}_${justClean}`]: metadata.likes,
+              [`${platform}_${lowerCh}`]: metadata.likes,
+              [`${platform}_${lowerRaw}`]: metadata.likes,
+              [`${platform}_${lowerAt}`]: metadata.likes
             };
             try { localStorage.setItem('prochat_cached_stream_likes', JSON.stringify(next)); } catch (e) {}
             return next;
@@ -1681,58 +1699,78 @@ export default function ChatDashboard({
           });
         }
       } else if (status === 'offline' || status === 'disconnected') {
-        // Retain cached stream start times during transient disconnections/polling drops
-        // Only clear temporary viewers/likes metric
+        if (status === 'offline') {
+          setStreamStartTimes(prev => {
+            const next = { ...prev };
+            delete next[`${platform}_${ch}`];
+            delete next[`${platform}_${rawClean}`];
+            delete next[`${platform}_${atClean}`];
+            delete next[`${platform}_${justClean}`];
+            delete next[`${platform}_${lowerCh}`];
+            delete next[`${platform}_${lowerRaw}`];
+            delete next[`${platform}_${lowerAt}`];
+            try { localStorage.setItem('multichat_stream_start_times_v2', JSON.stringify(next)); } catch (e) {}
+            return next;
+          });
+        }
         setStreamViewers(prev => {
           const next = { ...prev };
-          delete next[`youtube_${ch}`];
-          delete next[`youtube_${rawClean}`];
-          delete next[`youtube_${atClean}`];
-          delete next[`youtube_${justClean}`];
-          delete next[`youtube_${lowerCh}`];
-          delete next[`youtube_${lowerRaw}`];
-          delete next[`youtube_${lowerAt}`];
+          delete next[`${platform}_${ch}`];
+          delete next[`${platform}_${rawClean}`];
+          delete next[`${platform}_${atClean}`];
+          delete next[`${platform}_${justClean}`];
+          delete next[`${platform}_${lowerCh}`];
+          delete next[`${platform}_${lowerRaw}`];
+          delete next[`${platform}_${lowerAt}`];
           try { localStorage.setItem('prochat_cached_stream_viewers', JSON.stringify(next)); } catch (e) {}
           return next;
         });
         setStreamLikes(prev => {
           const next = { ...prev };
-          delete next[`youtube_${ch}`];
-          delete next[`youtube_${rawClean}`];
-          delete next[`youtube_${atClean}`];
-          delete next[`youtube_${justClean}`];
-          delete next[`youtube_${lowerCh}`];
-          delete next[`youtube_${lowerRaw}`];
-          delete next[`youtube_${lowerAt}`];
+          delete next[`${platform}_${ch}`];
+          delete next[`${platform}_${rawClean}`];
+          delete next[`${platform}_${atClean}`];
+          delete next[`${platform}_${justClean}`];
+          delete next[`${platform}_${lowerCh}`];
+          delete next[`${platform}_${lowerRaw}`];
+          delete next[`${platform}_${lowerAt}`];
           try { localStorage.setItem('prochat_cached_stream_likes', JSON.stringify(next)); } catch (e) {}
           return next;
         });
 
-        setYoutubeShortsChannels(prev => {
-          const next = new Set(prev);
-          next.delete(ch);
-          next.delete(rawClean);
-          next.delete(atClean);
-          next.delete(justClean);
-          next.delete(lowerCh);
-          next.delete(lowerRaw);
-          next.delete(lowerAt);
-          try { localStorage.setItem('prochat_cached_youtube_shorts_channels', JSON.stringify(Array.from(next))); } catch (e) {}
-          return next;
-        });
+        if (platform === 'youtube') {
+          setYoutubeShortsChannels(prev => {
+            const next = new Set(prev);
+            next.delete(ch);
+            next.delete(rawClean);
+            next.delete(atClean);
+            next.delete(justClean);
+            next.delete(lowerCh);
+            next.delete(lowerRaw);
+            next.delete(lowerAt);
+            try { localStorage.setItem('prochat_cached_youtube_shorts_channels', JSON.stringify(Array.from(next))); } catch (e) {}
+            return next;
+          });
+        }
       }
     };
 
     // Initialize Twitch Client
-    twitchClientRef.current = new TwitchChatClient(handleNewMessage, handleStatusUpdate);
+    twitchClientRef.current = new TwitchChatClient(
+      handleNewMessage,
+      (ch, st, meta) => handleStatusUpdate(ch, st, meta, 'twitch')
+    );
 
     // Initialize Kick Client
-    kickClientRef.current = new KickChatClient(handleNewMessage, handleStatusUpdate);
+    kickClientRef.current = new KickChatClient(
+      handleNewMessage,
+      (ch, st, meta) => handleStatusUpdate(ch, st, meta, 'kick')
+    );
 
     // Initialize YouTube Client
     youtubeClientRef.current = new YoutubeChatClient(
       handleNewMessage, 
-      handleStatusUpdate,
+      (ch, st, meta) => handleStatusUpdate(ch, st, meta, 'youtube'),
       (channelId, realName) => {
         if (realName && !realName.toLowerCase().includes('404') && !realName.toLowerCase().includes('not found')) {
           const cleanName = (channelId || '').toLowerCase().replace(/^@+/, '').trim();
@@ -4355,7 +4393,7 @@ export default function ChatDashboard({
                       }
                     }
                     if (!rank || rank < 1 || rank > 3) return null;
-                    const rankBg = '#3b00bb';
+                    const rankBg = '#DD98FF';
                     return (
                       <span 
                         className={`youtube-rank-badge youtube-rank-${rank}`}
@@ -4364,33 +4402,26 @@ export default function ChatDashboard({
                           display: 'inline-flex',
                           alignItems: 'center',
                           justifyContent: 'center',
-                          gap: '3px',
+                          gap: '3.5px',
                           backgroundColor: rankBg,
-                          color: '#ffffff',
-                          padding: '1px 6px',
+                          color: '#0F0F0F',
+                          padding: '2px 7px',
                           borderRadius: '9999px',
                           fontSize: '11px',
-                          fontWeight: '800',
-                          lineHeight: '1',
+                          fontWeight: '600',
+                          lineHeight: '1.1',
+                          letterSpacing: '-0.1px',
                           marginLeft: '4px',
-                          boxShadow: '0 1px 2px rgba(0, 0, 0, 0.4)',
                           flexShrink: 0
                         }}
                       >
                         <svg 
                           viewBox="0 0 24 24" 
-                          fill="none" 
-                          stroke="#ffffff" 
-                          strokeWidth="2" 
-                          strokeLinecap="round" 
-                          strokeLinejoin="round" 
+                          fill="#0F0F0F" 
                           style={{ width: '11px', height: '11px', display: 'block', flexShrink: 0 }}
                         >
-                          <circle cx="3.5" cy="6" r="1.3" fill="#ffffff" stroke="none" />
-                          <circle cx="12" cy="3" r="1.3" fill="#ffffff" stroke="none" />
-                          <circle cx="20.5" cy="6" r="1.3" fill="#ffffff" stroke="none" />
-                          <path d="M3.5 7.5 L5.5 16 H18.5 L20.5 7.5 L15 12 L12 4.5 L9 12 Z" />
-                          <line x1="4.5" y1="19" x2="19.5" y2="19" strokeWidth="2.2" strokeLinecap="round" />
+                          <path d="M5 16.5L3 7.5L8.2 11.5L12 5L15.8 11.5L21 7.5L19 16.5H5Z" />
+                          <rect x="5" y="18.2" width="14" height="2.2" rx="1.1" />
                         </svg>
                         <span>#{rank}</span>
                       </span>

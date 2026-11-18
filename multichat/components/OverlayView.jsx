@@ -534,7 +534,7 @@ export default function OverlayView() {
         return '#0f0f0f';
       }
       if (msg.badges && msg.badges.includes('moderator')) {
-        return '#5e84f1';
+        return '#3EA6FF';
       }
       if (msg.badges && (msg.badges.includes('subscriber') || msg.badges.includes('member'))) {
         return '#2ba640';
@@ -915,8 +915,9 @@ export default function OverlayView() {
                         if (badge === 'verified') {
                           return (
                             <span key={badge} className="msg-badge-verified-wrapper" title="Verified" style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 4, verticalAlign: 'middle' }}>
-                              <svg className="msg-badge-verified-svg" viewBox="0 0 24 24" width="14" height="14" fill="#a0a0a0">
-                                <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                              <svg className="msg-badge-verified-svg" viewBox="0 0 24 24" width="14" height="14" fill="none">
+                                <circle cx="12" cy="12" r="10.5" fill="#F1F1F1" />
+                                <path d="M7.3 12.6L10.3 15.6L16.8 8.9" stroke="#0F0F0F" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" />
                               </svg>
                             </span>
                           );
@@ -924,16 +925,8 @@ export default function OverlayView() {
                         if (badge === 'moderator') {
                           return (
                             <span key={badge} className="msg-badge-youtube-mod-wrapper" title="Moderator" style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 4, verticalAlign: 'middle' }}>
-                              <svg viewBox="0 0 24 24" width="14" height="14">
-                                <circle cx="12" cy="12" r="11" fill="#5e84f1" />
-                                <path 
-                                  d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" 
-                                  fill="none" 
-                                  stroke="white" 
-                                  strokeWidth="2.5" 
-                                  strokeLinecap="round" 
-                                  strokeLinejoin="round" 
-                                />
+                              <svg viewBox="0 0 24 24" width="14" height="14" fill="#3EA6FF">
+                                <path d="M12 1.5C12.4 1.5 19.3 4.3 20.1 4.8C20.5 5.05 20.7 5.5 20.7 6V15.4C20.7 18.6 16.2 21.1 12.6 22.35C12.2 22.5 11.8 22.5 11.4 22.35C7.8 21.1 3.3 18.6 3.3 15.4V6C3.3 5.5 3.5 5.05 3.9 4.8C4.7 4.3 11.6 1.5 12 1.5Z" />
                               </svg>
                             </span>
                           );
@@ -1010,33 +1003,26 @@ export default function OverlayView() {
                               alignItems: 'center',
                               justifyContent: 'center',
                               gap: '4px',
-                              backgroundColor: '#3b00bb',
-                              color: '#ffffff',
-                              padding: '2px 8px 2px 7px',
+                              backgroundColor: '#DD98FF',
+                              color: '#0F0F0F',
+                              padding: '2px 8px',
                               borderRadius: '9999px',
                               fontSize: '12px',
-                              fontWeight: '800',
-                              lineHeight: '1',
+                              fontWeight: '600',
+                              lineHeight: '1.1',
+                              letterSpacing: '-0.1px',
                               marginLeft: '4px',
                               marginRight: '2px',
-                              verticalAlign: 'middle',
-                              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.4)'
+                              verticalAlign: 'middle'
                             }}
                           >
                             <svg 
                               viewBox="0 0 24 24" 
-                              fill="none" 
-                              stroke="#ffffff" 
-                              strokeWidth="2" 
-                              strokeLinecap="round" 
-                              strokeLinejoin="round" 
+                              fill="#0F0F0F" 
                               style={{ width: '12px', height: '12px', display: 'block', flexShrink: 0 }}
                             >
-                              <circle cx="3.5" cy="6" r="1.3" fill="#ffffff" stroke="none" />
-                              <circle cx="12" cy="3" r="1.3" fill="#ffffff" stroke="none" />
-                              <circle cx="20.5" cy="6" r="1.3" fill="#ffffff" stroke="none" />
-                              <path d="M3.5 7.5 L5.5 16 H18.5 L20.5 7.5 L15 12 L12 4.5 L9 12 Z" />
-                              <line x1="4.5" y1="19" x2="19.5" y2="19" strokeWidth="2.2" strokeLinecap="round" />
+                              <path d="M5 16.5L3 7.5L8.2 11.5L12 5L15.8 11.5L21 7.5L19 16.5H5Z" />
+                              <rect x="5" y="18.2" width="14" height="2.2" rx="1.1" />
                             </svg>
                             <span>#{rank}</span>
                           </span>

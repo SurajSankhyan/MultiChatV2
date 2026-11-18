@@ -1292,16 +1292,15 @@ body {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  background-color: #3b00bb;
-  color: #ffffff;
-  padding: 2px 8px 2px 7px;
+  background-color: #DD98FF;
+  color: #0F0F0F;
+  padding: 2px 8px;
   border-radius: 9999px;
   font-size: 12px;
-  font-weight: 800;
-  line-height: 1;
+  font-weight: 600;
+  line-height: 1.1;
   vertical-align: middle;
-  letter-spacing: -0.2px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  letter-spacing: -0.1px;
   user-select: none;
   margin: 0 4px;
   flex-shrink: 0;
@@ -1310,7 +1309,8 @@ body {
 .youtube-rank-badge.youtube-rank-1,
 .youtube-rank-badge.youtube-rank-2,
 .youtube-rank-badge.youtube-rank-3 {
-  background-color: #3b00bb;
+  background-color: #DD98FF;
+  color: #0F0F0F;
 }
 
 .msg-platform-icon {
@@ -2826,14 +2826,27 @@ body {
   margin-right: 0.25em;
 }
 
+.msg-username:has(+ .youtube-badges-wrapper:not(:empty)) {
+  margin-right: 0;
+  padding-right: 2px;
+}
+
+.msg-username.youtube-owner-pill:has(+ .youtube-badges-wrapper:not(:empty)) {
+  margin-right: 3px;
+}
+
 .youtube-badges-wrapper {
   display: inline-flex;
   align-items: center;
   vertical-align: -0.12em;
   gap: 3px;
-  margin-left: 5px;
+  margin-left: 1px;
   margin-right: 3px;
   line-height: 1;
+}
+
+.youtube-badges-wrapper .youtube-rank-badge {
+  margin-left: 1px;
 }
 
 .youtube-chatter-badge {

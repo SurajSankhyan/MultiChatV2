@@ -114,40 +114,36 @@ export class TwitchChatClient {
 
     const pollFunc = async () => {
       try {
-        console.log(`TwitchChatClient: polling viewer count for ${formatted}`);
-        const viewerRes = await fetch(`https://decapi.me/twitch/viewercount/${formatted}`);
-        const viewerText = (await viewerRes.text()).trim();
-        
-        const uptimeRes = await fetch(`https://decapi.me/twitch/uptime/${formatted}`);
-        const uptimeText = (await uptimeRes.text()).trim();
-        
-        const isOffline = viewerText.toLowerCase().includes('offline') || uptimeText.toLowerCase().includes('offline');
-        if (!isOffline) {
-          const viewers = parseInt(viewerText, 10);
-          
-          let totalMs = 0;
-          const daysMatch = uptimeText.toLowerCase().match(/(\d+)\s*day/);
-          const hoursMatch = uptimeText.toLowerCase().match(/(\d+)\s*hour/);
-          const minutesMatch = uptimeText.toLowerCase().match(/(\d+)\s*minute/);
-          const secondsMatch = uptimeText.toLowerCase().match(/(\d+)\s*second/);
-          
-          if (daysMatch) totalMs += parseInt(daysMatch[1], 10) * 24 * 60 * 60 * 1000;
-          if (hoursMatch) totalMs += parseInt(hoursMatch[1], 10) * 60 * 60 * 1000;
-          if (minutesMatch) totalMs += parseInt(minutesMatch[1], 10) * 60 * 1000;
-          if (secondsMatch) totalMs += parseInt(secondsMatch[1], 10) * 1000;
-          
-          const startTime = new Date(Date.now() - totalMs).toISOString();
-          
-          this.onStatus(formatted, 'connected', { startTime, viewers });
-        } else {
-          this.onStatus(formatted, 'offline', { startTime: null, viewers: 0 });
+        console.log(`TwitchChatClient: polling live status & viewers for ${formatted}`);
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/twitch/live-info?channel=${encodeURIComponent(formatted)}`, {
+          cache: 'no-store'
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.success) {
+            if (data.isLive) {
+              this.onStatus(formatted, 'connected', {
+                startTime: data.startTime || null,
+                viewers: typeof data.viewers === 'number' ? data.viewers : 0,
+                displayName: data.displayName || formatted,
+                title: data.title || ''
+              });
+            } else {
+              this.onStatus(formatted, 'offline', {
+                startTime: null,
+                viewers: 0,
+                displayName: data.displayName || formatted
+              });
+            }
+            return;
+          }
         }
       } catch (e) {
-        console.warn(`TwitchChatClient: failed to update viewers for ${formatted}:`, e.message);
+        console.warn(`TwitchChatClient: failed to update live info for ${formatted}:`, e.message);
       }
     };
     pollFunc();
-    const intervalId = setInterval(pollFunc, 10000);
+    const intervalId = setInterval(pollFunc, 15000);
     this.viewerIntervals.set(formatted, intervalId);
 
     if (this.isConnected && this.socket.readyState === WebSocket.OPEN) {
@@ -172,7 +168,6 @@ export class TwitchChatClient {
 
   joinChannel(channel) {
     this.socket.send(`JOIN #${channel}`);
-    this.onStatus(channel, 'connected');
     this.fetchChannelBadges(channel);
   }
 

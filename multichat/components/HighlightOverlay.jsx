@@ -431,50 +431,27 @@ export default function HighlightOverlay({ previewData = null }) {
         handled.add('owner');
       }
 
-      // 2. Moderator Badge (blue shield matching ChatFeed.jsx)
+      // 2. Moderator Badge (matching official YouTube chat)
       if (isModerator || badges.includes('moderator')) {
-        const modImg = badgeImages?.moderator;
         badgeElements.push(
-          modImg ? (
-            <img 
-              key="yt-mod-img" 
-              className="hl-badge-icon yt-live-chat-author-badge-renderer" 
-              src={modImg} 
-              alt="Moderator" 
-              title="Moderator" 
-              style={{ width: 24, height: 24, verticalAlign: 'middle', objectFit: 'contain' }}
-            />
-          ) : (
-            <span key="yt-mod-svg" className="hl-badge-icon youtube-chatter-moderator-badge" title="Moderator" style={{ display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle' }}>
-              <svg viewBox="0 0 24 24" width="24" height="24" fill="#5e84f1">
-                <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" />
-              </svg>
-            </span>
-          )
+          <span key="yt-mod-svg" className="hl-badge-icon youtube-chatter-moderator-badge" title="Moderator" style={{ display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle' }}>
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="#3EA6FF">
+              <path d="M12 1.5C12.4 1.5 19.3 4.3 20.1 4.8C20.5 5.05 20.7 5.5 20.7 6V15.4C20.7 18.6 16.2 21.1 12.6 22.35C12.2 22.5 11.8 22.5 11.4 22.35C7.8 21.1 3.3 18.6 3.3 15.4V6C3.3 5.5 3.5 5.05 3.9 4.8C4.7 4.3 11.6 1.5 12 1.5Z" />
+            </svg>
+          </span>
         );
         handled.add('moderator');
       }
 
-      // 3. Verified Checkmark (matching ChatFeed.jsx)
+      // 3. Verified Checkmark (matching official YouTube chat)
       if (isVerified || badges.includes('verified')) {
-        const verImg = badgeImages?.verified;
         badgeElements.push(
-          verImg ? (
-            <img 
-              key="yt-ver-img" 
-              className="hl-badge-icon yt-live-chat-author-badge-renderer" 
-              src={verImg} 
-              alt="Verified" 
-              title="Verified" 
-              style={{ width: 24, height: 24, verticalAlign: 'middle', objectFit: 'contain' }}
-            />
-          ) : (
-            <span key="yt-ver-svg" className="hl-badge-icon youtube-chatter-verified-badge" title="Verified" style={{ display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle' }}>
-              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#999999" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            </span>
-          )
+          <span key="yt-ver-svg" className="hl-badge-icon youtube-chatter-verified-badge" title="Verified" style={{ display: 'inline-flex', alignItems: 'center', verticalAlign: 'middle' }}>
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none">
+              <circle cx="12" cy="12" r="10.5" fill="#F1F1F1" />
+              <path d="M7.3 12.6L10.3 15.6L16.8 8.9" stroke="#0F0F0F" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
         );
         handled.add('verified');
       }
@@ -540,31 +517,24 @@ export default function HighlightOverlay({ previewData = null }) {
               alignItems: 'center',
               justifyContent: 'center',
               gap: '4px',
-              backgroundColor: '#3b00bb',
-              color: '#ffffff',
-              padding: '2px 8px 2px 7px',
+              backgroundColor: '#DD98FF',
+              color: '#0F0F0F',
+              padding: '3px 9px',
               borderRadius: '9999px',
               fontSize: '13px',
-              fontWeight: '800',
-              lineHeight: '1',
-              verticalAlign: 'middle',
-              boxShadow: '0 2px 6px rgba(0, 0, 0, 0.45)'
+              fontWeight: '600',
+              lineHeight: '1.1',
+              letterSpacing: '-0.1px',
+              verticalAlign: 'middle'
             }}
           >
             <svg 
               viewBox="0 0 24 24" 
-              fill="none" 
-              stroke="#ffffff" 
-              strokeWidth="2" 
-              strokeLinecap="round" 
-              strokeLinejoin="round" 
-              style={{ width: '13px', height: '13px', display: 'block', flexShrink: 0 }}
+              fill="#0F0F0F" 
+              style={{ width: '14px', height: '14px', display: 'block', flexShrink: 0 }}
             >
-              <circle cx="3.5" cy="6" r="1.3" fill="#ffffff" stroke="none" />
-              <circle cx="12" cy="3" r="1.3" fill="#ffffff" stroke="none" />
-              <circle cx="20.5" cy="6" r="1.3" fill="#ffffff" stroke="none" />
-              <path d="M3.5 7.5 L5.5 16 H18.5 L20.5 7.5 L15 12 L12 4.5 L9 12 Z" />
-              <line x1="4.5" y1="19" x2="19.5" y2="19" strokeWidth="2.2" strokeLinecap="round" />
+              <path d="M5 16.5L3 7.5L8.2 11.5L12 5L15.8 11.5L21 7.5L19 16.5H5Z" />
+              <rect x="5" y="18.2" width="14" height="2.2" rx="1.1" />
             </svg>
             <span>#{rank}</span>
           </span>
